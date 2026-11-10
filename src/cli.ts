@@ -4,9 +4,11 @@ import pc from 'picocolors';
 import { approveCommand } from './commands/approve.js';
 import { blameCommand } from './commands/blame.js';
 import { diffCommand } from './commands/diff.js';
+import { exportCommand } from './commands/export.js';
 import { ingestCommand } from './commands/ingest.js';
 import { initCommand } from './commands/init.js';
 import { logCommand } from './commands/log.js';
+import { mcpCommand } from './commands/mcp.js';
 import { mergeCommand } from './commands/merge.js';
 import { resolveCommand } from './commands/resolve.js';
 import { revertCommand } from './commands/revert.js';
@@ -156,6 +158,18 @@ program
   .option('--all', 'verify toàn bộ claim trong active set của branch hiện tại')
   .option('--strict', 'exit 3 nếu còn claim stale')
   .action((claim, opts) => verifyCommand({ claim, all: opts.all, strict: opts.strict }));
+
+program
+  .command('export')
+  .description('projection read-only của active set (SPEC §10.3)')
+  .requiredOption('--md', 'markdown projection')
+  .option('--out <path>', 'ghi ra file (mặc định: stdout)')
+  .action((opts) => exportCommand({ md: opts.md, out: opts.out }));
+
+program
+  .command('mcp')
+  .description('MCP server over stdio (JSON-RPC 2.0): memory_search/write/blame/status/diff')
+  .action(() => mcpCommand());
 
 try {
   program.parse();
