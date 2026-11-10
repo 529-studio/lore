@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke test: exercises M0 + M1 on a throwaway repo.
+# Smoke test: exercises M0–M3 on a throwaway repo.
 set -euo pipefail
 
 LORE_BIN="$(cd "$(dirname "$0")/.." && pwd)/dist/cli.js"
@@ -38,6 +38,7 @@ MD
 
 fail() { echo "FAIL: $1" >&2; exit 1; }
 expect_contains() { grep -qF "$2" <<<"$1" || fail "expected to contain: $2"; }
+expect_not_contains() { if grep -qF "$2" <<<"$1"; then fail "expected NOT to contain: $2"; fi; }
 
 lore() { node "$LORE_BIN" "$@"; }
 
@@ -118,4 +119,48 @@ BLAME_MERGE="$(LORE_SESSION=smoke_a lore blame env:DEMO_TOKEN)"
 expect_contains "$BLAME_MERGE" "job B"
 expect_contains "$BLAME_MERGE" "out-of-branch"
 
-echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge"
+# --- M3: search + verify ------------------------------------------------------
+# search operates on the active set of the current branch and honours scope
+SEARCH="$(lore search --files src/cli.js,package.json)"
+expect_contains "$SEARCH" "env:DEMO_TOKEN"
+expect_contains "$SEARCH" "anchor"
+expect_contains "$SEARCH" "authority"
+
+JSON_OUT="$(lore search "DEMO_TOKEN" --files src/cli.js --json)"
+expect_contains "$JSON_OUT" '"subject": "env:DEMO_TOKEN"'
+if ! node -e 'const d=[];process.stdin.on("data",(c)=>d.push(c)).on("end",()=>{JSON.parse(d.join(""));});' <<<"$JSON_OUT"; then
+  fail "search --json is not valid JSON"
+fi
+
+# drift → stale claims are excluded by default, visible with --include-stale
+cp src/cli.js .cli.m3.bak
+echo "// drift" >> src/cli.js
+expect_not_contains "$(lore search --files src/cli.js)" "read_by"
+expect_not_contains "$(lore search --files src/cli.js)" "STALE"
+expect_contains "$(lore search --files src/cli.js --include-stale)" "read_by"
+expect_contains "$(lore search --files src/cli.js --include-stale)" "STALE"
+
+# verify --all --strict exits 3 while a claim is still stale
+set +e
+lore verify --all --strict >/dev/null 2>&1
+STRICT_CODE=$?
+set -e
+[ "$STRICT_CODE" -eq 3 ] || fail "expected verify --all --strict exit 3 while drifted, got $STRICT_CODE"
+
+# restore the file → verify clears the staleness
+cp .cli.m3.bak src/cli.js
+expect_contains "$(lore verify --all)" "0 stale"
+expect_contains "$(lore search --files src/cli.js)" "read_by"
+expect_contains "$(lore search --files src/cli.js)" "env:DEMO_TOKEN"
+
+set +e
+lore verify --all --strict >/dev/null 2>&1
+CLEAN_CODE=$?
+set -e
+[ "$CLEAN_CODE" -eq 0 ] || fail "expected verify --all --strict exit 0 after restore, got $CLEAN_CODE"
+
+CLAIM_ID="$(lore blame env:DEMO_TOKEN | grep -oE '\bc_[a-f0-9]{12}' | head -1)"
+[ -n "$CLAIM_ID" ] || fail "could not read a claim id from blame"
+expect_contains "$(lore verify "$CLAIM_ID")" "valid"
+
+echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify"

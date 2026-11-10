@@ -11,6 +11,8 @@ import { mergeCommand } from './commands/merge.js';
 import { resolveCommand } from './commands/resolve.js';
 import { revertCommand } from './commands/revert.js';
 import { statusCommand } from './commands/status.js';
+import { searchCommand } from './commands/search.js';
+import { verifyCommand } from './commands/verify.js';
 import { writeCommand } from './commands/write.js';
 import type { EvidenceKind } from './model.js';
 
@@ -128,6 +130,32 @@ program
   .option('--all-drafts', 'approve toàn bộ draft')
   .option('--session <id>')
   .action((claim, opts) => approveCommand({ claim, allDrafts: opts.allDrafts, session: opts.session }));
+
+program
+  .command('search [query]')
+  .description('score the active set of the current branch against the task scope')
+  .option('--files <paths>', 'đường dẫn trong scope, phân cách bằng dấu phẩy')
+  .option('--symbols <ids>', 'entity id trong scope, phân cách bằng dấu phẩy')
+  .option('--budget <n>', 'token budget (chars/4)', '2000')
+  .option('--include-stale', 'đừng loại claim stale')
+  .option('--json', 'in JSON cho tool đọc')
+  .action((query, opts) =>
+    searchCommand({
+      query,
+      files: opts.files,
+      symbols: opts.symbols,
+      budget: opts.budget,
+      includeStale: opts.includeStale,
+      json: opts.json,
+    }),
+  );
+
+program
+  .command('verify [claim]')
+  .description('chạy lại evidence hash, ghi status valid/stale')
+  .option('--all', 'verify toàn bộ claim trong active set của branch hiện tại')
+  .option('--strict', 'exit 3 nếu còn claim stale')
+  .action((claim, opts) => verifyCommand({ claim, all: opts.all, strict: opts.strict }));
 
 try {
   program.parse();
