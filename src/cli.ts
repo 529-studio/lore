@@ -1,0 +1,93 @@
+#!/usr/bin/env node
+import { Command } from 'commander';
+import pc from 'picocolors';
+import { approveCommand } from './commands/approve.js';
+import { blameCommand } from './commands/blame.js';
+import { ingestCommand } from './commands/ingest.js';
+import { initCommand } from './commands/init.js';
+import { logCommand } from './commands/log.js';
+import { statusCommand } from './commands/status.js';
+import { writeCommand } from './commands/write.js';
+import type { EvidenceKind } from './model.js';
+
+const program = new Command();
+
+program
+  .name('lore')
+  .description('Git for what your agents know — versioned, verifiable memory')
+  .version('0.0.1');
+
+program
+  .command('init')
+  .description('khởi tạo .lore/ trong repo hiện tại')
+  .option('--root <path>', 'repo root (mặc định: cwd)')
+  .option('--no-gitignore', 'không tự thêm .lore/ vào .gitignore')
+  .action((opts) => initCommand({ root: opts.root, gitignore: opts.gitignore }));
+
+program
+  .command('write')
+  .description('ghi một claim (draft nếu evidence là agent/human)')
+  .requiredOption('--subject <id>', 'entity id, vd file:src/a.ts, env:DATABASE_URL, sym:src/a.ts#fn')
+  .requiredOption('--predicate <name>', 'vd read_by, declares_dependency')
+  .requiredOption('--object <text>', 'giá trị của claim')
+  .option('--kind <kind>', 'test|file|command|human|agent', 'file')
+  .option('--ref <ref>', 'đường dẫn/nguồn của evidence (mặc định: subject)')
+  .option('--hash <hash>', 'hash evidence (tự tính nếu là file/test)')
+  .option('--confidence <n>', '0..1')
+  .option('--author <id>', 'human:... hoặc agent:...')
+  .option('--session <id>', 'ghi vào branch agent/<session>')
+  .action((opts) =>
+    writeCommand({
+      subject: opts.subject,
+      predicate: opts.predicate,
+      object: opts.object,
+      kind: opts.kind as EvidenceKind,
+      ref: opts.ref,
+      hash: opts.hash,
+      confidence: opts.confidence,
+      author: opts.author,
+      session: opts.session,
+    }),
+  );
+
+program
+  .command('ingest')
+  .description('quét repo, sinh claim từ extractor tất định (package.json, env, imports, routes, compose)')
+  .option('--dry-run', 'chỉ in ra, không ghi')
+  .option('--author <id>')
+  .option('--session <id>')
+  .action((opts) => ingestCommand(opts));
+
+program
+  .command('log')
+  .description('lịch sử commit của branch hiện tại')
+  .option('-n, --limit <n>', 'số commit', '20')
+  .option('--graph', 'hiện ký hiệu graph')
+  .option('--session <id>')
+  .action((opts) => logCommand(opts));
+
+program
+  .command('blame <subject>')
+  .description('ai/cái gì dạy agent điều này')
+  .option('--predicate <name>')
+  .action((subject, opts) => blameCommand({ subject, predicate: opts.predicate }));
+
+program
+  .command('status')
+  .description('sức khoẻ memory: draft, stale, commit')
+  .action(() => statusCommand());
+
+program
+  .command('approve [claim]')
+  .description('draft -> active')
+  .option('--all-drafts', 'approve toàn bộ draft')
+  .option('--session <id>')
+  .action((claim, opts) => approveCommand({ claim, allDrafts: opts.allDrafts, session: opts.session }));
+
+try {
+  program.parse();
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(pc.red(`error: ${message}`));
+  process.exit(1);
+}

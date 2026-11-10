@@ -1,0 +1,43 @@
+{
+  "name": "lore",
+  "version": "0.0.1",
+  "description": "Git for what your agents know — versioned, verifiable, mergeable memory for multi-agent coding",
+  "type": "module",
+  "bin": {
+    "lore": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/529-studio/lore.git"
+  },
+  "keywords": [
+    "agent-memory",
+    "mcp",
+    "multi-agent",
+    "git-for-memory"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "commander": "^15.1.0",
+    "picocolors": "^1.1.1",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

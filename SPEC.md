@@ -151,9 +151,9 @@ CREATE TABLE evidence (
   PRIMARY KEY (claim_id, kind, ref)
 );
 
-CREATE TABLE commit (
+CREATE TABLE memory_commit (
   id        TEXT PRIMARY KEY,   -- sha256(parent_id || tree_hash || message || author || ts)
-  parent_id TEXT REFERENCES commit(id),
+  parent_id TEXT REFERENCES memory_commit(id),
   tree_hash TEXT NOT NULL,
   message   TEXT NOT NULL,
   author    TEXT NOT NULL,
@@ -162,7 +162,7 @@ CREATE TABLE commit (
 );
 
 CREATE TABLE commit_entry (
-  commit_id TEXT NOT NULL REFERENCES commit(id),
+  commit_id TEXT NOT NULL REFERENCES memory_commit(id),
   claim_id  TEXT NOT NULL REFERENCES claim(id),
   op        TEXT NOT NULL,      -- add | supersede | retract | restore
   PRIMARY KEY (commit_id, claim_id, op)
@@ -170,12 +170,12 @@ CREATE TABLE commit_entry (
 
 CREATE TABLE ref (
   name      TEXT PRIMARY KEY,   -- main | agent/<session> | tag/<name>
-  commit_id TEXT NOT NULL REFERENCES commit(id)
+  commit_id TEXT NOT NULL REFERENCES memory_commit(id)
 );
 
 CREATE TABLE merge_decision (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  commit_id  TEXT NOT NULL REFERENCES commit(id),
+  commit_id  TEXT NOT NULL REFERENCES memory_commit(id),
   subject_id TEXT NOT NULL,
   predicate  TEXT NOT NULL,
   winner     TEXT,
