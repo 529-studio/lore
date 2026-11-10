@@ -226,10 +226,10 @@ export function claimsFor(db: DB, subject: string): ClaimRow[] {
     .all(subject, `${subject}%`) as ClaimRow[];
 }
 
-export function evidenceFor(db: DB, claim: string): Array<{ kind: string; ref: string; hash: string | null; status: string }> {
+export function evidenceFor(db: DB, claim: string): Array<{ kind: string; ref: string; hash: string | null; verified_at: string | null; status: string }> {
   return db
-    .prepare('SELECT kind, ref, hash, status FROM evidence WHERE claim_id = ? ORDER BY kind, ref')
-    .all(claim) as Array<{ kind: string; ref: string; hash: string | null; status: string }>;
+    .prepare('SELECT kind, ref, hash, verified_at, status FROM evidence WHERE claim_id = ? ORDER BY kind, ref')
+    .all(claim) as Array<{ kind: string; ref: string; hash: string | null; verified_at: string | null; status: string }>;
 }
 
 export function fileHash(absPath: string): string {
