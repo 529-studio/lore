@@ -5,7 +5,7 @@
 Versioned, verifiable memory for multi-agent coding. Claims have provenance, expire when the
 code drifts, and can be reverted when an agent learns something wrong.
 
-Status: **M0** — `init`, `write`, `ingest`, `log`, `blame`, `status`, `approve`.
+Status: **M0–M1** — `init`, `write`, `ingest`, `log`, `blame`, `status`, `approve`, `diff`, `revert`.
 
 ## Why
 
@@ -42,6 +42,8 @@ lore status              # active / draft / stale
 | `lore log` | commit history of the current session branch |
 | `lore blame <subject>` | who/what taught this, with evidence hash |
 | `lore status` | counts + drift detection (stale evidence) |
+| `lore diff <from>..<to>` | claims added/removed between two revisions |
+| `lore revert <commit>` | inverse patch as a new commit — history stays intact |
 
 Exit codes: `0` ok, `2` unresolved merge conflict (M2), `3` stale above threshold.
 
@@ -62,11 +64,12 @@ Full design: [SPEC.md](./SPEC.md).
 - draft gating: agent inference does not enter retrieval until approved
 - drift detection: edit a file, `lore status` reports every dependent claim as stale; restoring the file clears it
 - per-session branches, commit log with claim entries
+- `diff` between any two refs/commits, `revert` (and revert-of-revert restores)
+- `npm run smoke` — end-to-end test on a throwaway repo
 
 ## Not yet (M1–M5)
 
-- `diff` / `merge` with the authority ladder (R1–R6)
-- `revert`
+- `merge` with the authority ladder (R1–R6)
 - MCP server
 - markdown projection into `AGENTS.md`
 - eval harness (stale rate, false-claim rate, revert correctness, token savings)

@@ -3,9 +3,11 @@ import { Command } from 'commander';
 import pc from 'picocolors';
 import { approveCommand } from './commands/approve.js';
 import { blameCommand } from './commands/blame.js';
+import { diffCommand } from './commands/diff.js';
 import { ingestCommand } from './commands/ingest.js';
 import { initCommand } from './commands/init.js';
 import { logCommand } from './commands/log.js';
+import { revertCommand } from './commands/revert.js';
 import { statusCommand } from './commands/status.js';
 import { writeCommand } from './commands/write.js';
 import type { EvidenceKind } from './model.js';
@@ -71,6 +73,17 @@ program
   .description('ai/cái gì dạy agent điều này')
   .option('--predicate <name>')
   .action((subject, opts) => blameCommand({ subject, predicate: opts.predicate }));
+
+program
+  .command('diff <range> [to]')
+  .description('claim nào thêm/xoá giữa hai revision (main..agent/<ses>, hoặc hai commit)')
+  .action((range, to) => diffCommand({ range, to }));
+
+program
+  .command('revert <commit>')
+  .description('đảo ngược một commit bằng commit mới (không rewrite history)')
+  .option('--session <id>')
+  .action((commit, opts) => revertCommand({ commit, session: opts.session }));
 
 program
   .command('status')

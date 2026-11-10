@@ -1,6 +1,6 @@
 # Lore — kế hoạch & painpoint
 
-**Trạng thái:** M0 xong (chạy thật trên `mcp-scan`: 77 claim, drift detection hoạt động)
+**Trạng thái:** M0 + M1 xong (chạy thật trên `mcp-scan`: 77 claim, diff/revert, drift detection)
 **Repo:** https://github.com/529-studio/lore (private)
 **Ngày:** 2026-11-10
 
@@ -66,7 +66,7 @@ Chi tiết schema + thuật toán merge (R1–R6): `SPEC.md` trong repo.
 | Mốc | Nội dung | Trạng thái |
 |---|---|---|
 | **M0** | `init`, schema, `write` (draft), `ingest`, `log`, `blame`, `status` | ✅ xong |
-| **M1** | commit DAG đầy đủ, `diff`, `revert` | kế tiếp |
+| **M1** | commit DAG đầy đủ, `diff`, `revert` | ✅ xong |
 | **M2** | 3-way merge trên `(subject, predicate)`, thang R1–R6, `resolve` | |
 | **M3** | staleness nâng cao: `verify`, lọc trong retrieval, incremental rehash | |
 | **M4** | MCP server + `export --md` (projection sang `AGENTS.md`) | |

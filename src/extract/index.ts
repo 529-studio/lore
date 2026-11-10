@@ -41,7 +41,7 @@ const MAX_BYTES = 512 * 1024;
 
 export function listFiles(root: string): string[] {
   try {
-    const out = execFileSync('git', ['ls-files', '-z'], {
+    const out = execFileSync('git', ['ls-files', '-co', '--exclude-standard', '-z'], {
       cwd: root,
       maxBuffer: 64 * 1024 * 1024,
       encoding: 'utf8',
