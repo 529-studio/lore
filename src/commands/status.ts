@@ -1,6 +1,8 @@
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { hashFile } from '../extract/index.js';
+import { activeAt, head } from '../model.js';
+import { branchFor, currentSession } from '../session.js';
 
 interface CountRow {
   state: string;
@@ -39,8 +41,13 @@ export function statusCommand(): void {
     }
   }
 
+  const session = currentSession(root);
+  const ref = branchFor(session);
+  const branchActive = activeAt(db, head(db, ref) ?? head(db, 'main')).size;
+
   console.log(pc.bold('lore status'));
-  console.log(`  claims     ${pc.bold(String(total))}  ${pc.green(`${byState.get('active') ?? 0} active`)}  ${pc.yellow(`${byState.get('draft') ?? 0} draft`)}  ${pc.red(`${byState.get('retracted') ?? 0} retracted`)}`);
+  console.log(`  claims     ${pc.bold(String(total))} total  ${pc.green(`${byState.get('active') ?? 0} active`)}  ${pc.yellow(`${byState.get('draft') ?? 0} draft`)}  ${pc.red(`${byState.get('retracted') ?? 0} retracted`)}`);
+  console.log(`  branch     ${ref}  ${pc.dim(`${branchActive} claim trong active set`)}`);
   console.log(`  commits    ${commits}   branches ${branches}`);
   console.log(`  stale      ${stale.length ? pc.red(String(stale.length)) : pc.green('0')} ${pc.dim('(evidence hash không còn khớp)')}`);
 

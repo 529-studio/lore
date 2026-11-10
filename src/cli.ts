@@ -7,6 +7,8 @@ import { diffCommand } from './commands/diff.js';
 import { ingestCommand } from './commands/ingest.js';
 import { initCommand } from './commands/init.js';
 import { logCommand } from './commands/log.js';
+import { mergeCommand } from './commands/merge.js';
+import { resolveCommand } from './commands/resolve.js';
 import { revertCommand } from './commands/revert.js';
 import { statusCommand } from './commands/status.js';
 import { writeCommand } from './commands/write.js';
@@ -84,6 +86,36 @@ program
   .description('đảo ngược một commit bằng commit mới (không rewrite history)')
   .option('--session <id>')
   .action((commit, opts) => revertCommand({ commit, session: opts.session }));
+
+program
+  .command('merge <branch>')
+  .description('3-way merge branch vào branch hiện tại; conflict thì abort, không đoán')
+  .option('--session <id>')
+  .option('--strategy <s>', 'authority | recency', 'authority')
+  .option('--strict', 'không cho recency phá conflict cùng tier')
+  .option('--dry-run', 'chỉ in kế hoạch')
+  .action((branch, opts) =>
+    mergeCommand({
+      branch,
+      session: opts.session,
+      strategy: opts.strategy === 'recency' ? 'recency' : 'authority',
+      strict: opts.strict,
+      dryRun: opts.dryRun,
+    }),
+  );
+
+program
+  .command('resolve <subject> <predicate>')
+  .description('ghi quyết định tay cho một conflict')
+  .requiredOption('--take <side>', 'ours | theirs | both')
+  .option('--reason <text>')
+  .action((subject, predicate, opts) => {
+    const take = opts.take;
+    if (take !== 'ours' && take !== 'theirs' && take !== 'both') {
+      throw new Error('--take must be ours | theirs | both');
+    }
+    resolveCommand({ subject, predicate, take, reason: opts.reason });
+  });
 
 program
   .command('status')

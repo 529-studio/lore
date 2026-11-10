@@ -1,10 +1,14 @@
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
-import { claimsFor, evidenceFor } from '../model.js';
+import { activeAt, claimsFor, evidenceFor, head } from '../model.js';
+import { branchFor, currentSession } from '../session.js';
 
 export function blameCommand(opts: { subject: string; predicate?: string }): void {
   const root = requireRoot();
   const db = openDb(root);
+  const session = currentSession(root);
+  const ref = branchFor(session);
+  const inBranch = activeAt(db, head(db, ref) ?? head(db, 'main'));
   const claims = claimsFor(db, opts.subject).filter(
     (c) => !opts.predicate || c.predicate === opts.predicate,
   );
@@ -33,11 +37,11 @@ export function blameCommand(opts: { subject: string; predicate?: string }): voi
     console.log(pc.bold(pc.cyan(subject)));
     for (const c of list) {
       const state =
-        c.state === 'active'
-          ? pc.green('active')
-          : c.state === 'draft'
-            ? pc.yellow('draft')
-            : pc.red('retracted');
+        c.state === 'draft'
+          ? pc.yellow('draft')
+          : inBranch.has(c.id)
+            ? pc.green('active')
+            : pc.dim('out-of-branch');
       const obj = (() => {
         try {
           return String(JSON.parse(c.object_json));

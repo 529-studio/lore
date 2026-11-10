@@ -5,7 +5,7 @@
 Versioned, verifiable memory for multi-agent coding. Claims have provenance, expire when the
 code drifts, and can be reverted when an agent learns something wrong.
 
-Status: **M0–M1** — `init`, `write`, `ingest`, `log`, `blame`, `status`, `approve`, `diff`, `revert`.
+Status: **M0–M2** — `init`, `write`, `ingest`, `log`, `blame`, `status`, `approve`, `diff`, `revert`, `merge`, `resolve`.
 
 ## Why
 
@@ -44,6 +44,8 @@ lore status              # active / draft / stale
 | `lore status` | counts + drift detection (stale evidence) |
 | `lore diff <from>..<to>` | claims added/removed between two revisions |
 | `lore revert <commit>` | inverse patch as a new commit — history stays intact |
+| `lore merge <branch>` | 3-way merge on `(subject, predicate)`; conflicts abort instead of guessing |
+| `lore resolve <subject> <predicate> --take ours\|theirs\|both` | record a human decision for one conflict |
 
 Exit codes: `0` ok, `2` unresolved merge conflict (M2), `3` stale above threshold.
 
@@ -65,11 +67,11 @@ Full design: [SPEC.md](./SPEC.md).
 - drift detection: edit a file, `lore status` reports every dependent claim as stale; restoring the file clears it
 - per-session branches, commit log with claim entries
 - `diff` between any two refs/commits, `revert` (and revert-of-revert restores)
+- 3-way merge with the R1–R6 ladder (cardinality, authority, staleness, recency); unresolved conflicts abort with exit 2
 - `npm run smoke` — end-to-end test on a throwaway repo
 
-## Not yet (M1–M5)
+## Not yet (M3–M5)
 
-- `merge` with the authority ladder (R1–R6)
 - MCP server
 - markdown projection into `AGENTS.md`
 - eval harness (stale rate, false-claim rate, revert correctness, token savings)

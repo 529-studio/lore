@@ -1,6 +1,6 @@
 # Lore — kế hoạch & painpoint
 
-**Trạng thái:** M0 + M1 xong (chạy thật trên `mcp-scan`: 77 claim, diff/revert, drift detection)
+**Trạng thái:** M0–M2 xong (chạy thật trên `mcp-scan`: 77 claim; diff/revert; 3-way merge có conflict ladder)
 **Repo:** https://github.com/529-studio/lore (private)
 **Ngày:** 2026-11-10
 
@@ -67,7 +67,7 @@ Chi tiết schema + thuật toán merge (R1–R6): `SPEC.md` trong repo.
 |---|---|---|
 | **M0** | `init`, schema, `write` (draft), `ingest`, `log`, `blame`, `status` | ✅ xong |
 | **M1** | commit DAG đầy đủ, `diff`, `revert` | ✅ xong |
-| **M2** | 3-way merge trên `(subject, predicate)`, thang R1–R6, `resolve` | |
+| **M2** | 3-way merge trên `(subject, predicate)`, thang R1–R6, `resolve` | ✅ xong |
 | **M3** | staleness nâng cao: `verify`, lọc trong retrieval, incremental rehash | |
 | **M4** | MCP server + `export --md` (projection sang `AGENTS.md`) | |
 | **M5** | eval harness: replay 20 session, đo 6 metric | |
@@ -80,6 +80,7 @@ Trên `mcp-scan` (77k file loại trừ, 152 file tracked):
 - **Idempotent:** chạy `ingest` lần hai → 0 claim mới (content-addressed)
 - **Draft gating:** agent ghi claim suy luận → `draft`, không vào retrieval; `approve` mới active
 - **Drift detection:** sửa `src/rules.js` → 10 claim thành `stale`; restore file → `stale` về 0, không claim nào bị xoá
+- **Merge 3-way:** hai branch cùng sửa `env:DEMO_TOKEN — rotated_by` → `--strict` abort (exit 2) thay vì đoán; `resolve --take theirs` rồi merge lại → 1 claim active, claim kia `out-of-branch`, không xoá
 
 ---
 

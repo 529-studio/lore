@@ -94,4 +94,28 @@ expect_contains "$(lore status)" "0 (evidence hash"
 expect_contains "$(lore blame env:DEMO_TOKEN)" "read_by"
 expect_contains "$(lore blame rule:does-not-exist || true)" "no claims"
 
-echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame"
+# --- merge -------------------------------------------------------------------
+LORE_SESSION=smoke_a lore write --subject env:DEMO_TOKEN --predicate rotated_by --object "job A" --kind human --ref README.md --author human:alice >/dev/null
+LORE_SESSION=smoke_a lore approve --all-drafts >/dev/null
+LORE_SESSION=smoke_b lore write --subject env:DEMO_TOKEN --predicate rotated_by --object "job B" --kind human --ref README.md --author human:bob >/dev/null
+LORE_SESSION=smoke_b lore approve --all-drafts >/dev/null
+
+set +e
+CONFLICT_OUT="$(LORE_SESSION=smoke_a lore merge agent/smoke_b --strict 2>&1)"
+CONFLICT_CODE=$?
+set -e
+[ "$CONFLICT_CODE" -eq 2 ] || fail "expected merge conflict exit 2, got $CONFLICT_CODE"
+expect_contains "$CONFLICT_OUT" "ABORT"
+expect_contains "$CONFLICT_OUT" "job A"
+expect_contains "$CONFLICT_OUT" "job B"
+
+LORE_SESSION=smoke_a lore resolve env:DEMO_TOKEN rotated_by --take theirs --reason "bob owns rotation" >/dev/null
+MERGED="$(LORE_SESSION=smoke_a lore merge agent/smoke_b)"
+expect_contains "$MERGED" "merged"
+expect_contains "$MERGED" "human"
+
+BLAME_MERGE="$(LORE_SESSION=smoke_a lore blame env:DEMO_TOKEN)"
+expect_contains "$BLAME_MERGE" "job B"
+expect_contains "$BLAME_MERGE" "out-of-branch"
+
+echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge"

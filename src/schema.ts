@@ -75,6 +75,30 @@ CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS merge_conflict (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  ours_tip     TEXT,
+  theirs_tip   TEXT,
+  subject_id   TEXT NOT NULL,
+  predicate    TEXT NOT NULL,
+  ours_claim   TEXT,
+  theirs_claim TEXT,
+  base_claim   TEXT,
+  reason       TEXT,
+  ts           TEXT NOT NULL,
+  resolved     INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS resolution (
+  subject_id TEXT NOT NULL,
+  predicate  TEXT NOT NULL,
+  take       TEXT NOT NULL CHECK (take IN ('ours','theirs','both')),
+  reason     TEXT,
+  ts         TEXT NOT NULL,
+  applied    INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (subject_id, predicate)
+);
 `;
 
 export const ONTOLOGY_TEMPLATE = `# Lore ontology — quyết định predicate nào được phép có nhiều giá trị.
