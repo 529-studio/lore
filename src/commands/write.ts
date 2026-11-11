@@ -1,8 +1,7 @@
-import { existsSync } from 'node:fs';
-import path from 'node:path';
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
-import { fileHash, inBranch, makeCommit, upsertClaim, type EvidenceKind } from '../model.js';
+import { inBranch, makeCommit, upsertClaim, type EvidenceKind } from '../model.js';
+import { hashFile } from '../extract/index.js';
 import { branchFor, currentSession } from '../session.js';
 
 export interface WriteOptions {
@@ -26,8 +25,7 @@ export function writeCommand(opts: WriteOptions): void {
   const evidenceRef = opts.ref ?? opts.subject;
   let hash = opts.hash ?? null;
   if (!hash && (opts.kind === 'file' || opts.kind === 'test')) {
-    const abs = path.join(root, evidenceRef);
-    if (existsSync(abs)) hash = fileHash(abs);
+    hash = hashFile(root, evidenceRef);
   }
 
   const run = db.transaction(() => {

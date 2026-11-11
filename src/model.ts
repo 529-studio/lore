@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import type { DB } from './db.js';
 import { claimId, sha256, treeHash } from './util/hash.js';
 
@@ -242,6 +241,3 @@ export function evidenceFor(db: DB, claim: string): Array<{ kind: string; ref: s
     .all(claim) as Array<{ kind: string; ref: string; hash: string | null; verified_at: string | null; status: string }>;
 }
 
-export function fileHash(absPath: string): string {
-  return `sha256:${createHash('sha256').update(readFileSync(absPath)).digest('hex')}`;
-}

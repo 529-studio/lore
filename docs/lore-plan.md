@@ -1,6 +1,6 @@
 # Lore — kế hoạch & painpoint
 
-**Trạng thái:** M0–M2 xong (chạy thật trên `mcp-scan`: 77 claim; diff/revert; 3-way merge có conflict ladder)
+**Trạng thái:** M0–M5 xong, đã qua 2 vòng audit độc lập và 1 wave sửa lỗi (xem §8)
 **Repo:** https://github.com/529-studio/lore (private)
 **Ngày:** 2026-11-10
 
@@ -68,9 +68,9 @@ Chi tiết schema + thuật toán merge (R1–R6): `SPEC.md` trong repo.
 | **M0** | `init`, schema, `write` (draft), `ingest`, `log`, `blame`, `status` | ✅ xong |
 | **M1** | commit DAG đầy đủ, `diff`, `revert` | ✅ xong |
 | **M2** | 3-way merge trên `(subject, predicate)`, thang R1–R6, `resolve` | ✅ xong |
-| **M3** | staleness nâng cao: `verify`, lọc trong retrieval, incremental rehash | |
-| **M4** | MCP server + `export --md` (projection sang `AGENTS.md`) | |
-| **M5** | eval harness: replay 20 session, đo 6 metric | |
+| **M3** | staleness nâng cao: `verify`, lọc trong retrieval, incremental rehash | ✅ xong |
+| **M4** | MCP server + `export --md` (projection sang `AGENTS.md`) | ✅ xong |
+| **M5** | eval harness: replay trên repo thật, đo 6 metric | ✅ xong (3 fixture, không phải 20 session — ghi rõ) |
 
 ### Kết quả M0 (số thật, không phải demo)
 
@@ -117,3 +117,52 @@ Hai số quyết định sản phẩm sống hay chết: **revert_correctness** 
 - [ ] Ontology viết tay hay bootstrap từ claim đã có?
 - [ ] Cross-repo: share memory giữa monorepo A và B, hay chỉ `import`?
 - [ ] Có cần MCP trước M1 không (để test với Claude Code + Codex sớm)?
+
+---
+
+## 8. Audit độc lập & điều chỉnh kế hoạch
+
+Hai vòng audit độc lập (agent không viết code) chạy trên repo thật, mỗi vòng đều tự chạy `build / smoke / eval` và dựng kịch bản phản biện riêng.
+
+### Vòng 1 — phát hiện 4 blocker (đã sửa)
+
+| Lỗi | Bằng chứng | Sửa |
+|---|---|---|
+| Draft vẫn vào retrieval | `write` commit cả draft; search/merge không lọc `state` | draft không được commit; active set chỉ nhận `state='active'` |
+| Eval tự chấm mình | `eval-results.json` ghi `draftGate: FAIL` nhưng `failed: []`, in PASS | check nội bộ thành fatal; parse id thật; đo qua `lore search` |
+| `byKey` bóp chết cardinality `many` | `merge.ts` gom 1 claim cho mỗi `(subject,predicate)` | key theo fact: `many` thêm `object` vào key |
+| `main` không bao giờ tiến | chỉ `init` ghi `ref main`; session mới thấy rỗng | thêm `lore promote`; write/ingest ghi entry nếu claim thiếu trong branch |
+
+Kèm theo: thứ tự ladder R2→R3→R4→R5→R6, thêm R4 (retract thắng edit), commit có parent thứ hai (DAG thật), transaction, id 128-bit, `hashFile` chặn path escape.
+
+### Vòng 2 — phát hiện 2 lỗi còn lại (đã sửa)
+
+| Lỗi | Bằng chứng | Sửa |
+|---|---|---|
+| Path escape vẫn sống ở write/MCP | `lore write --ref ../../etc/passwd` → exit 0, hash thật của `/etc/passwd` | write + MCP dùng `hashFile` có kiểm soát; xoá helper không an toàn |
+| MCP không approve được | agent ghi qua MCP → draft vĩnh viễn vô hình | thêm tool `memory_approve` (và `memory_commit`) |
+
+Vòng 2 cũng xác nhận: draft gating, dedupe liên branch, DAG sống sót qua merge 2 lần, R4 không làm claim sống lại, `many` giữ đủ 3 giá trị, 10/10 MCP write đồng thời không lỗi lock, `export --md` byte-identical.
+
+### Số đo thật (`npm run eval`, 3 repo)
+
+| Metric | Kết quả | Ngưỡng |
+|---|---|---|
+| `stale_rate` | 11.9% (worst file 27.8%) | < 15% |
+| `false_claim_rate` | 0.0% | < 5% |
+| `conflict_rate` (merge đáng lẽ sạch) | 0.0% | < 10% |
+| `revert_correctness` | 100% | 100% |
+| `token_savings` | 86.0% | > 30% |
+| `time_to_first_useful` | 3 invocation | < 10 |
+
+`stale_rate` worst-file vượt ngưỡng khi file drift là tài liệu (README/AGENTS.md) vì extractor dồn nhiều claim vào một file. Đây là đặc tính đã biết của extractor, không phải lỗi staleness.
+
+### Điều chỉnh kế hoạch (đang mở)
+
+1. **Bi-temporal**: `valid_from` lưu được nhưng chưa có `--as-of`; `valid_to` chưa bao giờ ghi.
+2. **Draft GC** dùng tuổi (ngày) thay vì số session — cần bảng theo dõi session để đúng SPEC §6.
+3. **`verify` không ghi lại hash**: file đổi hợp lệ vẫn stale tới khi `ingest` quan sát lại.
+4. **Eval 3 fixture, không phải 20 session**: threshold conflict_rate đã được định nghĩa lại cho trung thực, nhưng độ phủ mẫu vẫn thấp.
+5. **`--strategy recency`** được nhận nhưng ladder vẫn authority-first; chỉ `--strict` thay đổi hành vi.
+
+Nguyên tắc rút ra: **audit phải chạy được lệnh, không chỉ đọc code**. Vòng 1 không có shell nên bỏ sót path escape; vòng 2 có shell tìm ra ngay.

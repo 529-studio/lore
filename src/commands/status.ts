@@ -45,11 +45,19 @@ export function statusCommand(): void {
   const ref = branchFor(session);
   const branchActive = activeAt(db, head(db, ref) ?? head(db, 'main')).size;
 
+  const conflicts = (db.prepare('SELECT COUNT(*) n FROM merge_conflict WHERE resolved = 0').get() as { n: number }).n;
+  const gcCutoff = new Date(Date.now() - 3 * 86_400_000).toISOString();
+  const gcEligible = (
+    db.prepare("SELECT COUNT(*) n FROM claim WHERE state = 'draft' AND tx_from < ?").get(gcCutoff) as { n: number }
+  ).n;
+
   console.log(pc.bold('lore status'));
   console.log(`  claims     ${pc.bold(String(total))} total  ${pc.green(`${byState.get('active') ?? 0} active`)}  ${pc.yellow(`${byState.get('draft') ?? 0} draft`)}  ${pc.red(`${byState.get('retracted') ?? 0} retracted`)}`);
   console.log(`  branch     ${ref}  ${pc.dim(`${branchActive} claim trong active set`)}`);
   console.log(`  commits    ${commits}   branches ${branches}`);
   console.log(`  stale      ${stale.length ? pc.red(String(stale.length)) : pc.green('0')} ${pc.dim('(evidence hash không còn khớp)')}`);
+  console.log(`  conflicts  ${conflicts ? pc.red(String(conflicts)) : pc.green('0')} ${pc.dim('(merge chưa giải)')}`);
+  console.log(`  gc         ${gcEligible ? pc.yellow(String(gcEligible)) : pc.green('0')} ${pc.dim('draft quá 3 ngày — chạy lore gc')}`);
 
   if (stale.length) {
     console.log(pc.dim('\n  stale claims — không bị xoá, chờ verify lại:'));

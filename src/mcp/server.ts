@@ -11,8 +11,8 @@ import { hashFile } from '../extract/index.js';
 import {
   activeAt,
   evidenceFor,
-  fileHash,
   head,
+  inBranch,
   makeCommit,
   upsertClaim,
   type ClaimRow,
@@ -170,11 +170,8 @@ function toolWrite(args: WriteArgs): ToolResult {
   try {
     const kind = args.kind as EvidenceKind;
     const evidenceRef = args.ref ?? args.subject;
-    let hash: string | null = null;
-    if (kind === 'file' || kind === 'test') {
-      const abs = path.join(ctx.root, evidenceRef);
-      if (existsSync(abs)) hash = fileHash(abs);
-    }
+    // Guarded: rejects absolute paths, traversal, non-regular files and > 4 MB.
+    const hash = kind === 'file' || kind === 'test' ? hashFile(ctx.root, evidenceRef) : null;
 
     const author = 'agent:mcp';
     const result = upsertClaim(ctx.db, {
@@ -187,7 +184,8 @@ function toolWrite(args: WriteArgs): ToolResult {
       evidence: [{ kind, ref: evidenceRef, hash }],
     });
 
-    if (result.inserted) {
+    // Drafts never enter the active set; a claim missing from this branch still needs an entry.
+    if (result.state === 'active' && !inBranch(ctx.db, ctx.branch, result.id)) {
       makeCommit(ctx.db, {
         ref: ctx.branch,
         entries: [{ claim_id: result.id, op: 'add' }],
@@ -344,6 +342,68 @@ function toolDiff(args: DiffArgs): ToolResult {
   }
 }
 
+interface ApproveArgs {
+  claim?: string;
+}
+
+function toolApprove(args: ApproveArgs): ToolResult {
+  const ctx = context();
+  try {
+    const targets = (
+      args.claim
+        ? ctx.db.prepare("SELECT id FROM claim WHERE id = ? AND state = 'draft'").all(args.claim)
+        : ctx.db.prepare("SELECT id FROM claim WHERE state = 'draft'").all()
+    ) as Array<{ id: string }>;
+
+    if (!targets.length) {
+      return { content: [{ type: 'text', text: 'no draft claims to approve' }], structuredContent: { approved: [] } };
+    }
+
+    ctx.db.transaction(() => {
+      const update = ctx.db.prepare("UPDATE claim SET state = 'active', authority = MIN(authority, 2) WHERE id = ?");
+      for (const t of targets) update.run(t.id);
+      makeCommit(ctx.db, {
+        ref: ctx.branch,
+        entries: targets.map((t) => ({ claim_id: t.id, op: 'add' as const })),
+        message: `mcp approve: ${targets.length} claim(s)`,
+        author: 'agent:mcp',
+        kind: 'write',
+      });
+    })();
+
+    return {
+      content: [{ type: 'text', text: `approved ${targets.length} claim(s) on ${ctx.branch}` }],
+      structuredContent: { approved: targets.map((t) => t.id) },
+    };
+  } finally {
+    ctx.db.close();
+  }
+}
+
+interface CommitArgs {
+  message?: string;
+}
+
+function toolCommit(args: CommitArgs): ToolResult {
+  if (!args.message) throw new Error('memory_commit requires a message');
+  const ctx = context();
+  try {
+    const id = makeCommit(ctx.db, {
+      ref: ctx.branch,
+      entries: [],
+      message: args.message,
+      author: 'agent:mcp',
+      kind: 'write',
+    });
+    return {
+      content: [{ type: 'text', text: `commit ${id} on ${ctx.branch}` }],
+      structuredContent: { commit: id, branch: ctx.branch },
+    };
+  } finally {
+    ctx.db.close();
+  }
+}
+
 // --- tool registry -----------------------------------------------------------------
 
 interface ToolDef {
@@ -421,6 +481,28 @@ const TOOLS: ToolDef[] = [
       },
     },
     run: (args) => toolDiff(ARGS(args) as unknown as DiffArgs),
+  },
+  {
+    name: 'memory_approve',
+    description:
+      'Promote draft claims to active on your branch. Without this, agent-inferred memory written over MCP stays invisible forever.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        claim: { type: 'string', description: 'claim id; omit to approve every draft' },
+      },
+    },
+    run: (args) => toolApprove(ARGS(args) as unknown as ApproveArgs),
+  },
+  {
+    name: 'memory_commit',
+    description: 'Record a named checkpoint commit on the current agent branch.',
+    inputSchema: {
+      type: 'object',
+      required: ['message'],
+      properties: { message: { type: 'string' } },
+    },
+    run: (args) => toolCommit(ARGS(args) as unknown as CommitArgs),
   },
 ];
 

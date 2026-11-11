@@ -4,6 +4,7 @@ import pc from 'picocolors';
 import { approveCommand } from './commands/approve.js';
 import { blameCommand } from './commands/blame.js';
 import { diffCommand } from './commands/diff.js';
+import { gcCommand } from './commands/gc.js';
 import { exportCommand } from './commands/export.js';
 import { ingestCommand } from './commands/ingest.js';
 import { initCommand } from './commands/init.js';
@@ -137,6 +138,13 @@ program
       dryRun: opts.dryRun,
     }),
   );
+
+program
+  .command('gc')
+  .description('retract draft claims cũ (không xoá dữ liệu)')
+  .option('--ttl-days <n>', 'tuổi tối đa của draft', '3')
+  .option('--dry-run')
+  .action((opts) => gcCommand({ ttlDays: opts.ttlDays, dryRun: opts.dryRun }));
 
 program
   .command('status')

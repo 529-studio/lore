@@ -460,3 +460,20 @@ Replay 20 session, in bảng metric.
 - **Authority tier** — mức tin cậy của nguồn, 0 (test pass) → 4 (agent suy luận).
 - **Stale** — claim trỏ vào thứ đã thay đổi kể từ lúc quan sát.
 - **Merge base** — tổ tiên chung gần nhất, dùng cho 3-way merge.
+
+---
+
+## 15. Ghi chú triển khai (deviation log)
+
+Những chỗ code cố ý khác SPEC, để lần sau không phải phát hiện lại:
+
+| SPEC | Thực tế | Lý do |
+|---|---|---|
+| bảng `commit` | `memory_commit` | `commit` là keyword SQLite |
+| chỉ `merge` | thêm `lore promote` | `main` phải tiến thì session mới mới thấy memory |
+| draft GC theo `ttl_sessions` | `--ttl-days` (tuổi) | chưa có bảng theo dõi session; proxy, ghi rõ trong README |
+| R4 "trừ khi bên retract cũng stale" | xấp xỉ bằng tier của bên còn sống (> T2 thì không cho retract thắng) | chưa có cờ stale theo từng phía ở bước R4 |
+| `tree_hash = (claim_id, state)` | `(claim_id, op)` | op là thứ fold thực sự dùng |
+| `verify` cập nhật hash | không ghi lại hash | tránh tự động hợp thức hoá drift; `ingest` mới là re-observation |
+| `conflict_rate` trên 20 session | abort của merge đáng lẽ sạch; conflict cố ý báo riêng | đo conflict cố ý bằng ngưỡng production là sai bản chất |
+| MCP §10.2 có 5 tool | 7 tool (`memory_approve`, `memory_commit` thêm) | thiếu approve thì memory MCP-only vô hình vĩnh viễn |

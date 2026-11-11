@@ -5,7 +5,7 @@
 Versioned, verifiable memory for multi-agent coding. Claims have provenance, expire when the
 code drifts, and can be reverted when an agent learns something wrong.
 
-Status: **M0–M2** — `init`, `write`, `ingest`, `log`, `blame`, `status`, `approve`, `diff`, `revert`, `merge`, `resolve`.
+Status: **M0–M4** — init, write, ingest, log, blame, status, approve, gc, diff, revert, merge, resolve, promote, search, verify, export, mcp.
 
 ## Why
 
@@ -46,6 +46,12 @@ lore status              # active / draft / stale
 | `lore revert <commit>` | inverse patch as a new commit — history stays intact |
 | `lore merge <branch>` | 3-way merge on `(subject, predicate)`; conflicts abort instead of guessing |
 | `lore resolve <subject> <predicate> --take ours\|theirs\|both` | record a human decision for one conflict |
+| `lore promote` | merge the current session branch into `main` so other sessions inherit it |
+| `lore gc [--ttl-days 3]` | retract drafts nobody used (rows are kept, never deleted) |
+| `lore search "<query>" [--files ...] [--budget ...] [--json]` | score the active set, stale excluded by default |
+| `lore verify <claim> \| --all [--strict]` | re-hash evidence; exit 3 when stale |
+| `lore export --md [--out AGENTS.md]` | deterministic markdown projection |
+| `lore mcp` | MCP server over stdio (see [docs/mcp.md](./docs/mcp.md)) |
 
 Exit codes: `0` ok, `2` unresolved merge conflict (M2), `3` stale above threshold.
 

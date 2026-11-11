@@ -113,7 +113,7 @@ try {
   // --- tools/list ------------------------------------------------------------------
   const list = await rpc('tools/list');
   const names = (list.result?.tools ?? []).map((t) => t.name).sort();
-  const expected = ['memory_blame', 'memory_diff', 'memory_search', 'memory_status', 'memory_write'];
+  const expected = ['memory_approve', 'memory_blame', 'memory_commit', 'memory_diff', 'memory_search', 'memory_status', 'memory_write'];
   if (JSON.stringify(names) !== JSON.stringify(expected)) fail(`tools/list: ${JSON.stringify(names)} != ${JSON.stringify(expected)}`);
 
   // --- memory_search -----------------------------------------------------------------
@@ -157,16 +157,36 @@ try {
     fail(`memory_write branch: ${write.result?.structuredContent?.branch} != ${branch}`);
   }
 
-  // server did not touch main, and the draft is on the agent branch
-  const diff = await rpc('tools/call', {
-    name: 'memory_diff',
-    arguments: { from: 'main', to: branch },
+  // drafts are not committed, so they are invisible to diff but visible to blame
+  const blame = await rpc('tools/call', {
+    name: 'memory_blame',
+    arguments: { subject: 'concept:mcp-smoke-note' },
   });
-  expectContains(
-    JSON.stringify(diff.result?.structuredContent?.added ?? []),
-    'concept:mcp-smoke-note',
-    'memory_diff main..agent: write landed on agent branch',
-  );
+  const blameText = JSON.stringify(blame.result?.structuredContent ?? {});
+  expectContains(blameText, 'concept:mcp-smoke-note', 'memory_blame sees the draft');
+  expectContains(blameText, 'draft', 'memory_blame reports draft state');
+
+  // --- draft gating + approve over MCP ---------------------------------------------
+  const draftId = write.result?.structuredContent?.id;
+  const draftSearch = await rpc('tools/call', {
+    name: 'memory_search',
+    arguments: { query: 'mcp smoke asserts this claim exists', include_stale: true, budget_tokens: 4000 },
+  });
+  const draftHits = draftSearch.result?.structuredContent?.hits ?? [];
+  if (draftHits.some((h) => h.id === draftId)) fail('draft leaked into memory_search');
+
+  const approve = await rpc('tools/call', { name: 'memory_approve', arguments: { claim: draftId } });
+  if (approve.result?.isError) fail(`memory_approve returned isError: ${JSON.stringify(approve.result)}`);
+
+  const afterApprove = await rpc('tools/call', {
+    name: 'memory_search',
+    arguments: { query: 'mcp smoke asserts this claim exists', include_stale: true, budget_tokens: 4000 },
+  });
+  const approvedHits = afterApprove.result?.structuredContent?.hits ?? [];
+  if (!approvedHits.some((h) => h.id === draftId)) fail('approved claim not visible in memory_search');
+
+  const checkpoint = await rpc('tools/call', { name: 'memory_commit', arguments: { message: 'mcp smoke checkpoint' } });
+  if (!checkpoint.result?.structuredContent?.commit) fail('memory_commit did not return a commit id');
 
   // --- protocol robustness ---------------------------------------------------------
   const badMethod = await rpc('bogus/method');
@@ -192,4 +212,4 @@ if (failures > 0) {
   console.error(`MCP SMOKE FAILED — ${failures} failure(s)`);
   process.exit(1);
 }
-console.log('MCP SMOKE OK — initialize, tools/list, search, write to agent/<session>, error handling');
+console.log('MCP SMOKE OK — initialize, tools/list, search, draft gating, approve, commit, error handling');
