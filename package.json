@@ -22,6 +22,7 @@
     "mcp:smoke": "node scripts/mcp-smoke.mjs",
     "mcp:concurrency": "node scripts/mcp-concurrency.mjs",
     "eval": "node scripts/eval.mjs",
+    "demo:cli": "node scripts/demo/record-cli.mjs",
     "docs:lint": "node scripts/docs-lint.mjs",
     "check:public": "bash scripts/check-public-safe.sh",
     "prepublishOnly": "npm run build && npm run smoke"
@@ -55,6 +56,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.6",
+    "sharp": "^0.35.5",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }
