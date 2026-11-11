@@ -11,6 +11,8 @@ export interface SearchOptions {
   symbols?: string[]; // entity ids in scope
   budgetTokens?: number; // default 2000
   includeStale?: boolean;
+  /** Bi-temporal read: what the branch knew, and what was valid, at this instant. */
+  asOf?: string;
 }
 
 export interface SearchHit {
@@ -35,18 +37,59 @@ const W_STALE = -10.0;
 const VERIFIED_WINDOW_DAYS = 14;
 const DAY_MS = 86_400_000;
 
-/** All current claims of the caller's branch active set (drafts excluded, many-values preserved). */
-function branchClaims(db: DB, root: string): Map<string, ClaimRow> {
+function parseInstant(value: string, label: string): number {
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms)) throw new Error(`${label}: not a valid ISO date: ${value}`);
+  return ms;
+}
+
+/** Latest commit reachable from tip whose transaction time is <= the instant. */
+function commitAsOf(db: DB, tip: string | null, instant: number): string | null {
+  if (!tip) return null;
+  const seen = new Set<string>();
+  const queue: string[] = [tip];
+  let best: string | null = null;
+  let bestTs = Number.NEGATIVE_INFINITY;
+  const stmt = db.prepare('SELECT ts, parent_id, merge_parent_id FROM memory_commit WHERE id = ?');
+  while (queue.length) {
+    const id = queue.shift()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const row = stmt.get(id) as
+      | { ts: string; parent_id: string | null; merge_parent_id: string | null }
+      | undefined;
+    if (!row) continue;
+    const ts = Date.parse(row.ts);
+    if (ts <= instant && ts > bestTs) {
+      bestTs = ts;
+      best = id;
+    }
+    if (row.parent_id) queue.push(row.parent_id);
+    if (row.merge_parent_id) queue.push(row.merge_parent_id);
+  }
+  return best;
+}
+
+function validAt(claim: ClaimRow, instant: number): boolean {
+  const from = claim.valid_from ? Date.parse(claim.valid_from) : Number.NEGATIVE_INFINITY;
+  const to = claim.valid_to ? Date.parse(claim.valid_to) : Number.POSITIVE_INFINITY;
+  return from <= instant && instant < to;
+}
+
+/** All claims of the caller's branch active set (drafts excluded, many-values preserved). */
+function branchClaims(db: DB, root: string, asOf?: string): Map<string, ClaimRow> {
   const session = currentSession(root);
   const branch = branchFor(session);
-  const tip = head(db, branch) ?? head(db, 'main');
+  const headTip = head(db, branch) ?? head(db, 'main');
+  const instant = asOf ? parseInstant(asOf, '--as-of') : Date.now();
+  const tip = asOf ? commitAsOf(db, headTip, instant) : headTip;
   const active = activeAt(db, tip);
   const ids = [...active.keys()];
   const rows: ClaimRow[] = [];
   const stmt = db.prepare('SELECT * FROM claim WHERE id = ?');
   for (const id of ids) {
     const row = stmt.get(id) as ClaimRow | undefined;
-    if (row && row.state === 'active') rows.push(row);
+    if (row && row.state === 'active' && validAt(row, instant)) rows.push(row);
   }
   return byKey(rows, loadOntology(root).cardinality);
 }
@@ -249,7 +292,7 @@ function approxTokens(hit: SearchHit): number {
  */
 export function searchClaims(db: DB, root: string, opts: SearchOptions = {}): SearchHit[] {
   const budget = opts.budgetTokens ?? BUDGET_DEFAULT;
-  const current = branchClaims(db, root);
+  const current = branchClaims(db, root, opts.asOf);
 
   const ctx: ScopeContext = {
     files: (opts.files ?? []).map(normPath).filter(Boolean),

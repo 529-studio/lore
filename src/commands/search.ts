@@ -9,6 +9,7 @@ export interface SearchCommandOptions {
   symbols?: string; // comma-separated entity ids
   budget?: string; // token budget
   includeStale?: boolean;
+  asOf?: string;
   json?: boolean;
 }
 
@@ -29,6 +30,7 @@ export function searchCommand(opts: SearchCommandOptions): void {
     symbols: list(opts.symbols),
     budgetTokens: opts.budget ? Number(opts.budget) : undefined,
     includeStale: opts.includeStale,
+    asOf: opts.asOf,
   });
 
   if (opts.json) {

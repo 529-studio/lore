@@ -185,8 +185,8 @@ Agents never write to `main`; you decide what gets promoted. Full details: [docs
 ```
 lore init                      initialise .lore/ and the ontology
 lore ingest [--dry-run]        derive claims from deterministic extractors
-lore write                     write one claim (draft for agent/human evidence)
-lore search "<query>"          score the active set; stale excluded by default
+lore write                     write one claim (draft for agent/human evidence); --valid-from <iso>
+lore search "<query>"          score the active set; stale excluded; --as-of <iso> reads history
 lore blame <subject>           provenance: author, evidence, branch membership
 lore status [--strict]         health: active, draft, stale, conflicts, GC candidates
 lore diff <from>..<to>         claims added/removed between revisions
@@ -311,7 +311,6 @@ sessions). They are reported as measured; the harness fails the build when a sce
 
 ## Limitations (v0.1)
 
-- **Bi-temporal is stored, not queryable.** `valid_from` can be written; there is no `--as-of` read yet ([#1](https://github.com/529-studio/lore/issues/1)).
 - **Draft GC uses age**, not session count ([#2](https://github.com/529-studio/lore/issues/2)).
 - **`verify` does not rewrite hashes**; a legitimately changed file stays stale until `ingest` re-observes it ([#3](https://github.com/529-studio/lore/issues/3)).
 - **Code repositories only.** Entity ids come from `path#symbol`, which is what makes merge deterministic. Non-code entities are v0.3 ([#20](https://github.com/529-studio/lore/issues/20)).
