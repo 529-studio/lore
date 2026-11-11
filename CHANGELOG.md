@@ -3,6 +3,25 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
+## [0.1.1] — 2026-11-11
+
+### Added
+
+- `lore status --strict` exits 3 when staleness or unresolved conflicts cross a threshold, so CI can
+  gate on memory health.
+- `lore verify --accept` re-observes a legitimately changed file and stores the new hash instead of
+  leaving the claim stale forever.
+- `lore supersede <claim>` replaces a claim while keeping the old version in history (`valid_to`).
+- `npm run mcp:concurrency` proves four MCP servers writing 100 claims lose nothing.
+- Tag-driven release workflow with provenance publishing and an attached tarball.
+
+### Fixed
+
+- `lore export --md` moves stale claims into a `## Needs verification` section instead of shipping
+  them as if they were true.
+- `lore ingest` no longer scans vendor directories in a repository without a `.gitignore`.
+- `lore --version` reports the package version.
+
 ## [0.1.0] — 2026-11-11
 
 First public release.
@@ -34,4 +53,5 @@ First public release.
 - Evidence paths are resolved with `realpath`, confined to the repository, restricted to regular
   files, and capped at 4 MB.
 
+[0.1.1]: https://github.com/529-studio/lore/releases/tag/v0.1.1
 [0.1.0]: https://github.com/529-studio/lore/releases/tag/v0.1.0
