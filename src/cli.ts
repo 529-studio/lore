@@ -153,7 +153,10 @@ program
 program
   .command('status')
   .description('memory health: drafts, stale claims, commits')
-  .action(() => statusCommand());
+  .option('--strict', 'exit 3 when health crosses a threshold')
+  .option('--max-stale <pct>', 'maximum stale percentage (default 15)')
+  .option('--max-conflicts <n>', 'maximum unresolved conflicts (default 0)')
+  .action((opts) => statusCommand({ strict: opts.strict, maxStale: opts.maxStale, maxConflicts: opts.maxConflicts }));
 
 program
   .command('approve [claim]')
