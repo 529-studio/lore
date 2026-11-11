@@ -1,0 +1,190 @@
+name: Lore memory
+description: Ingest the repository, diff memory against the base branch, and comment on the pull request.
+author: 529 Studio
+branding:
+  icon: archive
+  color: gray-dark
+
+inputs:
+  github-token:
+    description: Token used to post or update the pull request comment.
+    required: true
+  base-ref:
+    description: Branch the pull request targets.
+    required: false
+    default: main
+  lore-ref:
+    description: Git ref of the Lore CLI to build when lore-version is empty.
+    required: false
+    default: v0.1.2
+  lore-version:
+    description: Published version to install from npm instead of building from source.
+    required: false
+    default: ''
+  strict:
+    description: Fail the check when memory health crosses the threshold.
+    required: false
+    default: 'false'
+  max-claims:
+    description: Maximum added claims listed in the comment.
+    required: false
+    default: '15'
+
+outputs:
+  added:
+    description: Number of claims this pull request adds.
+    value: ${{ steps.report.outputs.added }}
+  stale:
+    description: Number of claims invalidated by this pull request.
+    value: ${{ steps.report.outputs.stale }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Lore from npm
+      if: inputs.lore-version != ''
+      shell: bash
+      run: npm install --global "@529studio/lore@${{ inputs.lore-version }}"
+
+    - name: Check out the Lore CLI
+      if: inputs.lore-version == ''
+      uses: actions/checkout@v4
+      with:
+        repository: 529-studio/lore
+        ref: ${{ inputs.lore-ref }}
+        path: ${{ runner.temp }}/lore-tool
+
+    - name: Build and link the CLI
+      if: inputs.lore-version == ''
+      shell: bash
+      working-directory: ${{ runner.temp }}/lore-tool
+      run: |
+        npm ci --no-audit --no-fund
+        npm run build
+        npm link
+
+    - name: Restore the base memory cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/lore-base/.lore
+        key: lore-base-${{ github.event.pull_request.base.sha || inputs.base-ref }}
+
+    - name: Build the base memory
+      shell: bash
+      env:
+        BASE_REF: ${{ inputs.base-ref }}
+      run: |
+        set -euo pipefail
+        if [ -f "${RUNNER_TEMP}/lore-base/.lore/lore.db" ]; then
+          echo "base memory restored from cache"
+        else
+          BASE_SHA="$(git rev-parse "origin/${BASE_REF}" 2>/dev/null || git rev-parse "${BASE_REF}")"
+          git worktree add "${RUNNER_TEMP}/lore-base" "${BASE_SHA}"
+          (
+            cd "${RUNNER_TEMP}/lore-base"
+            LORE_SESSION=base lore init > /dev/null
+            LORE_SESSION=base lore ingest > /dev/null
+            LORE_SESSION=base lore promote > /dev/null
+          )
+        fi
+        rm -rf .lore
+        cp -r "${RUNNER_TEMP}/lore-base/.lore" .lore
+
+    - name: Detect memory invalidated by this pull request
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Run before ingest: ingest re-observes changed files and would hide the drift.
+        LORE_SESSION=head lore status > "${RUNNER_TEMP}/lore-status.txt" || true
+
+    - name: Ingest this pull request
+      shell: bash
+      run: |
+        set -euo pipefail
+        LORE_SESSION=head lore ingest > /dev/null
+        LORE_SESSION=head lore diff main..agent/head > "${RUNNER_TEMP}/lore-diff.txt" || true
+
+    - name: Write the comment
+      id: report
+      shell: bash
+      env:
+        MAX_CLAIMS: ${{ inputs.max-claims }}
+      run: |
+        set -euo pipefail
+        python3 - "${RUNNER_TEMP}/lore-diff.txt" "${RUNNER_TEMP}/lore-status.txt" \
+          "${RUNNER_TEMP}/lore-comment.md" "${RUNNER_TEMP}/lore-metrics.txt" "${MAX_CLAIMS}" <<'PY'
+        import re
+        import sys
+
+        diff_path, status_path, out_path, metrics_path, max_claims = sys.argv[1:6]
+        max_claims = int(max_claims)
+        diff = open(diff_path, encoding="utf-8").read().splitlines()
+        status = open(status_path, encoding="utf-8").read()
+
+        added = [line[2:].strip() for line in diff if line.startswith("+ ")]
+        removed = [line[2:].strip() for line in diff if line.startswith("- ")]
+        match = re.search(r"stale\s+(\d+)", status)
+        stale = int(match.group(1)) if match else 0
+        invalidated = [
+            f"{claim} {ref.strip()}"
+            for claim, ref in re.findall(r"•\s+(c_\w+)\s+(.+)", status)
+        ]
+
+        lines = ["<!-- lore-memory -->", "## Lore memory", ""]
+        if added or removed:
+            lines.append(
+                f"This pull request adds **{len(added)}** claim(s) and removes **{len(removed)}**."
+            )
+        else:
+            lines.append("This pull request does not change what the agent knows.")
+        lines.append(f"It invalidates **{stale}** existing claim(s).")
+
+        if invalidated:
+            lines += ["", "<details><summary>Invalidated claims</summary>", ""]
+            lines += [f"- {item}" for item in invalidated[:max_claims]]
+            if len(invalidated) > max_claims:
+                lines.append(f"- … and {len(invalidated) - max_claims} more")
+            lines += ["", "</details>"]
+
+        if added:
+            lines += ["", "<details><summary>Added claims</summary>", ""]
+            lines += [f"- {item}" for item in added[:max_claims]]
+            if len(added) > max_claims:
+                lines.append(f"- … and {len(added) - max_claims} more")
+            lines += ["", "</details>"]
+
+        lines += ["", "_Generated by Lore. Approve or revert with the CLI; see docs/mcp.md._"]
+        open(out_path, "w", encoding="utf-8").write("\n".join(lines) + "\n")
+        open(metrics_path, "w", encoding="utf-8").write(
+            f"added={len(added)}\nremoved={len(removed)}\nstale={stale}\n"
+        )
+        PY
+        cat "${RUNNER_TEMP}/lore-metrics.txt" >> "${GITHUB_OUTPUT}"
+
+    - name: Post or update the pull request comment
+      if: inputs.github-token != '' && github.event_name == 'pull_request'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        BODY="${RUNNER_TEMP}/lore-comment.md"
+        EXISTING="$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
+          --jq '.[] | select(.body | contains("<!-- lore-memory -->")) | .id' | head -n1)"
+        if [ -n "${EXISTING}" ]; then
+          gh api -X PATCH "repos/${REPO}/issues/comments/${EXISTING}" -F "body=@${BODY}" > /dev/null
+        else
+          gh api -X POST "repos/${REPO}/issues/${PR_NUMBER}/comments" -F "body=@${BODY}" > /dev/null
+        fi
+
+    - name: Enforce memory health
+      if: inputs.strict == 'true'
+      shell: bash
+      run: LORE_SESSION=head lore status --strict
+
+    - name: Clean up the worktree
+      if: always()
+      shell: bash
+      run: git worktree remove --force "${RUNNER_TEMP}/lore-base" 2>/dev/null || true

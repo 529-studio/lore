@@ -3,6 +3,13 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- GitHub Action: ingests a pull request, diffs memory against the base branch, and comments what the
+  change teaches or invalidates. Base memory is cached by commit SHA.
+
 ## [0.1.2] — 2026-11-11
 
 ### Added

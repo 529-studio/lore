@@ -1,0 +1,29 @@
+name: Memory
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: memory-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  memory:
+    name: Memory diff
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/lore
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          base-ref: ${{ github.base_ref }}
+          strict: 'false'
