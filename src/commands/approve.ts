@@ -9,11 +9,29 @@ export function approveCommand(opts: { claim?: string; allDrafts?: boolean; sess
   const session = currentSession(root, opts.session);
   const ref = branchFor(session);
 
-  const targets = opts.allDrafts
-    ? (db.prepare("SELECT id FROM claim WHERE state = 'draft'").all() as Array<{ id: string }>)
-    : opts.claim
-      ? (db.prepare("SELECT id FROM claim WHERE id = ? AND state = 'draft'").all(opts.claim) as Array<{ id: string }>)
-      : [];
+  const apply = db.transaction(() => {
+    const targets = opts.allDrafts
+      ? (db.prepare("SELECT id FROM claim WHERE state = 'draft'").all() as Array<{ id: string }>)
+      : opts.claim
+        ? (db.prepare("SELECT id FROM claim WHERE id = ? AND state = 'draft'").all(opts.claim) as Array<{ id: string }>)
+        : [];
+
+    if (!targets.length) return [];
+
+    const update = db.prepare("UPDATE claim SET state = 'active', authority = MIN(authority, 2) WHERE id = ?");
+    for (const t of targets) update.run(t.id);
+
+    makeCommit(db, {
+      ref,
+      entries: targets.map((t) => ({ claim_id: t.id, op: 'add' as const })),
+      message: `approve: ${targets.length} draft claim(s)`,
+      author: 'human:cli',
+      kind: 'write',
+    });
+    return targets;
+  });
+
+  const targets = apply();
 
   if (!targets.length) {
     console.log(pc.yellow('no draft claims to approve'));
@@ -21,18 +39,8 @@ export function approveCommand(opts: { claim?: string; allDrafts?: boolean; sess
     return;
   }
 
-  const update = db.prepare("UPDATE claim SET state = 'active', authority = MIN(authority, 2) WHERE id = ?");
-  for (const t of targets) update.run(t.id);
-
-  makeCommit(db, {
-    ref,
-    entries: targets.map((t) => ({ claim_id: t.id, op: 'add' as const })),
-    message: `approve: ${targets.length} draft claim(s)`,
-    author: 'human:cli',
-    kind: 'write',
-  });
-
-  console.log(`${pc.green('✓')} approved ${targets.length} claim(s) — giờ chúng vào retrieval`);
+  console.log(`${pc.green('✓')} approved ${targets.length} claim(s) — giờ chúng vào retrieval của branch ${ref}`);
   for (const t of targets) console.log(pc.dim(`  ${t.id}`));
+  console.log(pc.dim('  branch khác chỉ thấy sau khi: lore promote'));
   db.close();
 }

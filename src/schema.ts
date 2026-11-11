@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS evidence (
 CREATE TABLE IF NOT EXISTS memory_commit (
   id        TEXT PRIMARY KEY,
   parent_id TEXT REFERENCES memory_commit(id),
+  merge_parent_id TEXT REFERENCES memory_commit(id),
   tree_hash TEXT NOT NULL,
   message   TEXT NOT NULL,
   author    TEXT NOT NULL,

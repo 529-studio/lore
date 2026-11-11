@@ -1,8 +1,8 @@
 import type { DB } from './db.js';
 import { hashFile } from './extract/index.js';
 import type { ClaimRow } from './model.js';
-import type { Ontology } from './ontology.js';
 import { activeAt } from './model.js';
+import type { Cardinality, Ontology } from './ontology.js';
 
 export interface Decision {
   subject: string;
@@ -34,9 +34,18 @@ export interface MergePlan {
 }
 
 const SEP = '\u0000';
-const keyOf = (c: ClaimRow) => `${c.subject_id}${SEP}${c.predicate}`;
 
-function loadClaims(db: DB, ids: string[]): ClaimRow[] {
+/**
+ * Merge unit = one fact.
+ * cardinality one  → (subject, predicate)          two different objects conflict.
+ * cardinality many → (subject, predicate, object)  several values coexist, so they never collide.
+ */
+export function factKey(c: ClaimRow, cardinality: (p: string) => Cardinality): string {
+  const base = `${c.subject_id}${SEP}${c.predicate}`;
+  return cardinality(c.predicate) === 'many' ? `${base}${SEP}${c.object_json}` : base;
+}
+
+export function loadClaims(db: DB, ids: string[]): ClaimRow[] {
   const stmt = db.prepare('SELECT * FROM claim WHERE id = ?');
   const out: ClaimRow[] = [];
   for (const id of ids) {
@@ -46,11 +55,19 @@ function loadClaims(db: DB, ids: string[]): ClaimRow[] {
   return out;
 }
 
-/** One current claim per (subject, predicate): drop superseded, then newest. */
-export function byKey(claims: ClaimRow[]): Map<string, ClaimRow> {
+/** Active claims of a commit: branch active set, drafts excluded. */
+export function activeClaims(db: DB, tip: string | null): ClaimRow[] {
+  return loadClaims(db, [...activeAt(db, tip).keys()]).filter((c) => c.state === 'active');
+}
+
+/** One current claim per fact key: drop superseded, then newest. */
+export function byKey(
+  claims: ClaimRow[],
+  cardinality: (predicate: string) => Cardinality = () => 'one',
+): Map<string, ClaimRow> {
   const grouped = new Map<string, ClaimRow[]>();
   for (const c of claims) {
-    const key = keyOf(c);
+    const key = factKey(c, cardinality);
     const list = grouped.get(key) ?? [];
     list.push(c);
     grouped.set(key, list);
@@ -80,28 +97,49 @@ export function isStale(db: DB, root: string, claimId: string): boolean {
   return rows.some((r) => hashFile(root, r.ref) !== r.hash);
 }
 
-/** Lowest common ancestor over the commit DAG. */
+interface CommitParents {
+  parent_id: string | null;
+  merge_parent_id: string | null;
+}
+
+function parentsOf(db: DB, id: string): CommitParents | undefined {
+  return db.prepare('SELECT parent_id, merge_parent_id FROM memory_commit WHERE id = ?').get(id) as
+    | CommitParents
+    | undefined;
+}
+
+/** Lowest common ancestor over the DAG (both parents). */
 export function lca(db: DB, a: string | null, b: string | null): string | null {
   if (!a || !b) return null;
-  const depth = new Map<string, number>();
-  let cursor: string | null = a;
-  let d = 0;
-  while (cursor && !depth.has(cursor)) {
-    depth.set(cursor, d++);
-    const row = db.prepare('SELECT parent_id FROM memory_commit WHERE id = ?').get(cursor) as
-      | { parent_id: string | null }
-      | undefined;
-    cursor = row?.parent_id ?? null;
+
+  const ancestors = new Map<string, number>();
+  const queue: Array<[string, number]> = [[a, 0]];
+  while (queue.length) {
+    const [id, depth] = queue.shift()!;
+    if (ancestors.has(id)) continue;
+    ancestors.set(id, depth);
+    const p = parentsOf(db, id);
+    if (p?.parent_id) queue.push([p.parent_id, depth + 1]);
+    if (p?.merge_parent_id) queue.push([p.merge_parent_id, depth + 1]);
   }
-  cursor = b;
-  while (cursor) {
-    if (depth.has(cursor)) return cursor;
-    const row = db.prepare('SELECT parent_id FROM memory_commit WHERE id = ?').get(cursor) as
-      | { parent_id: string | null }
-      | undefined;
-    cursor = row?.parent_id ?? null;
+
+  const seen = new Set<string>();
+  const fromB: Array<[string, number]> = [[b, 0]];
+  let best: { id: string; depth: number } | null = null;
+  while (fromB.length) {
+    const [id, depth] = fromB.shift()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    if (ancestors.has(id)) {
+      const total = depth + (ancestors.get(id) ?? 0);
+      if (!best || total < best.depth) best = { id, depth: total };
+      continue;
+    }
+    const p = parentsOf(db, id);
+    if (p?.parent_id) fromB.push([p.parent_id, depth + 1]);
+    if (p?.merge_parent_id) fromB.push([p.merge_parent_id, depth + 1]);
   }
-  return null;
+  return best?.id ?? null;
 }
 
 export interface MergeOptions {
@@ -143,13 +181,16 @@ export function planMerge(
     return plan;
   }
 
-  const base = byKey(loadClaims(db, [...activeAt(db, baseCommit).keys()]));
-  const ours = byKey(loadClaims(db, [...activeAt(db, oursTip).keys()]));
-  const theirs = byKey(loadClaims(db, [...activeAt(db, theirsTip).keys()]));
+  const card = opts.ontology.cardinality;
+  const base = byKey(activeClaims(db, baseCommit), card);
+  const ours = byKey(activeClaims(db, oursTip), card);
+  const theirs = byKey(activeClaims(db, theirsTip), card);
 
   const keys = new Set([...base.keys(), ...ours.keys(), ...theirs.keys()]);
   const result = new Map<string, string[]>();
   const oursIds = new Set([...ours.values()].map((c) => c.id));
+  const theirsIds = new Set([...theirs.values()].map((c) => c.id));
+  const baseIds = new Set([...base.values()].map((c) => c.id));
   const staleCache = new Map<string, boolean>();
 
   const stale = (c: ClaimRow | undefined): boolean => {
@@ -158,62 +199,45 @@ export function planMerge(
     return staleCache.get(c.id)!;
   };
 
-  const resolve = (key: string, b: ClaimRow | undefined, o: ClaimRow | undefined, t: ClaimRow | undefined): void => {
-    const subject = (o ?? t ?? b)!.subject_id;
-    const predicate = (o ?? t ?? b)!.predicate;
-    const pending = opts.pendingResolution.get(key);
+  const resolve = (
+    key: string,
+    b: ClaimRow | undefined,
+    o: ClaimRow | undefined,
+    t: ClaimRow | undefined,
+  ): void => {
+    const anchor = (o ?? t ?? b)!;
+    const subject = anchor.subject_id;
+    const predicate = anchor.predicate;
+    const pendingKey = `${subject}${SEP}${predicate}`;
+    const pending = opts.pendingResolution.get(pendingKey);
 
     if (pending === 'both') {
       result.set(key, [o?.id, t?.id].filter((x): x is string => Boolean(x)));
       plan.decisions.push({ subject, predicate, winner: null, loser: null, rule: 'human', reason: 'resolve --take both' });
       return;
     }
-    if (pending === 'ours' && o) {
-      result.set(key, [o.id]);
-      plan.decisions.push({ subject, predicate, winner: o.id, loser: t?.id ?? null, rule: 'human', reason: 'resolve --take ours' });
+    if (pending === 'ours') {
+      result.set(key, o ? [o.id] : []);
+      plan.decisions.push({ subject, predicate, winner: o?.id ?? null, loser: t?.id ?? null, rule: 'human', reason: 'resolve --take ours' });
       return;
     }
-    if (pending === 'theirs' && t) {
-      result.set(key, [t.id]);
-      plan.decisions.push({ subject, predicate, winner: t.id, loser: o?.id ?? null, rule: 'human', reason: 'resolve --take theirs' });
-      return;
-    }
-
-    // R1 — predicate may hold several values: keep both.
-    if (o && t && opts.ontology.cardinality(predicate) === 'many') {
-      result.set(key, [o.id, t.id]);
-      plan.decisions.push({ subject, predicate, winner: null, loser: null, rule: 'cardinality_many', reason: `${predicate} cardinality=many` });
+    if (pending === 'theirs') {
+      result.set(key, t ? [t.id] : []);
+      plan.decisions.push({ subject, predicate, winner: t?.id ?? null, loser: o?.id ?? null, rule: 'human', reason: 'resolve --take theirs' });
       return;
     }
 
     const tierOf = (c: ClaimRow | undefined) => (c ? c.authority : Number.POSITIVE_INFINITY);
-    const byAuthority = (): boolean => {
-      if (!o || !t) return false;
-      if (tierOf(o) === tierOf(t)) return false;
+
+    // R2 — authority tier wins.
+    if (o && t && tierOf(o) !== tierOf(t)) {
       const [w, l] = tierOf(o) < tierOf(t) ? [o, t] : [t, o];
       result.set(key, [w.id]);
       plan.decisions.push({ subject, predicate, winner: w.id, loser: l.id, rule: 'authority', reason: `T${w.authority} beats T${l.authority}` });
-      return true;
-    };
-    const byRecency = (): boolean => {
-      if (!o || !t) return false;
-      if (tierOf(o) !== tierOf(t)) return false;
-      // Only let recency decide when at least one side is verified/approved.
-      if (opts.strict || tierOf(o) > 2) return false;
-      const [w, l] = o.tx_from >= t.tx_from ? [o, t] : [t, o];
-      result.set(key, [w.id]);
-      plan.decisions.push({ subject, predicate, winner: w.id, loser: l.id, rule: 'recency', reason: `same tier T${w.authority}, newer wins` });
-      return true;
-    };
-
-    const ladder = opts.strategy === 'recency' ? [byRecency, byAuthority] : [byAuthority, byRecency];
-
-    // R2 / R5 in the configured order.
-    for (const step of ladder) {
-      if (step()) return;
+      return;
     }
 
-    // R3 — one side has valid evidence, the other drifted.
+    // R3 — one side's evidence drifted, trust the other.
     if (o && t && stale(o) !== stale(t)) {
       const [w, l] = stale(o) ? [t, o] : [o, t];
       result.set(key, [w.id]);
@@ -221,9 +245,35 @@ export function planMerge(
       return;
     }
 
+    // R4 — delete vs edit: the deletion wins (safer), unless every present side is unverifiable.
+    if (!o !== !t && b) {
+      const survivor = o ?? t!;
+      const deletingSideIsSafe = !(tierOf(survivor) > 2);
+      if (deletingSideIsSafe) {
+        result.set(key, []);
+        plan.decisions.push({ subject, predicate, winner: null, loser: survivor.id, rule: 'retract_wins', reason: 'delete vs edit → deletion wins' });
+        return;
+      }
+    }
+
+    // R5 — same tier, at least one side verified: newer wins. Equal timestamps never decide.
+    if (o && t && tierOf(o) === tierOf(t) && !opts.strict && tierOf(o) <= 2 && o.tx_from !== t.tx_from) {
+      const [w, l] = o.tx_from > t.tx_from ? [o, t] : [t, o];
+      result.set(key, [w.id]);
+      plan.decisions.push({ subject, predicate, winner: w.id, loser: l.id, rule: 'recency', reason: `same tier T${w.authority}, newer wins` });
+      return;
+    }
+
     // R6 — do not guess.
-    plan.conflicts.push({ subject, predicate, ours: o ?? null, theirs: t ?? null, base: b ?? null, reason: 'no rule applies (same tier, no verifiable evidence)' });
-    result.set(key, ours.get(key) ? [ours.get(key)!.id] : []);
+    plan.conflicts.push({
+      subject,
+      predicate,
+      ours: o ?? null,
+      theirs: t ?? null,
+      base: b ?? null,
+      reason: 'no rule applies (same tier, no verifiable evidence)',
+    });
+    result.set(key, o ? [o.id] : []);
   };
 
   for (const key of keys) {
@@ -255,7 +305,10 @@ export function planMerge(
   }
 
   const finalIds = new Set([...result.values()].flat());
+  // A merge commit has both tips as parents, so the fold would resurrect anything
+  // that still lives on either side. Retract explicitly instead.
+  const unionIds = new Set([...oursIds, ...theirsIds]);
   plan.add = [...finalIds].filter((id) => !oursIds.has(id));
-  plan.retract = [...oursIds].filter((id) => !finalIds.has(id));
+  plan.retract = [...unionIds].filter((id) => !finalIds.has(id));
   return plan;
 }

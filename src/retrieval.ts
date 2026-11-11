@@ -2,6 +2,7 @@ import type { DB } from './db.js';
 import { hashFile } from './extract/index.js';
 import { evidenceFor, activeAt, head, type ClaimRow } from './model.js';
 import { byKey, isStale } from './merge.js';
+import { loadOntology } from './ontology.js';
 import { branchFor, currentSession } from './session.js';
 
 export interface SearchOptions {
@@ -33,7 +34,7 @@ const W_STALE = -10.0;
 const VERIFIED_WINDOW_DAYS = 14;
 const DAY_MS = 86_400_000;
 
-/** All current claims of the caller's branch active set (one per subject+predicate). */
+/** All current claims of the caller's branch active set (drafts excluded, many-values preserved). */
 function branchClaims(db: DB, root: string): Map<string, ClaimRow> {
   const session = currentSession(root);
   const branch = branchFor(session);
@@ -44,9 +45,9 @@ function branchClaims(db: DB, root: string): Map<string, ClaimRow> {
   const stmt = db.prepare('SELECT * FROM claim WHERE id = ?');
   for (const id of ids) {
     const row = stmt.get(id) as ClaimRow | undefined;
-    if (row) rows.push(row);
+    if (row && row.state === 'active') rows.push(row);
   }
-  return byKey(rows);
+  return byKey(rows, loadOntology(root).cardinality);
 }
 
 /** Entity ids that carry a path as their canonical part (file/doc/test/sym). */

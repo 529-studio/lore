@@ -142,22 +142,26 @@ export function resolveHead(db: DB, ref: string): string | null {
   return head(db, ref) ?? head(db, 'main');
 }
 
-/** Fold commit entries from root to tip. */
+/** Fold commit entries from the DAG root(s) to tip. Parents always apply before children. */
 export function activeAt(db: DB, commitId: string | null): Map<string, string> {
   if (!commitId) return new Map();
-  const chain: string[] = [];
-  let cursor: string | null = commitId;
-  const seen = new Set<string>();
-  while (cursor && !seen.has(cursor)) {
-    seen.add(cursor);
-    chain.push(cursor);
-    const row = db.prepare('SELECT parent_id FROM memory_commit WHERE id = ?').get(cursor) as
-      | { parent_id: string | null }
-      | undefined;
-    cursor = row?.parent_id ?? null;
-  }
+
+  const order: string[] = [];
+  const visited = new Set<string>();
+  const visit = (id: string) => {
+    if (visited.has(id)) return;
+    visited.add(id);
+    const row = db
+      .prepare('SELECT parent_id, merge_parent_id FROM memory_commit WHERE id = ?')
+      .get(id) as { parent_id: string | null; merge_parent_id: string | null } | undefined;
+    if (row?.parent_id) visit(row.parent_id);
+    if (row?.merge_parent_id) visit(row.merge_parent_id);
+    order.push(id);
+  };
+  visit(commitId);
+
   const set = new Map<string, string>();
-  for (const c of chain.reverse()) {
+  for (const c of order) {
     const entries = db
       .prepare('SELECT claim_id, op FROM commit_entry WHERE commit_id = ? ORDER BY rowid')
       .all(c) as Array<{ claim_id: string; op: string }>;
@@ -169,12 +173,18 @@ export function activeAt(db: DB, commitId: string | null): Map<string, string> {
   return set;
 }
 
+export function inBranch(db: DB, ref: string, claimId: string): boolean {
+  return activeAt(db, head(db, ref) ?? head(db, 'main')).has(claimId);
+}
+
 export interface CommitInput {
   ref: string;
   entries: Array<{ claim_id: string; op: 'add' | 'supersede' | 'retract' | 'restore' }>;
   message: string;
   author: string;
   kind: 'init' | 'write' | 'merge' | 'revert' | 'gc' | 'import';
+  /** Second parent: the branch that was merged in. Makes the history a real DAG. */
+  mergeParent?: string | null;
 }
 
 export function makeCommit(db: DB, input: CommitInput): string {
@@ -184,13 +194,13 @@ export function makeCommit(db: DB, input: CommitInput): string {
     if (e.op === 'retract') set.delete(e.claim_id);
     else set.set(e.claim_id, e.op);
   }
-  const tree = treeHash(set.keys());
+  const tree = treeHash([...set.entries()].map(([claim_id, op]) => ({ claim_id, op })));
   const ts = new Date().toISOString();
-  const id = `k_${sha256(`${parent ?? 'root'}|${tree}|${input.message}|${input.author}|${ts}`).slice(0, 12)}`;
+  const id = `k_${sha256(`${parent ?? 'root'}|${tree}|${input.message}|${input.author}|${ts}`).slice(0, 32)}`;
 
   db.prepare(
-    'INSERT INTO memory_commit(id, parent_id, tree_hash, message, author, ts, kind) VALUES (?, ?, ?, ?, ?, ?, ?)',
-  ).run(id, parent, tree, input.message, input.author, ts, input.kind);
+    'INSERT INTO memory_commit(id, parent_id, merge_parent_id, tree_hash, message, author, ts, kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run(id, parent, input.mergeParent ?? null, tree, input.message, input.author, ts, input.kind);
 
   const insert = db.prepare('INSERT OR IGNORE INTO commit_entry(commit_id, claim_id, op) VALUES (?, ?, ?)');
   for (const e of input.entries) insert.run(id, e.claim_id, e.op);

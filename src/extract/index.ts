@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 export interface Candidate {
@@ -78,10 +78,21 @@ function readText(root: string, rel: string): string | null {
 }
 
 export function hashFile(root: string, rel: string): string | null {
-  const abs = path.join(root, rel);
-  if (!existsSync(abs)) return null;
+  const abs = path.resolve(root, rel);
+  let real: string;
+  let rootReal: string;
   try {
-    return `sha256:${createHash('sha256').update(readFileSync(abs)).digest('hex')}`;
+    rootReal = realpathSync(root);
+    real = realpathSync(abs);
+  } catch {
+    return null;
+  }
+  // Refuse anything that escapes the repo, is not a regular file, or is huge.
+  if (real !== rootReal && !real.startsWith(rootReal + path.sep)) return null;
+  const st = statSync(real);
+  if (!st.isFile() || st.size > 4 * 1024 * 1024) return null;
+  try {
+    return `sha256:${createHash('sha256').update(readFileSync(real)).digest('hex')}`;
   } catch {
     return null;
   }

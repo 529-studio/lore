@@ -8,6 +8,7 @@ import { ingestCommand } from './commands/ingest.js';
 import { initCommand } from './commands/init.js';
 import { logCommand } from './commands/log.js';
 import { mergeCommand } from './commands/merge.js';
+import { promoteCommand } from './commands/promote.js';
 import { resolveCommand } from './commands/resolve.js';
 import { revertCommand } from './commands/revert.js';
 import { statusCommand } from './commands/status.js';
@@ -118,6 +119,22 @@ program
     }
     resolveCommand({ subject, predicate, take, reason: opts.reason });
   });
+
+program
+  .command('promote')
+  .description('merge branch hiện tại vào main để session khác thấy được')
+  .option('--into <ref>', 'đích', 'main')
+  .option('--session <id>')
+  .option('--strict', 'không cho recency phá conflict cùng tier')
+  .option('--dry-run')
+  .action((opts) =>
+    promoteCommand({
+      session: opts.session,
+      into: opts.into,
+      strict: opts.strict,
+      dryRun: opts.dryRun,
+    }),
+  );
 
 program
   .command('status')

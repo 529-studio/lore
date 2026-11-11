@@ -20,6 +20,14 @@ export function dbPathFor(root: string): string {
   return path.join(root, '.lore', 'lore.db');
 }
 
+/** Idempotent schema upgrades for stores created by older versions. */
+function migrate(db: DB): void {
+  const cols = db.prepare('PRAGMA table_info(memory_commit)').all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === 'merge_parent_id')) {
+    db.exec('ALTER TABLE memory_commit ADD COLUMN merge_parent_id TEXT REFERENCES memory_commit(id)');
+  }
+}
+
 export function openDb(root: string): DB {
   const file = dbPathFor(root);
   if (!existsSync(file)) {
@@ -28,7 +36,9 @@ export function openDb(root: string): DB {
   const db = new Database(file);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  db.pragma('busy_timeout = 5000');
   db.exec(SCHEMA);
+  migrate(db);
   return db;
 }
 
@@ -37,7 +47,9 @@ export function createDb(root: string): DB {
   const db = new Database(dbPathFor(root));
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  db.pragma('busy_timeout = 5000');
   db.exec(SCHEMA);
+  migrate(db);
   return db;
 }
 

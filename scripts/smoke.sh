@@ -159,8 +159,45 @@ CLEAN_CODE=$?
 set -e
 [ "$CLEAN_CODE" -eq 0 ] || fail "expected verify --all --strict exit 0 after restore, got $CLEAN_CODE"
 
-CLAIM_ID="$(lore blame env:DEMO_TOKEN | grep -oE '\bc_[a-f0-9]{12}' | head -1)"
+CLAIM_ID="$(lore blame env:DEMO_TOKEN | grep -oE '\bc_[a-f0-9]{32}' | head -1)"
 [ -n "$CLAIM_ID" ] || fail "could not read a claim id from blame"
 expect_contains "$(lore verify "$CLAIM_ID")" "valid"
 
-echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify"
+# --- wave 2.5: drafts are invisible to retrieval ----------------------------
+DRAFT_ID="$(LORE_SESSION=gate lore write --subject sym:src/cli.js#main --predicate is_hot_path --object "suy luận của agent" --kind agent --author agent:gate | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+[ -n "$DRAFT_ID" ] || fail "could not read draft id"
+expect_not_contains "$(LORE_SESSION=gate lore search is_hot_path --include-stale)" "is_hot_path"
+LORE_SESSION=gate lore approve "$DRAFT_ID" >/dev/null
+expect_contains "$(LORE_SESSION=gate lore search is_hot_path --include-stale)" "is_hot_path"
+
+# --- wave 2.5: promote makes a branch visible to new sessions ---------------
+LORE_SESSION=owner lore write --subject env:PROMO_FLAG --predicate read_by --object README.md --kind file --ref README.md --author agent:owner >/dev/null
+LORE_SESSION=owner lore promote >/dev/null
+expect_contains "$(LORE_SESSION=outsider lore search PROMO_FLAG --include-stale)" "env:PROMO_FLAG"
+
+# --- wave 2.5: cardinality=many keeps both values ---------------------------
+LORE_SESSION=many_a lore write --subject env:MULTI_FLAG --predicate read_by --object README.md --kind file --ref README.md >/dev/null
+LORE_SESSION=many_b lore write --subject env:MULTI_FLAG --predicate read_by --object src/cli.js --kind file --ref src/cli.js >/dev/null
+MANY_MERGE="$(LORE_SESSION=many_a lore merge agent/many_b)"
+expect_contains "$MANY_MERGE" "merged"
+MANY_BLAME="$(LORE_SESSION=many_a lore blame env:MULTI_FLAG)"
+expect_contains "$MANY_BLAME" "README.md"
+expect_contains "$MANY_BLAME" "src/cli.js"
+
+# --- wave 2.5: retraction after a merge is still visible (real DAG) ----------
+B_WRITE="$(LORE_SESSION=many_b lore log -n 1 | grep -oE '^k_[a-f0-9]{32}' | head -1)"
+LORE_SESSION=many_b lore revert "$B_WRITE" >/dev/null
+LORE_SESSION=many_a lore merge agent/many_b >/dev/null
+expect_contains "$(LORE_SESSION=many_a lore blame env:MULTI_FLAG)" "out-of-branch"
+
+# --- wave 2.5: R4 delete vs edit ---------------------------------------------
+LORE_SESSION=r4_base lore write --subject env:R4_FLAG --predicate entrypoint --object README.md --kind file --ref README.md >/dev/null
+R4_ADD="$(LORE_SESSION=r4_base lore log -n 1 | grep -oE '^k_[a-f0-9]{32}' | head -1)"
+LORE_SESSION=r4_base lore promote >/dev/null
+LORE_SESSION=r4_del lore revert "$R4_ADD" >/dev/null
+LORE_SESSION=r4_edit lore write --subject env:R4_FLAG --predicate entrypoint --object src/cli.js --kind file --ref src/cli.js >/dev/null
+R4_MERGE="$(LORE_SESSION=r4_del lore merge agent/r4_edit)"
+expect_contains "$R4_MERGE" "retract_wins"
+expect_not_contains "$(LORE_SESSION=r4_del lore search R4_FLAG --include-stale)" "R4_FLAG"
+
+echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins"

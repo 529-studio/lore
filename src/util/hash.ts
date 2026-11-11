@@ -36,10 +36,11 @@ export function claimId(c: ClaimHashInput): string {
     subject: c.subject,
     valid_from: c.valid_from ?? null,
   };
-  return `c_${sha256(stableStringify(canonical)).slice(0, 12)}`;
+  return `c_${sha256(stableStringify(canonical)).slice(0, 32)}`;
 }
 
-export function treeHash(activeIds: Iterable<string>): string {
-  const ids = [...activeIds].sort();
-  return `sha256:${sha256(ids.join('\n'))}`;
+/** Order-independent, but keeps the op: a draft and an active snapshot must not collide. */
+export function treeHash(entries: Iterable<{ claim_id: string; op: string }>): string {
+  const items = [...entries].map((e) => `${e.claim_id}:${e.op}`).sort();
+  return `sha256:${sha256(items.join('\n'))}`;
 }
