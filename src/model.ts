@@ -19,6 +19,7 @@ export interface WriteInput {
   confidence?: number;
   author?: string;
   validFrom?: string | null;
+  supersedes?: string | null;
 }
 
 export interface UpsertResult {
@@ -95,7 +96,7 @@ export function upsertClaim(db: DB, input: WriteInput): UpsertResult {
     db.prepare(
       `INSERT INTO claim(id, subject_id, predicate, object_json, valid_from, valid_to, tx_from,
                          authority, confidence, author, supersedes, state)
-       VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, NULL, ?)`,
+       VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       input.subject,
@@ -106,6 +107,7 @@ export function upsertClaim(db: DB, input: WriteInput): UpsertResult {
       authority,
       input.confidence ?? (authority <= 1 ? 0.95 : 0.6),
       input.author ?? 'human:cli',
+      input.supersedes ?? null,
       state,
     );
   } else if (existing.state === 'draft' && state === 'active') {
@@ -130,6 +132,43 @@ export function upsertClaim(db: DB, input: WriteInput): UpsertResult {
   return { id, inserted: !existing, state, authority };
 }
 
+export interface SupersedeInput {
+  object: string;
+  evidence: EvidenceInput[];
+  confidence?: number;
+  author?: string;
+}
+
+/**
+ * Replace a claim with a new version. The old row keeps its history but gains a
+ * valid_to timestamp, and the branch fold removes it via the supersede op.
+ */
+export function supersedeClaim(
+  db: DB,
+  oldId: string,
+  input: SupersedeInput,
+): { oldId: string; newId: string; state: ClaimState; authority: number } {
+  const old = db.prepare('SELECT * FROM claim WHERE id = ?').get(oldId) as ClaimRow | undefined;
+  if (!old) throw new Error(`no such claim: ${oldId}`);
+
+  const result = upsertClaim(db, {
+    subject: old.subject_id,
+    predicate: old.predicate,
+    object: input.object,
+    evidence: input.evidence,
+    confidence: input.confidence,
+    author: input.author,
+    supersedes: oldId,
+  });
+
+  if (result.id === oldId) {
+    throw new Error('the new object is identical to the current claim');
+  }
+
+  db.prepare('UPDATE claim SET valid_to = ? WHERE id = ?').run(new Date().toISOString(), oldId);
+  return { oldId, newId: result.id, state: result.state, authority: result.authority };
+}
+
 export function head(db: DB, ref: string): string | null {
   const row = db.prepare('SELECT commit_id FROM ref WHERE name = ?').get(ref) as
     | { commit_id: string }
@@ -142,6 +181,25 @@ export function resolveHead(db: DB, ref: string): string | null {
 }
 
 /** Fold commit entries from the DAG root(s) to tip. Parents always apply before children. */
+function applyEntries(
+  db: DB,
+  set: Map<string, string>,
+  entries: Array<{ claim_id: string; op: string }>,
+): void {
+  const supersededBy = db.prepare('SELECT supersedes FROM claim WHERE id = ?');
+  for (const e of entries) {
+    if (e.op === 'retract') {
+      set.delete(e.claim_id);
+      continue;
+    }
+    if (e.op === 'supersede') {
+      const row = supersededBy.get(e.claim_id) as { supersedes: string | null } | undefined;
+      if (row?.supersedes) set.delete(row.supersedes);
+    }
+    set.set(e.claim_id, e.op);
+  }
+}
+
 export function activeAt(db: DB, commitId: string | null): Map<string, string> {
   if (!commitId) return new Map();
 
@@ -164,10 +222,7 @@ export function activeAt(db: DB, commitId: string | null): Map<string, string> {
     const entries = db
       .prepare('SELECT claim_id, op FROM commit_entry WHERE commit_id = ? ORDER BY rowid')
       .all(c) as Array<{ claim_id: string; op: string }>;
-    for (const e of entries) {
-      if (e.op === 'retract') set.delete(e.claim_id);
-      else set.set(e.claim_id, e.op);
-    }
+    applyEntries(db, set, entries);
   }
   return set;
 }
@@ -189,10 +244,7 @@ export interface CommitInput {
 export function makeCommit(db: DB, input: CommitInput): string {
   const parent = resolveHead(db, input.ref);
   const set = activeAt(db, parent);
-  for (const e of input.entries) {
-    if (e.op === 'retract') set.delete(e.claim_id);
-    else set.set(e.claim_id, e.op);
-  }
+  applyEntries(db, set, input.entries);
   const tree = treeHash([...set.entries()].map(([claim_id, op]) => ({ claim_id, op })));
   const ts = new Date().toISOString();
   const id = `k_${sha256(`${parent ?? 'root'}|${tree}|${input.message}|${input.author}|${ts}`).slice(0, 32)}`;
@@ -217,6 +269,7 @@ export interface ClaimRow {
   predicate: string;
   object_json: string;
   valid_from: string | null;
+  valid_to: string | null;
   tx_from: string;
   authority: number;
   confidence: number;

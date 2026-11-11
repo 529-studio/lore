@@ -16,6 +16,7 @@ import { promoteCommand } from './commands/promote.js';
 import { resolveCommand } from './commands/resolve.js';
 import { revertCommand } from './commands/revert.js';
 import { statusCommand } from './commands/status.js';
+import { supersedeCommand } from './commands/supersede.js';
 import { searchCommand } from './commands/search.js';
 import { verifyCommand } from './commands/verify.js';
 import { writeCommand } from './commands/write.js';
@@ -54,6 +55,29 @@ program
     writeCommand({
       subject: opts.subject,
       predicate: opts.predicate,
+      object: opts.object,
+      kind: opts.kind as EvidenceKind,
+      ref: opts.ref,
+      hash: opts.hash,
+      confidence: opts.confidence,
+      author: opts.author,
+      session: opts.session,
+    }),
+  );
+
+program
+  .command('supersede <claim>')
+  .description('replace a claim with a new version, keeping the old one in history')
+  .requiredOption('--object <text>', 'new claim value')
+  .option('--kind <kind>', 'test|file|command|human|agent', 'file')
+  .option('--ref <ref>', 'evidence source (default: the claim id)')
+  .option('--hash <hash>')
+  .option('--confidence <n>')
+  .option('--author <id>')
+  .option('--session <id>')
+  .action((claim, opts) =>
+    supersedeCommand({
+      claim,
       object: opts.object,
       kind: opts.kind as EvidenceKind,
       ref: opts.ref,
