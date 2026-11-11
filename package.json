@@ -17,6 +17,7 @@
     "dev": "tsx src/cli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "smoke": "bash scripts/smoke.sh",
+    "mcp:smoke": "node scripts/mcp-smoke.mjs",
     "eval": "node scripts/eval.mjs"
   },
   "repository": {
