@@ -1,7 +1,7 @@
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { activeAt, head, type ClaimRow } from '../model.js';
-import { branchFor, currentSession } from '../session.js';
+import { branchFor, currentSession, ensureSession } from '../session.js';
 import { verifyClaim } from '../retrieval.js';
 
 export interface VerifyOptions {
@@ -47,7 +47,7 @@ export function verifyCommand(opts: VerifyOptions): void {
     return;
   }
 
-  const session = currentSession(root);
+  const session = ensureSession(db, root);
   const branch = branchFor(session);
   const tip = head(db, branch) ?? head(db, 'main');
   const active = activeAt(db, tip);

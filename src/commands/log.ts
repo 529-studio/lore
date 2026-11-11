@@ -2,7 +2,7 @@ import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import type { DB } from '../db.js';
 import { head } from '../model.js';
-import { branchFor, currentSession } from '../session.js';
+import { branchFor, currentSession, ensureSession } from '../session.js';
 
 interface CommitRow {
   id: string;
@@ -31,7 +31,7 @@ function chain(db: DB, tip: string | null): CommitRow[] {
 export function logCommand(opts: { limit?: string; session?: string; graph?: boolean }): void {
   const root = requireRoot();
   const db = openDb(root);
-  const session = currentSession(root, opts.session);
+  const session = ensureSession(db, root, opts.session);
   const ref = branchFor(session);
   const tip = head(db, ref) ?? head(db, 'main');
   const limit = Number(opts.limit ?? 20);

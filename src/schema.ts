@@ -91,6 +91,19 @@ CREATE TABLE IF NOT EXISTS merge_conflict (
   resolved     INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS session (
+  id           TEXT PRIMARY KEY,
+  started_at   TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS claim_read (
+  claim_id   TEXT NOT NULL REFERENCES claim(id),
+  session_id TEXT NOT NULL,
+  ts         TEXT NOT NULL,
+  PRIMARY KEY (claim_id, session_id)
+);
+
 CREATE TABLE IF NOT EXISTS resolution (
   subject_id TEXT NOT NULL,
   predicate  TEXT NOT NULL,

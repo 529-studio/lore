@@ -5,7 +5,7 @@ import { head, makeCommit, type ClaimRow } from '../model.js';
 import { planMerge, type Decision } from '../merge.js';
 import { loadOntology } from '../ontology.js';
 import { resolveRevision } from '../revision.js';
-import { branchFor, currentSession } from '../session.js';
+import { branchFor, currentSession, ensureSession } from '../session.js';
 
 const SEP = '\u0000';
 
@@ -55,7 +55,7 @@ export interface MergeOptions {
 export function mergeCommand(opts: MergeOptions): void {
   const root = requireRoot();
   const db = openDb(root);
-  const session = currentSession(root, opts.session);
+  const session = ensureSession(db, root, opts.session);
   const ref = branchFor(session);
   const oursTip = head(db, ref) ?? head(db, 'main');
   const theirs = resolveRevision(db, opts.branch, root);

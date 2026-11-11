@@ -4,7 +4,7 @@ import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { activeAt, head, type ClaimRow } from '../model.js';
 import { isStale } from '../merge.js';
-import { branchFor, currentSession } from '../session.js';
+import { branchFor, currentSession, ensureSession } from '../session.js';
 
 export interface ExportOptions {
   md?: boolean;
@@ -50,7 +50,7 @@ export function exportCommand(opts: ExportOptions): void {
   }
   const root = requireRoot();
   const db = openDb(root);
-  const session = currentSession(root, opts.session);
+  const session = ensureSession(db, root, opts.session);
   const branch = branchFor(session);
   const active = activeAt(db, head(db, branch) ?? head(db, 'main'));
   const stmt = db.prepare('SELECT * FROM claim WHERE id = ?');

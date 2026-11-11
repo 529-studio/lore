@@ -4,7 +4,7 @@ import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { hashFile } from '../extract/index.js';
 import { inBranch, makeCommit, supersedeClaim, type EvidenceKind } from '../model.js';
-import { branchFor, currentSession } from '../session.js';
+import { branchFor, currentSession, ensureSession } from '../session.js';
 
 export interface SupersedeOptions {
   claim: string;
@@ -20,7 +20,7 @@ export interface SupersedeOptions {
 export function supersedeCommand(opts: SupersedeOptions): void {
   const root = requireRoot();
   const db = openDb(root);
-  const session = currentSession(root, opts.session);
+  const session = ensureSession(db, root, opts.session);
   const ref = branchFor(session);
   const evidenceRef = opts.ref ?? opts.claim;
 

@@ -1,8 +1,9 @@
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { hashFile } from '../extract/index.js';
+import { gcCandidates } from '../gc.js';
 import { activeAt, head } from '../model.js';
-import { branchFor, currentSession } from '../session.js';
+import { branchFor, currentSession, ensureSession } from '../session.js';
 
 interface CountRow {
   state: string;
@@ -47,15 +48,12 @@ export function statusCommand(opts: StatusOptions = {}): void {
     }
   }
 
-  const session = currentSession(root);
+  const session = ensureSession(db, root);
   const ref = branchFor(session);
   const branchActive = activeAt(db, head(db, ref) ?? head(db, 'main')).size;
 
   const conflicts = (db.prepare('SELECT COUNT(*) n FROM merge_conflict WHERE resolved = 0').get() as { n: number }).n;
-  const gcCutoff = new Date(Date.now() - 3 * 86_400_000).toISOString();
-  const gcEligible = (
-    db.prepare("SELECT COUNT(*) n FROM claim WHERE state = 'draft' AND tx_from < ?").get(gcCutoff) as { n: number }
-  ).n;
+  const gcEligible = gcCandidates(db, { ttlSessions: 3 }).length;
 
   console.log(pc.bold('lore status'));
   console.log(`  claims     ${pc.bold(String(total))} total  ${pc.green(`${byState.get('active') ?? 0} active`)}  ${pc.yellow(`${byState.get('draft') ?? 0} draft`)}  ${pc.red(`${byState.get('retracted') ?? 0} retracted`)}`);

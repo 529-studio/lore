@@ -183,8 +183,9 @@ agent writes → claim state=draft → promote? → active
 **Never auto-promote:** `agent` inference (needs approval or reuse in two sessions) and `human` chat
 (chat is an injection surface).
 
-**GC:** drafts unread for `ttl_sessions` become `retracted` with reason `gc`. v0.1 approximates this
-with `--ttl-days`; see §15.
+**GC:** a draft nobody reviewed for `ttl_sessions` becomes `retracted`. Sessions are registered by
+any command; "reviewed" means the claim appeared in `blame`. `--ttl-days` remains as an explicit
+override for stores without session history.
 
 **Injection rule:** content read from an untrusted source (issue comment, web page, another agent's
 output) may never carry authority ≥ 2 until verified.
@@ -346,7 +347,6 @@ No LLM judge. Outcome metrics on real repositories:
 |---|---|---|
 | table `commit` | `memory_commit` | `commit` is a SQLite keyword |
 | merge only | also `promote` | `main` must advance or new sessions start empty |
-| draft GC by `ttl_sessions` | `--ttl-days` | no session table yet; documented proxy |
 | R4 "unless the retract is stale" | approximated by the survivor's tier (> T2 blocks deletion) | no per-side stale flag at that step yet |
 | `tree_hash = (claim_id, state)` | `(claim_id, op)` | op is what the fold actually uses |
 | `verify` updates the hash | does not rewrite it | avoid blessing drift; `ingest` is the re-observation path |

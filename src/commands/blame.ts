@@ -1,17 +1,19 @@
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { activeAt, claimsFor, evidenceFor, head } from '../model.js';
-import { branchFor, currentSession } from '../session.js';
+import { branchFor, ensureSession, recordReads } from '../session.js';
 
 export function blameCommand(opts: { subject: string; predicate?: string }): void {
   const root = requireRoot();
   const db = openDb(root);
-  const session = currentSession(root);
+  const session = ensureSession(db, root);
   const ref = branchFor(session);
   const inBranch = activeAt(db, head(db, ref) ?? head(db, 'main'));
   const claims = claimsFor(db, opts.subject).filter(
     (c) => !opts.predicate || c.predicate === opts.predicate,
   );
+
+  if (claims.length) recordReads(db, session, claims.map((c) => c.id));
 
   if (!claims.length) {
     const suggestions = db

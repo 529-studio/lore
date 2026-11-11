@@ -18,6 +18,28 @@ export function currentSession(root: string, override?: string): string {
   return id;
 }
 
+/** Register the current session so GC can count how many ran after a draft was created. */
+export function ensureSession(db: DB, root: string, override?: string): string {
+  const id = currentSession(root, override);
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO session(id, started_at, last_seen_at) VALUES (?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET last_seen_at = excluded.last_seen_at`,
+  ).run(id, now, now);
+  return id;
+}
+
+/** Record that a human actually looked at these claims in this session. */
+export function recordReads(db: DB, session: string, claimIds: string[]): void {
+  if (!claimIds.length) return;
+  const now = new Date().toISOString();
+  const stmt = db.prepare(
+    `INSERT INTO claim_read(claim_id, session_id, ts) VALUES (?, ?, ?)
+     ON CONFLICT(claim_id, session_id) DO UPDATE SET ts = excluded.ts`,
+  );
+  for (const id of claimIds) stmt.run(id, session, now);
+}
+
 export function branchFor(session: string): string {
   return `agent/${session}`;
 }

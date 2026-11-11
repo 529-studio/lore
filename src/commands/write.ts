@@ -2,7 +2,7 @@ import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { inBranch, makeCommit, upsertClaim, type EvidenceKind } from '../model.js';
 import { hashFile } from '../extract/index.js';
-import { branchFor, currentSession } from '../session.js';
+import { branchFor, currentSession, ensureSession } from '../session.js';
 
 export interface WriteOptions {
   subject: string;
@@ -20,7 +20,7 @@ export interface WriteOptions {
 export function writeCommand(opts: WriteOptions): void {
   const root = requireRoot();
   const db = openDb(root);
-  const session = currentSession(root, opts.session);
+  const session = ensureSession(db, root, opts.session);
   const ref = branchFor(session);
 
   if (opts.validFrom && !Number.isFinite(Date.parse(opts.validFrom))) {
