@@ -1,6 +1,6 @@
 import type { DB } from './db.js';
 import { hashCache } from './hash-cache.js';
-import { evidenceFor, activeAt, head, type ClaimRow } from './model.js';
+import { evidenceFor, activeAtAsOf, head, type ClaimRow } from './model.js';
 import { byKey, isStale } from './merge.js';
 import { loadOntology } from './ontology.js';
 import { branchFor, currentSession } from './session.js';
@@ -43,33 +43,6 @@ function parseInstant(value: string, label: string): number {
   return ms;
 }
 
-/** Latest commit reachable from tip whose transaction time is <= the instant. */
-function commitAsOf(db: DB, tip: string | null, instant: number): string | null {
-  if (!tip) return null;
-  const seen = new Set<string>();
-  const queue: string[] = [tip];
-  let best: string | null = null;
-  let bestTs = Number.NEGATIVE_INFINITY;
-  const stmt = db.prepare('SELECT ts, parent_id, merge_parent_id FROM memory_commit WHERE id = ?');
-  while (queue.length) {
-    const id = queue.shift()!;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    const row = stmt.get(id) as
-      | { ts: string; parent_id: string | null; merge_parent_id: string | null }
-      | undefined;
-    if (!row) continue;
-    const ts = Date.parse(row.ts);
-    if (ts <= instant && ts > bestTs) {
-      bestTs = ts;
-      best = id;
-    }
-    if (row.parent_id) queue.push(row.parent_id);
-    if (row.merge_parent_id) queue.push(row.merge_parent_id);
-  }
-  return best;
-}
-
 function validAt(claim: ClaimRow, instant: number): boolean {
   const from = claim.valid_from ? Date.parse(claim.valid_from) : Number.NEGATIVE_INFINITY;
   const to = claim.valid_to ? Date.parse(claim.valid_to) : Number.POSITIVE_INFINITY;
@@ -82,8 +55,7 @@ function branchClaims(db: DB, root: string, asOf?: string): Map<string, ClaimRow
   const branch = branchFor(session);
   const headTip = head(db, branch) ?? head(db, 'main');
   const instant = asOf ? parseInstant(asOf, '--as-of') : Date.now();
-  const tip = asOf ? commitAsOf(db, headTip, instant) : headTip;
-  const active = activeAt(db, tip);
+  const active = activeAtAsOf(db, headTip, instant);
   const ids = [...active.keys()];
   const rows: ClaimRow[] = [];
   const stmt = db.prepare('SELECT * FROM claim WHERE id = ?');

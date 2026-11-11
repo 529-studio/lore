@@ -175,36 +175,43 @@ function toolWrite(args: WriteArgs): ToolResult {
   const ctx = context();
   try {
     const kind = args.kind as EvidenceKind;
-    const evidenceRef = args.ref ?? args.subject;
+    const subject = args.subject;
+    const predicate = args.predicate;
+    const object = args.object;
+    const evidenceRef = args.ref ?? subject;
     // Guarded: rejects absolute paths, traversal, non-regular files and > 4 MB.
     const hash = kind === 'file' || kind === 'test' ? hashCache(ctx.db, ctx.root).hash(evidenceRef) : null;
 
     const author = 'agent:mcp';
-    const result = upsertClaim(ctx.db, {
-      subject: args.subject,
-      predicate: args.predicate,
-      object: args.object,
-      confidence: args.confidence,
-      validFrom: args.valid_from,
-      author,
-      // Never writes to `main` — the commit always lands on agent/<session>.
-      evidence: [{ kind, ref: evidenceRef, hash }],
-    });
-
-    // Drafts never enter the active set; a claim missing from this branch still needs an entry.
-    if (result.state === 'active' && !inBranch(ctx.db, ctx.branch, result.id)) {
-      makeCommit(ctx.db, {
-        ref: ctx.branch,
-        entries: [{ claim_id: result.id, op: 'add' }],
-        message: `mcp write: ${args.predicate} ${args.subject}`,
+    const write = ctx.db.transaction(() => {
+      const result = upsertClaim(ctx.db, {
+        subject,
+        predicate,
+        object,
+        confidence: args.confidence,
+        validFrom: args.valid_from,
         author,
-        kind: 'write',
+        // Never writes to `main` — the commit always lands on agent/<session>.
+        evidence: [{ kind, ref: evidenceRef, hash }],
       });
-    }
+
+      // Drafts never enter the active set; a claim missing from this branch still needs an entry.
+      if (result.state === 'active' && !inBranch(ctx.db, ctx.branch, result.id)) {
+        makeCommit(ctx.db, {
+          ref: ctx.branch,
+          entries: [{ claim_id: result.id, op: 'add' }],
+          message: `mcp write: ${predicate} ${subject}`,
+          author,
+          kind: 'write',
+        });
+      }
+      return result;
+    });
+    const result = write();
 
     const text =
       `wrote ${result.id} (${result.state}) to ${ctx.branch}\n` +
-      `  ${args.subject} — ${args.predicate}: ${args.object}\n` +
+      `  ${subject} — ${predicate}: ${object}\n` +
       `  evidence: ${kind}:${evidenceRef}` +
       (hash ? ` @ ${hash.slice(0, 15)}…` : '') +
       (result.state === 'draft' ? '\n  draft — not in retrieval until approved (lore approve)' : '');
@@ -273,13 +280,12 @@ function toolBlame(args: BlameArgs): ToolResult {
 function toolStatus(_args: Record<string, never>): ToolResult {
   const ctx = context();
   try {
-    let drafts = 0;
+    // Drafts are never committed, so they cannot be counted from the branch fold.
+    const drafts = (ctx.db.prepare("SELECT COUNT(*) AS n FROM claim WHERE state = 'draft'").get() as {
+      n: number;
+    }).n;
     let stale = 0;
     for (const id of ctx.branchActive.keys()) {
-      const row = ctx.db.prepare('SELECT state FROM claim WHERE id = ?').get(id) as
-        | { state: string }
-        | undefined;
-      if (row?.state === 'draft') drafts++;
       if (isStale(ctx.db, ctx.root, id)) stale++;
     }
     const summary = {

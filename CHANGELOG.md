@@ -10,6 +10,21 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 - GitHub Action: ingests a pull request, diffs memory against the base branch, and comments what the
   change teaches or invalidates. Base memory is cached by commit SHA.
 
+### Fixed
+
+- `search --as-of` walked only one commit chain, so facts that lived on a sibling branch before a
+  merge disappeared. The whole ancestry is now folded and filtered by transaction time.
+- The hash cache keyed on size and mtime only, so an edit that preserved both served a stale hash and
+  the next `ingest` re-blessed it. The key now includes `ctime_ns`, and `--no-cache` works on
+  `search` and `verify` as well as `status`.
+- A `file`/`test` claim whose evidence could not be hashed (missing file, symlink escape) was
+  promoted to active and never went stale. It stays a draft, and existing hash-less evidence now
+  reads as stale.
+- `readText` followed symlinks out of the repository; it now resolves inside the root.
+- `memory_status.drafts` counted from the branch fold, where drafts never appear, so it was always 0.
+- MCP `memory_write` was not transactional; a crash could leave a claim without a commit entry.
+- `blame` labelled retracted claims as out-of-branch.
+
 ## [0.1.2] — 2026-11-11
 
 ### Added

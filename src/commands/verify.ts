@@ -3,12 +3,14 @@ import { openDb, requireRoot } from '../db.js';
 import { activeAt, head, type ClaimRow } from '../model.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
 import { verifyClaim } from '../retrieval.js';
+import { setHashCacheEnabled } from '../hash-cache.js';
 
 export interface VerifyOptions {
   claim?: string;
   all?: boolean;
   strict?: boolean;
   accept?: boolean;
+  noCache?: boolean;
 }
 
 /**
@@ -18,6 +20,7 @@ export interface VerifyOptions {
 export function verifyCommand(opts: VerifyOptions): void {
   const root = requireRoot();
   const db = openDb(root);
+  if (opts.noCache) setHashCacheEnabled(db, root, false);
 
   const runOne = (claimId: string): boolean => {
     const result = verifyClaim(db, root, claimId, { accept: opts.accept });

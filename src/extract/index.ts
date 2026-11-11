@@ -73,10 +73,10 @@ export function listFiles(root: string): string[] {
 
 function readText(root: string, rel: string): string | null {
   if (!TEXT_EXT.has(path.extname(rel))) return null;
-  const abs = path.join(root, rel);
+  const real = resolveInside(root, rel);
+  if (!real) return null;
   try {
-    if (statSync(abs).size > MAX_BYTES) return null;
-    return readFileSync(abs, 'utf8');
+    return readFileSync(real, 'utf8');
   } catch {
     return null;
   }

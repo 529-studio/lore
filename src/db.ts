@@ -26,6 +26,11 @@ function migrate(db: DB): void {
   if (!cols.some((c) => c.name === 'merge_parent_id')) {
     db.exec('ALTER TABLE memory_commit ADD COLUMN merge_parent_id TEXT REFERENCES memory_commit(id)');
   }
+
+  const hashCols = db.prepare('PRAGMA table_info(file_hash)').all() as Array<{ name: string }>;
+  if (!hashCols.some((c) => c.name === 'ctime_ns')) {
+    db.exec("ALTER TABLE file_hash ADD COLUMN ctime_ns TEXT NOT NULL DEFAULT ''");
+  }
 }
 
 export function openDb(root: string): DB {

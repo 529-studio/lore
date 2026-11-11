@@ -41,9 +41,11 @@ export function blameCommand(opts: { subject: string; predicate?: string }): voi
       const state =
         c.state === 'draft'
           ? pc.yellow('draft')
-          : inBranch.has(c.id)
-            ? pc.green('active')
-            : pc.dim('out-of-branch');
+          : c.state === 'retracted'
+            ? pc.red('retracted')
+            : inBranch.has(c.id)
+              ? pc.green('active')
+              : pc.dim('out-of-branch');
       const obj = (() => {
         try {
           return String(JSON.parse(c.object_json));

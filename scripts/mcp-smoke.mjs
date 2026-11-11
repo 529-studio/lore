@@ -183,6 +183,10 @@ try {
 
   // --- draft gating + approve over MCP ---------------------------------------------
   const draftId = write.result?.structuredContent?.id;
+  const statusAfterDraft = await rpc('tools/call', { name: 'memory_status', arguments: {} });
+  if (!(statusAfterDraft.result?.structuredContent?.drafts >= 1)) {
+    fail(`memory_status.drafts should count the draft, got ${statusAfterDraft.result?.structuredContent?.drafts}`);
+  }
   const draftSearch = await rpc('tools/call', {
     name: 'memory_search',
     arguments: { query: 'mcp smoke asserts this claim exists', include_stale: true, budget_tokens: 4000 },
