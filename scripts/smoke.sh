@@ -248,4 +248,13 @@ expect_contains "$(LORE_SESSION=gc lore gc --ttl-days 0)" "retracted 1"
 expect_contains "$(lore status)" "conflicts"
 expect_contains "$(lore status)" "gc"
 
-echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment"
+# --- supersede ---------------------------------------------------------------
+SUP_OLD="$(lore write --subject env:SUP_FLAG --predicate read_by --object README.md --kind file --ref README.md | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+lore supersede "$SUP_OLD" --object src/cli.js --kind file --ref src/cli.js >/dev/null
+SUP_BLAME="$(lore blame env:SUP_FLAG)"
+expect_contains "$SUP_BLAME" "src/cli.js"
+expect_contains "$SUP_BLAME" "out-of-branch"
+expect_contains "$SUP_BLAME" "valid_to"
+expect_not_contains "$(lore search SUP_FLAG --files src/cli.js)" "README.md"
+
+echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede"

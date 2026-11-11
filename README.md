@@ -183,9 +183,10 @@ lore merge <branch>           3-way merge; aborts with exit 2 on real conflicts
 lore resolve <subject> <pred>  record a human decision for one conflict
 lore promote                   merge the current branch into main
 lore revert <commit>           inverse commit, history preserved
-lore verify <claim> | --all    re-hash evidence; --strict exits 3 when stale
+lore verify <claim> | --all    re-hash evidence; --accept stores a legitimate change
 lore gc [--ttl-days 3]         retract aged drafts (rows are never deleted)
-lore export --md               deterministic markdown projection (AGENTS.md)
+lore export --md               deterministic projection; stale claims under Needs verification
+lore supersede <claim>         replace a claim, keeping the old version in history
 lore mcp                       MCP server over stdio
 ```
 
