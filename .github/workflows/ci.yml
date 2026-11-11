@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Build, test, eval, policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build and typecheck
+        run: npm run build && npm run typecheck
+
+      - name: End-to-end smoke
+        run: npm run smoke
+
+      - name: MCP smoke
+        run: npm run mcp:smoke
+
+      - name: Outcome eval (self fixture)
+        run: npm run eval -- --fixtures 1
+
+      - name: Docs budget and language
+        run: npm run docs:lint
+
+      - name: Public safety scan
+        run: npm run check:public

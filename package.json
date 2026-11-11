@@ -1,0 +1,60 @@
+{
+  "name": "@529studio/lore",
+  "version": "0.1.0",
+  "description": "Git for what your AI agents know — versioned, verifiable, mergeable memory for multi-agent coding.",
+  "type": "module",
+  "bin": {
+    "lore": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "smoke": "bash scripts/smoke.sh",
+    "mcp:smoke": "node scripts/mcp-smoke.mjs",
+    "eval": "node scripts/eval.mjs",
+    "docs:lint": "node scripts/docs-lint.mjs",
+    "check:public": "bash scripts/check-public-safe.sh",
+    "prepublishOnly": "npm run build && npm run smoke"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/529-studio/lore.git"
+  },
+  "homepage": "https://github.com/529-studio/lore#readme",
+  "bugs": {
+    "url": "https://github.com/529-studio/lore/issues"
+  },
+  "keywords": [
+    "agent-memory",
+    "mcp",
+    "multi-agent",
+    "ai-agents",
+    "git-for-memory",
+    "claude-code",
+    "codex",
+    "memory"
+  ],
+  "author": "529 Studio",
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "commander": "^15.1.0",
+    "picocolors": "^1.1.1",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

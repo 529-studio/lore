@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.lore/
+*.log
+.DS_Store
+eval-results.json
