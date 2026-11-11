@@ -1,6 +1,7 @@
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { searchClaims } from '../retrieval.js';
+import { setHashCacheEnabled } from '../hash-cache.js';
 import { evidenceFor } from '../model.js';
 
 export interface SearchCommandOptions {
@@ -10,6 +11,7 @@ export interface SearchCommandOptions {
   budget?: string; // token budget
   includeStale?: boolean;
   asOf?: string;
+  noCache?: boolean;
   json?: boolean;
 }
 
@@ -23,6 +25,7 @@ function list(value: string | undefined): string[] | undefined {
 export function searchCommand(opts: SearchCommandOptions): void {
   const root = requireRoot();
   const db = openDb(root);
+  if (opts.noCache) setHashCacheEnabled(db, root, false);
 
   const hits = searchClaims(db, root, {
     query: opts.query,

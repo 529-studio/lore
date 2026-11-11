@@ -218,6 +218,7 @@ program
   .option('--budget <n>', 'token budget (chars/4)', '2000')
   .option('--include-stale', 'keep stale claims')
   .option('--as-of <iso>', 'read memory as it was known and valid at this instant')
+  .option('--no-cache', 'bypass the hash cache')
   .option('--json', 'machine-readable JSON')
   .action((query, opts) =>
     searchCommand({
@@ -227,6 +228,7 @@ program
       budget: opts.budget,
       includeStale: opts.includeStale,
       asOf: opts.asOf,
+      noCache: opts.cache === false,
       json: opts.json,
     }),
   );
@@ -237,7 +239,16 @@ program
   .option('--all', 'verify every claim in the current branch active set')
   .option('--strict', 'exit 3 when stale claims remain')
   .option('--accept', 're-observe drifted files and store the new hash')
-  .action((claim, opts) => verifyCommand({ claim, all: opts.all, strict: opts.strict, accept: opts.accept }));
+  .option('--no-cache', 'bypass the hash cache')
+  .action((claim, opts) =>
+    verifyCommand({
+      claim,
+      all: opts.all,
+      strict: opts.strict,
+      accept: opts.accept,
+      noCache: opts.cache === false,
+    }),
+  );
 
 program
   .command('export')

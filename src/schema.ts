@@ -95,6 +95,7 @@ CREATE TABLE IF NOT EXISTS file_hash (
   path       TEXT PRIMARY KEY,
   size       INTEGER NOT NULL,
   mtime_ns   TEXT NOT NULL,
+  ctime_ns   TEXT NOT NULL DEFAULT '',
   hash       TEXT NOT NULL,
   checked_at TEXT NOT NULL
 );

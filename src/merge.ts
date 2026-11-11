@@ -90,12 +90,12 @@ export function byKey(
 export function isStale(db: DB, root: string, claimId: string): boolean {
   const rows = db
     .prepare(
-      `SELECT ref, hash FROM evidence
-       WHERE claim_id = ? AND kind IN ('file','test') AND hash IS NOT NULL`,
+      `SELECT ref, hash FROM evidence WHERE claim_id = ? AND kind IN ('file','test')`,
     )
-    .all(claimId) as Array<{ ref: string; hash: string }>;
+    .all(claimId) as Array<{ ref: string; hash: string | null }>;
+  if (!rows.length) return false;
   const cache = hashCache(db, root);
-  return rows.some((r) => cache.hash(r.ref) !== r.hash);
+  return rows.some((r) => !r.hash || cache.hash(r.ref) !== r.hash);
 }
 
 interface CommitParents {

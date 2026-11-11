@@ -90,7 +90,12 @@ export function upsertClaim(db: DB, input: WriteInput): UpsertResult {
     | { id: string; state: ClaimState }
     | undefined;
 
-  const state: ClaimState = authority <= 1 ? 'active' : 'draft';
+  // A file/test claim without a hash was never actually observed; it must not
+  // enter retrieval (SPEC §6).
+  const verifiable = input.evidence.every((e) =>
+    e.kind === 'file' || e.kind === 'test' ? Boolean(e.hash) : true,
+  );
+  const state: ClaimState = authority <= 1 && verifiable ? 'active' : 'draft';
 
   if (!existing) {
     db.prepare(
@@ -201,27 +206,45 @@ function applyEntries(
 }
 
 export function activeAt(db: DB, commitId: string | null): Map<string, string> {
+  return activeAtAsOf(db, commitId, Number.POSITIVE_INFINITY);
+}
+
+/**
+ * Active set at a transaction-time instant.
+ *
+ * The whole ancestry is walked (a commit newer than the instant is skipped, but
+ * its parents are still visited), then only commits at or before the instant are
+ * applied in topological order. Pruning the walk at the instant would hide facts
+ * that lived on a sibling branch before the merge that joined them.
+ */
+export function activeAtAsOf(
+  db: DB,
+  commitId: string | null,
+  instantMs: number,
+): Map<string, string> {
   if (!commitId) return new Map();
 
-  const order: string[] = [];
+  const order: Array<{ id: string; ts: number }> = [];
   const visited = new Set<string>();
   const visit = (id: string) => {
     if (visited.has(id)) return;
     visited.add(id);
     const row = db
-      .prepare('SELECT parent_id, merge_parent_id FROM memory_commit WHERE id = ?')
-      .get(id) as { parent_id: string | null; merge_parent_id: string | null } | undefined;
-    if (row?.parent_id) visit(row.parent_id);
-    if (row?.merge_parent_id) visit(row.merge_parent_id);
-    order.push(id);
+      .prepare('SELECT ts, parent_id, merge_parent_id FROM memory_commit WHERE id = ?')
+      .get(id) as { ts: string; parent_id: string | null; merge_parent_id: string | null } | undefined;
+    if (!row) return;
+    if (row.parent_id) visit(row.parent_id);
+    if (row.merge_parent_id) visit(row.merge_parent_id);
+    order.push({ id, ts: Date.parse(row.ts) });
   };
   visit(commitId);
 
   const set = new Map<string, string>();
   for (const c of order) {
+    if (c.ts > instantMs) continue;
     const entries = db
       .prepare('SELECT claim_id, op FROM commit_entry WHERE commit_id = ? ORDER BY rowid')
-      .all(c) as Array<{ claim_id: string; op: string }>;
+      .all(c.id) as Array<{ claim_id: string; op: string }>;
     applyEntries(db, set, entries);
   }
   return set;

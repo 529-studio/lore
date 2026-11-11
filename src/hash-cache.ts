@@ -12,6 +12,7 @@ export interface CacheStats {
 interface CachedRow {
   size: number;
   mtime_ns: string;
+  ctime_ns: string;
   hash: string;
 }
 
@@ -24,7 +25,7 @@ export class HashCache {
   hits = 0;
   misses = 0;
   reads = 0;
-  enabled = true;
+  enabled = process.env.LORE_NO_CACHE !== '1';
 
   constructor(
     private readonly db: DB,
@@ -43,12 +44,15 @@ export class HashCache {
     }
     const size = Number(stat.size);
     const mtime = stat.mtimeNs.toString();
+    // ctime changes on any inode write, including when mtime is restored with
+    // touch -r, so it closes the "same size, same mtime" false negative.
+    const ctime = stat.ctimeNs.toString();
 
     if (this.enabled) {
       const row = this.db
-        .prepare('SELECT size, mtime_ns, hash FROM file_hash WHERE path = ?')
+        .prepare('SELECT size, mtime_ns, ctime_ns, hash FROM file_hash WHERE path = ?')
         .get(rel) as CachedRow | undefined;
-      if (row && row.size === size && row.mtime_ns === mtime) {
+      if (row && row.size === size && row.mtime_ns === mtime && row.ctime_ns === ctime) {
         this.hits += 1;
         return row.hash;
       }
@@ -60,12 +64,12 @@ export class HashCache {
     if (hash && this.enabled) {
       this.db
         .prepare(
-          `INSERT INTO file_hash(path, size, mtime_ns, hash, checked_at) VALUES (?, ?, ?, ?, ?)
+          `INSERT INTO file_hash(path, size, mtime_ns, ctime_ns, hash, checked_at) VALUES (?, ?, ?, ?, ?, ?)
            ON CONFLICT(path) DO UPDATE SET
-             size = excluded.size, mtime_ns = excluded.mtime_ns,
+             size = excluded.size, mtime_ns = excluded.mtime_ns, ctime_ns = excluded.ctime_ns,
              hash = excluded.hash, checked_at = excluded.checked_at`,
         )
-        .run(rel, size, mtime, hash, new Date().toISOString());
+        .run(rel, size, mtime, ctime, hash, new Date().toISOString());
     }
     return hash;
   }

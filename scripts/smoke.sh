@@ -244,7 +244,7 @@ ESCAPE="$(lore write --subject env:ESCAPE --predicate read_by --object '/etc/pas
 expect_not_contains "$ESCAPE" "sha256:"
 
 LORE_SESSION=gc lore write --subject env:GC_FLAG --predicate read_by --object README.md --kind agent --author agent:gc >/dev/null
-expect_contains "$(LORE_SESSION=gc lore gc --ttl-days 0)" "retracted 1"
+expect_contains "$(LORE_SESSION=gc lore gc --ttl-days 0)" "env:GC_FLAG"
 
 # session-based GC: unreviewed drafts are retracted, reviewed ones survive
 LORE_SESSION=gs1 lore write --subject env:GC_STALE --predicate read_by --object README.md --kind agent --author agent:gs >/dev/null
@@ -304,4 +304,45 @@ expect_contains "$(lore status --no-cache --stats)" "(disabled)"
 cp .cli.cache.bak src/cli.js
 lore ingest >/dev/null
 
-echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache"
+# --- audit round 2: as-of across a merge -------------------------------------
+printf 'export const a = 1;\n' > src/a.ts
+printf 'export const b = 2;\n' > src/b.ts
+LORE_SESSION=bt_a lore write --subject file:src/a.ts --predicate handles_auth --object "a" --kind file --ref src/a.ts >/dev/null
+sleep 1.1
+LORE_SESSION=bt_b lore write --subject file:src/b.ts --predicate handles_auth --object "b" --kind file --ref src/b.ts >/dev/null
+sleep 1.1
+BT_MERGE_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+sleep 1.1
+LORE_SESSION=bt_a lore merge agent/bt_b >/dev/null
+AS_OF_BOTH="$(LORE_SESSION=bt_a lore search handles_auth --files src/a.ts,src/b.ts --as-of "$BT_MERGE_AT")"
+expect_contains "$AS_OF_BOTH" "file:src/a.ts"
+expect_contains "$AS_OF_BOTH" "file:src/b.ts"
+
+# --- audit round 2: unverifiable evidence must stay draft --------------------
+lore write --subject env:GHOST --predicate read_by --object x --kind file --ref missing.ts >/dev/null
+expect_contains "$(lore blame env:GHOST)" "draft"
+expect_not_contains "$(lore search GHOST --files README.md --include-stale)" "env:GHOST"
+
+# --- audit round 2: cache must notice a content change with restored mtime ---
+cp src/cli.js .cli.ctime.bak
+lore status >/dev/null
+python3 - <<'PYC'
+import os
+p = 'src/cli.js'
+st = os.stat(p)
+data = open(p, 'rb').read().replace(b'zod', b'z0d', 1)
+open(p, 'wb').write(data)
+os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns))
+PYC
+expect_not_contains "$(lore status)" "stale      0"
+cp .cli.ctime.bak src/cli.js
+lore ingest >/dev/null
+
+# --- audit round 2: symlinks must not read outside the repository ------------
+OUTSIDE="$(mktemp -d)/outside.ts"
+printf 'const leaked = process.env.OUTSIDE_SECRET;\n' > "$OUTSIDE"
+ln -sf "$OUTSIDE" src/outside.ts
+expect_not_contains "$(lore ingest --dry-run)" "src/outside.ts"
+rm -f src/outside.ts
+
+echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2"

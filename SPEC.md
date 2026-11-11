@@ -349,6 +349,9 @@ No LLM judge. Outcome metrics on real repositories:
 | R4 "unless the retract is stale" | approximated by the survivor's tier (> T2 blocks deletion) | no per-side stale flag at that step yet |
 | `tree_hash = (claim_id, state)` | `(claim_id, op)` | op is what the fold actually uses |
 | `verify` updates the hash | does not rewrite it | avoid blessing drift; `ingest` is the re-observation path |
+| `--as-of` reads the commit at that instant | folds the whole ancestry, skipping commits after the instant | a single commit chain hides facts on sibling branches before a merge |
+| hash cache keyed by content | keyed by size, mtime and ctime | mtime can be restored; ctime changes on any inode write |
+| file/test evidence auto-promotes | only when the evidence hash was actually observed | an unhashable file is not evidence |
 | `conflict_rate` over 20 sessions | aborts among merges expected to succeed; deliberate conflicts reported separately | measuring a designed conflict against a production threshold is a category error |
 | MCP has five tools | seven (`memory_approve`, `memory_commit` added) | without approve, MCP-only memory is permanently invisible |
 
