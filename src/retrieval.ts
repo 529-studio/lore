@@ -1,5 +1,5 @@
 import type { DB } from './db.js';
-import { hashFile } from './extract/index.js';
+import { hashCache } from './hash-cache.js';
 import { evidenceFor, activeAt, head, type ClaimRow } from './model.js';
 import { byKey, isStale } from './merge.js';
 import { loadOntology } from './ontology.js';
@@ -391,7 +391,7 @@ export function verifyClaim(
   );
   for (const row of rows) {
     checked++;
-    const current = hashFile(root, row.ref);
+    const current = hashCache(db, root).hash(row.ref);
     if (current === row.hash) {
       markValid.run(now, claimId, row.kind, row.ref);
     } else if (opts.accept && current) {

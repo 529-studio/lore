@@ -328,7 +328,6 @@ No LLM judge. Outcome metrics on real repositories:
 - Entity resolution outside code (issues, ADRs, decisions) — what replaces `path#symbol`?
 - Ontology: hand-written, or bootstrapped from observed predicates?
 - Cross-repository memory: share, or import?
-- Incremental rehashing: is an mtime cache enough at 1M files?
 - Encryption at rest: ours, or the OS?
 
 ## 14. Risks

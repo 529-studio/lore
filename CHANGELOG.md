@@ -16,6 +16,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
   `2025-06-18` instead of being echoed back.
 - Draft GC by session: `lore gc --ttl-sessions 3` retracts drafts nobody reviewed in the last three
   sessions. Sessions are registered by any command; review is recorded by `blame`.
+- Hash cache keyed by size and mtime: a second pass over an unchanged repository performs zero
+  content reads. `lore status --stats` reports hits/reads, `--no-cache` bypasses it, and `gc` prunes
+  entries older than 30 days.
 
 ## [0.1.1] — 2026-11-11
 

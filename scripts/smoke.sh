@@ -294,4 +294,14 @@ lore supersede "$BT_OLD" --object package.json --kind file --ref package.json >/
 expect_contains "$(lore search BT_TIME --files README.md --as-of "$BT_AT")" "README.md"
 expect_contains "$(lore search BT_TIME --files package.json)" "package.json"
 
-echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal"
+# --- hash cache --------------------------------------------------------------
+cp src/cli.js .cli.cache.bak
+lore status --stats >/dev/null
+expect_contains "$(lore status --stats)" "0 reads"
+echo "// cache drift" >> src/cli.js
+expect_not_contains "$(lore status --stats)" "0 reads"
+expect_contains "$(lore status --no-cache --stats)" "(disabled)"
+cp .cli.cache.bak src/cli.js
+lore ingest >/dev/null
+
+echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache"

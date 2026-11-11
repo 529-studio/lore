@@ -91,6 +91,14 @@ CREATE TABLE IF NOT EXISTS merge_conflict (
   resolved     INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS file_hash (
+  path       TEXT PRIMARY KEY,
+  size       INTEGER NOT NULL,
+  mtime_ns   TEXT NOT NULL,
+  hash       TEXT NOT NULL,
+  checked_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS session (
   id           TEXT PRIMARY KEY,
   started_at   TEXT NOT NULL,

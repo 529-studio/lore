@@ -1,7 +1,8 @@
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
-import { extractAll, hashFile, type Candidate } from '../extract/index.js';
+import { extractAll, type Candidate } from '../extract/index.js';
 import { activeAt, head, makeCommit, upsertClaim } from '../model.js';
+import { hashCache } from '../hash-cache.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
 
 function evidenceRef(c: Candidate): string {
@@ -28,6 +29,7 @@ export function ingestCommand(opts: { author?: string; session?: string; dryRun?
 
   const apply = db.transaction(() => {
     const present = activeAt(db, head(db, ref) ?? head(db, 'main'));
+    const cache = hashCache(db, root);
     const inserted: string[] = [];
     const byPredicate = new Map<string, number>();
 
@@ -39,7 +41,7 @@ export function ingestCommand(opts: { author?: string; session?: string; dryRun?
         object: c.object,
         confidence: c.confidence,
         author: opts.author ?? 'lore:ingest',
-        evidence: [{ kind: 'file', ref: evRef, hash: hashFile(root, evRef) }],
+        evidence: [{ kind: 'file', ref: evRef, hash: cache.hash(evRef) }],
       });
       // Re-observation on a fresh branch must still record the claim in that branch.
       if (result.state === 'active' && !present.has(result.id)) {

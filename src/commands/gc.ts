@@ -2,6 +2,7 @@ import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { gcCandidates } from '../gc.js';
 import { ensureSession } from '../session.js';
+import { pruneHashCache } from '../hash-cache.js';
 
 export interface GcOptions {
   ttlSessions?: string;
@@ -40,7 +41,9 @@ export function gcCommand(opts: GcOptions): void {
     for (const c of candidates) update.run(c.id);
   })();
 
+  const pruned = pruneHashCache(db);
   console.log(`${pc.green('✓')} retracted ${candidates.length} stale draft(s); rows are kept`);
+  if (pruned) console.log(pc.dim(`  pruned ${pruned} hash-cache row(s) older than 30 days`));
   for (const c of candidates.slice(0, 10)) {
     console.log(pc.dim(`  ${c.id}  ${c.subject} — ${c.predicate}  (${c.reason})`));
   }

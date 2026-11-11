@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
-import { hashFile } from '../extract/index.js';
+import { hashCache } from '../hash-cache.js';
 import { inBranch, makeCommit, supersedeClaim, type EvidenceKind } from '../model.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
 
@@ -26,7 +26,7 @@ export function supersedeCommand(opts: SupersedeOptions): void {
 
   let hash = opts.hash ?? null;
   if (!hash && (opts.kind === 'file' || opts.kind === 'test')) {
-    hash = hashFile(root, evidenceRef);
+    hash = hashCache(db, root).hash(evidenceRef);
   }
 
   const run = db.transaction(() => {

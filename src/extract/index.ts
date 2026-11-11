@@ -82,7 +82,8 @@ function readText(root: string, rel: string): string | null {
   }
 }
 
-export function hashFile(root: string, rel: string): string | null {
+/** Resolve a repository-relative path, refusing escapes, non-files and huge files. */
+export function resolveInside(root: string, rel: string): string | null {
   const abs = path.resolve(root, rel);
   let real: string;
   let rootReal: string;
@@ -92,10 +93,19 @@ export function hashFile(root: string, rel: string): string | null {
   } catch {
     return null;
   }
-  // Refuse anything that escapes the repo, is not a regular file, or is huge.
   if (real !== rootReal && !real.startsWith(rootReal + path.sep)) return null;
-  const st = statSync(real);
-  if (!st.isFile() || st.size > 4 * 1024 * 1024) return null;
+  try {
+    const st = statSync(real);
+    if (!st.isFile() || st.size > 4 * 1024 * 1024) return null;
+  } catch {
+    return null;
+  }
+  return real;
+}
+
+export function hashFile(root: string, rel: string): string | null {
+  const real = resolveInside(root, rel);
+  if (!real) return null;
   try {
     return `sha256:${createHash('sha256').update(readFileSync(real)).digest('hex')}`;
   } catch {

@@ -191,7 +191,17 @@ program
   .option('--strict', 'exit 3 when health crosses a threshold')
   .option('--max-stale <pct>', 'maximum stale percentage (default 15)')
   .option('--max-conflicts <n>', 'maximum unresolved conflicts (default 0)')
-  .action((opts) => statusCommand({ strict: opts.strict, maxStale: opts.maxStale, maxConflicts: opts.maxConflicts }));
+  .option('--stats', 'print hash-cache hits, reads and misses')
+  .option('--no-cache', 'bypass the hash cache and re-read every file')
+  .action((opts) =>
+    statusCommand({
+      strict: opts.strict,
+      maxStale: opts.maxStale,
+      maxConflicts: opts.maxConflicts,
+      stats: opts.stats,
+      noCache: opts.cache === false,
+    }),
+  );
 
 program
   .command('approve [claim]')
