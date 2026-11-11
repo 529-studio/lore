@@ -3,3 +3,4 @@ dist/
 .lore/
 *.log
 .DS_Store
+eval-results.json
