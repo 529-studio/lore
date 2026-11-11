@@ -8,6 +8,7 @@ export interface VerifyOptions {
   claim?: string;
   all?: boolean;
   strict?: boolean;
+  accept?: boolean;
 }
 
 /**
@@ -19,7 +20,7 @@ export function verifyCommand(opts: VerifyOptions): void {
   const db = openDb(root);
 
   const runOne = (claimId: string): boolean => {
-    const result = verifyClaim(db, root, claimId);
+    const result = verifyClaim(db, root, claimId, { accept: opts.accept });
     if (result.checked === 0 && !db.prepare('SELECT id FROM claim WHERE id = ?').get(claimId)) {
       console.log(pc.red(`no such claim: ${claimId}`));
       return false;
@@ -62,7 +63,7 @@ export function verifyCommand(opts: VerifyOptions): void {
   let staleCount = 0;
   let checked = 0;
   for (const c of rows) {
-    const result = verifyClaim(db, root, c.id);
+    const result = verifyClaim(db, root, c.id, { accept: opts.accept });
     checked += result.checked;
     if (result.stale.length) {
       staleCount++;

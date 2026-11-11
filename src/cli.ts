@@ -189,7 +189,8 @@ program
   .description('re-hash evidence and record valid/stale')
   .option('--all', 'verify every claim in the current branch active set')
   .option('--strict', 'exit 3 when stale claims remain')
-  .action((claim, opts) => verifyCommand({ claim, all: opts.all, strict: opts.strict }));
+  .option('--accept', 're-observe drifted files and store the new hash')
+  .action((claim, opts) => verifyCommand({ claim, all: opts.all, strict: opts.strict, accept: opts.accept }));
 
 program
   .command('export')

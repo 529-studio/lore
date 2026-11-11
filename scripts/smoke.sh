@@ -159,8 +159,15 @@ STATUS_STRICT=$?
 set -e
 [ "$STATUS_STRICT" -eq 3 ] || fail "expected status --strict exit 3 while drifted, got $STATUS_STRICT"
 
+# verify --accept re-observes a legitimate change instead of staying stale
+ACCEPT_CLAIM="$(lore blame env:DEMO_TOKEN | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+expect_contains "$(lore verify "$ACCEPT_CLAIM")" "stale"
+expect_contains "$(lore verify "$ACCEPT_CLAIM" --accept)" "valid"
+expect_contains "$(lore blame env:DEMO_TOKEN)" "valid"
+
 # restore the file → verify clears the staleness
 cp .cli.m3.bak src/cli.js
+lore ingest >/dev/null
 expect_contains "$(lore verify --all)" "0 stale"
 expect_contains "$(lore search --files src/cli.js)" "read_by"
 expect_contains "$(lore search --files src/cli.js)" "env:DEMO_TOKEN"
