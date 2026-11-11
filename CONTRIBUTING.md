@@ -42,6 +42,10 @@ Run all of them before opening a PR. If `eval` is slow on your machine, `--fixtu
 3. PR description starts with `Close #<issue-number>` and states how you verified it.
 4. Expect a review that asks for evidence, not for more features.
 
+## Releasing
+
+The release checklist lives in [docs/release.md](docs/release.md).
+
 ## Adding a lesson
 
 If you hit something expensive, add `docs/lessons/L<NN>-<slug>.md` and one row in
