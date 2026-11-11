@@ -79,4 +79,4 @@ silently resolve the drift the reviewer needs to see.
 - The base memory cache is keyed by base SHA, so a long-lived branch rebuilds when the base moves.
 - The comment reports added and invalidated claims. Deletions do not exist as an operation: claims
   are retracted, never removed, so "removed" is normally 0.
-- The first run on a repository without a lockfile still works; the cache simply misses.
+- The first run works even without a lockfile; the cache simply misses.
