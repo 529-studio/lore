@@ -53,7 +53,7 @@ export function statusCommand(): void {
 
   console.log(pc.bold('lore status'));
   console.log(`  claims     ${pc.bold(String(total))} total  ${pc.green(`${byState.get('active') ?? 0} active`)}  ${pc.yellow(`${byState.get('draft') ?? 0} draft`)}  ${pc.red(`${byState.get('retracted') ?? 0} retracted`)}`);
-  console.log(`  branch     ${ref}  ${pc.dim(`${branchActive} claim trong active set`)}`);
+  console.log(`  branch     ${ref}  ${pc.dim(`${branchActive} claims in the active set`)}`);
   console.log(`  commits    ${commits}   branches ${branches}`);
   console.log(`  stale      ${stale.length ? pc.red(String(stale.length)) : pc.green('0')} ${pc.dim('(evidence hash no longer matches)')}`);
   console.log(`  conflicts  ${conflicts ? pc.red(String(conflicts)) : pc.green('0')} ${pc.dim('(unresolved merges)')}`);

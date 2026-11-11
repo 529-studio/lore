@@ -46,7 +46,12 @@ export function listFiles(root: string): string[] {
       maxBuffer: 64 * 1024 * 1024,
       encoding: 'utf8',
     });
-    return out.split('\0').filter(Boolean);
+    // git only knows about .gitignore; a fresh repo has none, so filter the
+    // usual build/vendor directories ourselves.
+    return out
+      .split('\0')
+      .filter(Boolean)
+      .filter((rel) => !rel.split('/').some((part) => IGNORED_DIRS.has(part)));
   } catch {
     const files: string[] = [];
     const walk = (dir: string) => {

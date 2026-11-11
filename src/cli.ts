@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createRequire } from 'node:module';
 import { Command } from 'commander';
 import pc from 'picocolors';
 import { approveCommand } from './commands/approve.js';
@@ -20,12 +21,15 @@ import { verifyCommand } from './commands/verify.js';
 import { writeCommand } from './commands/write.js';
 import type { EvidenceKind } from './model.js';
 
+const require = createRequire(import.meta.url);
+const pkg = require('../package.json') as { version: string };
+
 const program = new Command();
 
 program
   .name('lore')
   .description('Git for what your agents know — versioned, verifiable memory')
-  .version('0.0.1');
+  .version(pkg.version);
 
 program
   .command('init')
