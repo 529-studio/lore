@@ -7,7 +7,7 @@ import { createInterface } from 'node:readline';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { openDb, requireRoot, type DB } from '../db.js';
-import { hashFile } from '../extract/index.js';
+import { hashCache } from '../hash-cache.js';
 import {
   activeAt,
   evidenceFor,
@@ -177,7 +177,7 @@ function toolWrite(args: WriteArgs): ToolResult {
     const kind = args.kind as EvidenceKind;
     const evidenceRef = args.ref ?? args.subject;
     // Guarded: rejects absolute paths, traversal, non-regular files and > 4 MB.
-    const hash = kind === 'file' || kind === 'test' ? hashFile(ctx.root, evidenceRef) : null;
+    const hash = kind === 'file' || kind === 'test' ? hashCache(ctx.db, ctx.root).hash(evidenceRef) : null;
 
     const author = 'agent:mcp';
     const result = upsertClaim(ctx.db, {

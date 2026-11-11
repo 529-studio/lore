@@ -1,5 +1,5 @@
 import type { DB } from './db.js';
-import { hashFile } from './extract/index.js';
+import { hashCache } from './hash-cache.js';
 import type { ClaimRow } from './model.js';
 import { activeAt } from './model.js';
 import type { Cardinality, Ontology } from './ontology.js';
@@ -94,7 +94,8 @@ export function isStale(db: DB, root: string, claimId: string): boolean {
        WHERE claim_id = ? AND kind IN ('file','test') AND hash IS NOT NULL`,
     )
     .all(claimId) as Array<{ ref: string; hash: string }>;
-  return rows.some((r) => hashFile(root, r.ref) !== r.hash);
+  const cache = hashCache(db, root);
+  return rows.some((r) => cache.hash(r.ref) !== r.hash);
 }
 
 interface CommitParents {

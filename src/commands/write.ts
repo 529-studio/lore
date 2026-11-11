@@ -1,7 +1,7 @@
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { inBranch, makeCommit, upsertClaim, type EvidenceKind } from '../model.js';
-import { hashFile } from '../extract/index.js';
+import { hashCache } from '../hash-cache.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
 
 export interface WriteOptions {
@@ -30,7 +30,7 @@ export function writeCommand(opts: WriteOptions): void {
   const evidenceRef = opts.ref ?? opts.subject;
   let hash = opts.hash ?? null;
   if (!hash && (opts.kind === 'file' || opts.kind === 'test')) {
-    hash = hashFile(root, evidenceRef);
+    hash = hashCache(db, root).hash(evidenceRef);
   }
 
   const run = db.transaction(() => {

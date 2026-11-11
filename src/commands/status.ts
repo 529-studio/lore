@@ -1,6 +1,6 @@
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
-import { hashFile } from '../extract/index.js';
+import { hashCache } from '../hash-cache.js';
 import { gcCandidates } from '../gc.js';
 import { activeAt, head } from '../model.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
@@ -14,6 +14,8 @@ export interface StatusOptions {
   strict?: boolean;
   maxStale?: string;
   maxConflicts?: string;
+  stats?: boolean;
+  noCache?: boolean;
 }
 
 export function statusCommand(opts: StatusOptions = {}): void {
@@ -35,11 +37,14 @@ export function statusCommand(opts: StatusOptions = {}): void {
     )
     .all() as Array<{ claim_id: string; ref: string; hash: string; state: string }>;
 
+  const cache = hashCache(db, root);
+  if (opts.noCache) cache.enabled = false;
+
   const stale: Array<{ claim_id: string; ref: string; state: string }> = [];
   const markStale = db.prepare("UPDATE evidence SET status = 'stale' WHERE claim_id = ? AND ref = ?");
   const markValid = db.prepare("UPDATE evidence SET status = 'valid' WHERE claim_id = ? AND ref = ?");
   for (const ev of evidence) {
-    const current = hashFile(root, ev.ref);
+    const current = cache.hash(ev.ref);
     if (current !== ev.hash) {
       stale.push(ev);
       markStale.run(ev.claim_id, ev.ref);
@@ -61,7 +66,12 @@ export function statusCommand(opts: StatusOptions = {}): void {
   console.log(`  commits    ${commits}   branches ${branches}`);
   console.log(`  stale      ${stale.length ? pc.red(String(stale.length)) : pc.green('0')} ${pc.dim('(evidence hash no longer matches)')}`);
   console.log(`  conflicts  ${conflicts ? pc.red(String(conflicts)) : pc.green('0')} ${pc.dim('(unresolved merges)')}`);
-  console.log(`  gc         ${gcEligible ? pc.yellow(String(gcEligible)) : pc.green('0')} ${pc.dim('drafts older than 3 days — run lore gc')}`);
+  console.log(`  gc         ${gcEligible ? pc.yellow(String(gcEligible)) : pc.green('0')} ${pc.dim('drafts unreviewed for 3 sessions — run lore gc')}`);
+
+  if (opts.stats) {
+    const c = cache.stats();
+    console.log(`  cache      ${c.hits} hits, ${c.reads} reads, ${c.misses} misses${c.enabled ? '' : ' (disabled)'}`);
+  }
 
   if (stale.length) {
     console.log(pc.dim('\n  stale claims — kept, waiting to be verified:'));
