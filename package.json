@@ -20,6 +20,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "smoke": "bash scripts/smoke.sh",
     "mcp:smoke": "node scripts/mcp-smoke.mjs",
+    "mcp:concurrency": "node scripts/mcp-concurrency.mjs",
     "eval": "node scripts/eval.mjs",
     "docs:lint": "node scripts/docs-lint.mjs",
     "check:public": "bash scripts/check-public-safe.sh",
