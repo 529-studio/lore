@@ -263,6 +263,9 @@ main ──────────●──────────────
 - `lore resolve <subject> <predicate> --take theirs --reason "..."` records the decision, and the
   next merge applies it. Every decision is stored in `merge_decision` for audit.
 
+**CI integration.** The GitHub Action comments on every pull request with what it teaches the agent
+and which claims it invalidates. See [docs/github-action.md](docs/github-action.md).
+
 ---
 
 ## How it works
