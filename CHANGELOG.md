@@ -3,6 +3,13 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Eval replays 20 distinct sessions per fixture, records wall time, invocations and token cost per
+  session, and runs the fixture's own test suite before and after the revert. See `docs/eval.md`.
+
 ## [0.1.3] — 2026-11-11
 
 ### Added
