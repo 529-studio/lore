@@ -9,7 +9,13 @@ interface CountRow {
   n: number;
 }
 
-export function statusCommand(): void {
+export interface StatusOptions {
+  strict?: boolean;
+  maxStale?: string;
+  maxConflicts?: string;
+}
+
+export function statusCommand(opts: StatusOptions = {}): void {
   const root = requireRoot();
   const db = openDb(root);
 
@@ -66,6 +72,23 @@ export function statusCommand(): void {
     }
     if (stale.length > 8) console.log(pc.dim(`  … and ${stale.length - 8} more claim(s)`));
     console.log(pc.dim('  run `lore ingest` to re-observe changed files'));
+  }
+
+  if (opts.strict) {
+    const maxStale = Number(opts.maxStale ?? 15);
+    const maxConflicts = Number(opts.maxConflicts ?? 0);
+    const stalePct = total > 0 ? (stale.length / total) * 100 : 0;
+    const reasons: string[] = [];
+    if (stalePct > maxStale) {
+      reasons.push(`stale ${stalePct.toFixed(1)}% > ${maxStale}%`);
+    }
+    if (conflicts > maxConflicts) {
+      reasons.push(`conflicts ${conflicts} > ${maxConflicts}`);
+    }
+    if (reasons.length) {
+      console.error(`[ERR] memory health: ${reasons.join(', ')}`);
+      process.exitCode = 3;
+    }
   }
 
   db.close();

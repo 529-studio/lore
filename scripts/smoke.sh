@@ -152,11 +152,24 @@ STRICT_CODE=$?
 set -e
 [ "$STRICT_CODE" -eq 3 ] || fail "expected verify --all --strict exit 3 while drifted, got $STRICT_CODE"
 
+# status --strict gates memory health the same way
+set +e
+lore status --strict >/dev/null 2>&1
+STATUS_STRICT=$?
+set -e
+[ "$STATUS_STRICT" -eq 3 ] || fail "expected status --strict exit 3 while drifted, got $STATUS_STRICT"
+
 # restore the file → verify clears the staleness
 cp .cli.m3.bak src/cli.js
 expect_contains "$(lore verify --all)" "0 stale"
 expect_contains "$(lore search --files src/cli.js)" "read_by"
 expect_contains "$(lore search --files src/cli.js)" "env:DEMO_TOKEN"
+
+set +e
+lore status --strict >/dev/null 2>&1
+STATUS_CLEAN=$?
+set -e
+[ "$STATUS_CLEAN" -eq 0 ] || fail "expected status --strict exit 0 after restore, got $STATUS_CLEAN"
 
 set +e
 lore verify --all --strict >/dev/null 2>&1
