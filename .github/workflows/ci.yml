@@ -38,6 +38,9 @@ jobs:
       - name: MCP smoke
         run: npm run mcp:smoke
 
+      - name: MCP concurrency (4 servers x 25 writes)
+        run: npm run mcp:concurrency
+
       - name: Outcome eval (self fixture)
         run: npm run eval -- --fixtures 1
 
