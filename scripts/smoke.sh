@@ -2,6 +2,10 @@
 # Smoke test: exercises M0–M3 on a throwaway repo.
 set -euo pipefail
 
+# GitHub Actions sets FORCE_COLOR; assertions compare plain text.
+export NO_COLOR=1
+export FORCE_COLOR=0
+
 LORE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LORE_BIN="$LORE_ROOT/dist/cli.js"
 WORK="$(mktemp -d)"
