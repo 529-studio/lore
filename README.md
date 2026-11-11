@@ -286,7 +286,8 @@ On every read, evidence hashes are recomputed. If a file changed, the claim is *
 in `blame`, excluded from `search`, marked in `export`. That is the whole trick: memory behaves like
 a cache of reality that can be verified, not a belief system.
 
-Full design and every deviation: [SPEC.md](SPEC.md).
+Full design and every deviation: [SPEC.md](SPEC.md). Why the storage, protocol and branch model look
+the way they do: [docs/adr](docs/adr/README.md).
 
 ## Evidence, not claims
 

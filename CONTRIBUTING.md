@@ -46,10 +46,12 @@ Run all of them before opening a PR. If `eval` is slow on your machine, `--fixtu
 
 The release checklist lives in [docs/release.md](docs/release.md).
 
-## Adding a lesson
+## Decisions and lessons
 
-If you hit something expensive, add `docs/lessons/L<NN>-<slug>.md` and one row in
-`docs/lessons/INDEX.md`. One lesson per file; never append to a register.
+- A decision that is expensive to reverse gets an ADR: `docs/adr/ADR-<NNN>-<slug>.md`, plus a row in
+  [docs/adr/README.md](docs/adr/README.md).
+- An expensive mistake gets a lesson: `docs/lessons/L<NN>-<slug>.md` and one row in
+  [docs/lessons/INDEX.md](docs/lessons/INDEX.md). One lesson per file; never append to a register.
 
 ## License
 

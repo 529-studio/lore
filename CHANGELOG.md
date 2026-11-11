@@ -7,6 +7,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 
 ### Added
 
+- Architecture decision records (`docs/adr/`) for storage, the MCP transport and the branch model,
+  plus four lessons from the second audit (L05–L08).
 - Eval replays 20 distinct sessions per fixture, records wall time, invocations and token cost per
   session, and runs the fixture's own test suite before and after the revert. See `docs/eval.md`.
 
