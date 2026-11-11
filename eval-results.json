@@ -1,0 +1,641 @@
+{
+  "generated_at": "2026-11-10T17:25:50.925Z",
+  "node": "v22.17.1",
+  "fixtures": [
+    "mcp-scan",
+    "global-ready",
+    "talotrace-interview-grading-tool"
+  ],
+  "scenario_schema": {
+    "replays_per_fixture": 1,
+    "sessions_replayed": 3
+  },
+  "definitions": {
+    "stale_rate": "active claims whose evidence hash mismatched during the pre-registered drift set (docs included), pooled across fixtures: Σ stale_during / Σ (active_total × drift files). `stale_rate_worst` is the worst single-file case.",
+    "false_claim_rate": "flagged claims / eligible claims. A claim is eligible if it is (a) authored by lore:ingest (checked against a fresh `ingest --dry-run` re-derivation), (b) has file/test evidence (hash re-check), (c) declares a dependency or script (checked against the actual package.json — `pkg_manifest`), or (d) exposes a route (route path + verb grepped from the referenced source — `route_source_grep`). The checks used are listed per fixture in results[].metrics.false_claim_checks_used. If 0 claims are eligible the scenario FAILS — the rate can never be 0 by construction.",
+    "conflict_rate": "aborted merge attempts / all merge attempts. The protocol replays a deliberate conflicting (subject,predicate) per round (`--replays` widens the denominator); no synthetic clean merges. SPEC's < 10% target is calibrated on 20 real-session replays; a deliberate-conflict replay is expected to exceed it until enough rounds accumulate.",
+    "revert_correctness": "after `lore revert <merge-commit>`, `lore diff <pre-merge> agent/<session>` shows 0 added / 0 removed (exact active-set snapshot equality) AND, when the fixture exposes a runnable test suite, the suite passes after revert. When the suite cannot run in the offline eval copy the phase is recorded as SKIPPED with the explicit reason — never counted as success.",
+    "token_savings": "chars/4 token proxy. Baseline per question = bytes of the referenced repo files you would have to read. Memory per question = bytes of the real `lore search <question> --files <refs> --json` subprocess output. The JSON envelope (score, score reasons, evidence per hit) deliberately over-counts: it includes presentation metadata beyond the SPEC §9 claim-blue budget, so savings are a conservative LOWER bound. Questions with 0 search hits score 0 savings (the agent must read the files).",
+    "time_to_first_useful": "# of CLI invocations strictly before the first invocation that prints previously stored claim content back to the caller (replay: init → ingest → ingest → blame). Proxy for SPEC \"< 10 min\"."
+  },
+  "thresholds": {
+    "stale_rate": {
+      "op": "<",
+      "value": 0.15,
+      "label": "stale_rate < 15%"
+    },
+    "false_claim_rate": {
+      "op": "<",
+      "value": 0.05,
+      "label": "false_claim_rate < 5%"
+    },
+    "conflict_rate": {
+      "op": "<",
+      "value": 0.1,
+      "label": "conflict_rate < 10%"
+    },
+    "revert_correctness": {
+      "op": ">=",
+      "value": 1,
+      "label": "revert_correctness = 100%"
+    },
+    "token_savings": {
+      "op": ">",
+      "value": 0.3,
+      "label": "token_savings > 30%"
+    },
+    "time_to_first_useful": {
+      "op": "<",
+      "value": 10,
+      "label": "time_to_first_useful < 10 invocations"
+    }
+  },
+  "results": [
+    {
+      "fixture": "mcp-scan",
+      "src": "/Users/thanhdatvu/repos/mcp-scan",
+      "error": null,
+      "metrics": {
+        "revert_diff": {
+          "added": 0,
+          "removed": 0
+        },
+        "revert_snapshot_ok": true,
+        "conflict_attempts": 2,
+        "conflict_aborts": 1,
+        "conflict_rate": 0.5,
+        "active_total": 80,
+        "drift": [
+          {
+            "ref": "README.md",
+            "stale_during": 15,
+            "stale_after": 0
+          },
+          {
+            "ref": "AGENTS.md",
+            "stale_during": 14,
+            "stale_after": 0
+          },
+          {
+            "ref": "package.json",
+            "stale_during": 11,
+            "stale_after": 0
+          }
+        ],
+        "stale_count": 40,
+        "stale_rate": 0.16666666666666666,
+        "stale_rate_worst": 0.1875,
+        "drift_recovered": true,
+        "checked_claims": 77,
+        "false_claims": 0,
+        "false_claim_rate": 0,
+        "false_claim_checks_used": [
+          "ingest_re_derivation",
+          "evidence_hash",
+          "pkg_manifest"
+        ],
+        "false_claim_checks_disabled": [
+          "route_source_grep"
+        ],
+        "token_savings": 0.598831086965235,
+        "invocations": 22,
+        "time_to_first_useful": 3
+      },
+      "details": {
+        "tempDir": "/var/folders/f8/y3mzm1rd5ts_6cq_cp6df7th0000gn/T/lore-eval-p2FzlG",
+        "suite": {
+          "runnable": true,
+          "cmd": "node test/run.js",
+          "via": "npm test script (no unmet deps)"
+        },
+        "suiteHealthy": true,
+        "ingestClaims": 77,
+        "driftSet": {
+          "pre_registered": [
+            {
+              "ref": "README.md",
+              "claims": 15
+            },
+            {
+              "ref": "AGENTS.md",
+              "claims": 14
+            },
+            {
+              "ref": "package.json",
+              "claims": 11
+            }
+          ],
+          "note": "fixed BEFORE the scenario writes; docs included, worst case reported per file"
+        },
+        "revertTests": {
+          "phase": "after_revert",
+          "status": "ran",
+          "cmd": "node test/run.js",
+          "via": "npm test script (no unmet deps)",
+          "exit": 0,
+          "passed": true,
+          "output": "ok — 10 tool rules, clean fixture, bounded evidence ⏎ ok — report aggregate and render, no evidence leakage ⏎ ok — protocol initialize, pagination, error, timeout ⏎ ok — dynamic canary, selection, Docker flags, DYN-001..005 ⏎ ok — config, t"
+        },
+        "falseClaimChecks": {
+          "ingest_re_derivation": {
+            "eligible": 77,
+            "flagged": 0
+          },
+          "evidence_hash": {
+            "eligible": 77,
+            "flagged": 0
+          },
+          "pkg_manifest": {
+            "eligible": 2,
+            "flagged": 0
+          },
+          "route_source_grep": {
+            "eligible": 0,
+            "flagged": 0
+          }
+        },
+        "questions": [
+          {
+            "id": "q1-dependencies",
+            "claims": 0,
+            "hits": 37,
+            "baseTokens": 192,
+            "memTokens": 5786
+          },
+          {
+            "id": "q2-scripts",
+            "claims": 2,
+            "hits": 37,
+            "baseTokens": 192,
+            "memTokens": 5786
+          },
+          {
+            "id": "q3-env-vars",
+            "claims": 2,
+            "hits": 37,
+            "baseTokens": 41802,
+            "memTokens": 6605
+          },
+          {
+            "id": "q4-imports",
+            "claims": 0,
+            "hits": 37,
+            "baseTokens": 41802,
+            "memTokens": 6571
+          },
+          {
+            "id": "q5-routes",
+            "claims": 0,
+            "hits": 37,
+            "baseTokens": 41802,
+            "memTokens": 6578
+          },
+          {
+            "id": "q6-doc",
+            "claims": 39,
+            "hits": 37,
+            "baseTokens": 5448,
+            "memTokens": 5810
+          },
+          {
+            "id": "q7-make",
+            "claims": 0,
+            "hits": 37,
+            "baseTokens": 175,
+            "memTokens": 5719
+          },
+          {
+            "id": "q8-compose",
+            "skipped": "no answerable repo files"
+          },
+          {
+            "id": "q9-entrypoint",
+            "claims": 3,
+            "hits": 37,
+            "baseTokens": 192,
+            "memTokens": 5882
+          },
+          {
+            "id": "q10-rules",
+            "claims": 25,
+            "hits": 37,
+            "baseTokens": 5619,
+            "memTokens": 6316
+          }
+        ],
+        "sessions": [
+          "default",
+          "eval_draft",
+          "eval_a1",
+          "eval_b1"
+        ]
+      },
+      "scenarios": {
+        "checks": {
+          "idempotency": "ok",
+          "draft_gate": "ok",
+          "draft_approve": "ok",
+          "draft_visible_after_approve": "ok",
+          "conflict_setup": "ok",
+          "conflict_abort": "ok",
+          "remerge_succeeds": "ok",
+          "revert_applies": "ok",
+          "revert_snapshot": "ok",
+          "revert_tests": "ok"
+        },
+        "failed": [
+          {
+            "check": "draft_not_in_retrieval",
+            "observed": "draft c_233e61e09b05 appears in lore search output before approve",
+            "hint": "drafts must not enter retrieval"
+          }
+        ]
+      }
+    },
+    {
+      "fixture": "global-ready",
+      "src": "/Users/thanhdatvu/repos/global-ready",
+      "error": null,
+      "metrics": {
+        "revert_diff": {
+          "added": 0,
+          "removed": 0
+        },
+        "revert_snapshot_ok": true,
+        "conflict_attempts": 2,
+        "conflict_aborts": 1,
+        "conflict_rate": 0.5,
+        "active_total": 36,
+        "drift": [
+          {
+            "ref": "AGENTS.md",
+            "stale_during": 10,
+            "stale_after": 0
+          },
+          {
+            "ref": "README.md",
+            "stale_during": 10,
+            "stale_after": 0
+          },
+          {
+            "ref": "CLAUDE_MILESTONE_PROMPT.md",
+            "stale_during": 3,
+            "stale_after": 0
+          }
+        ],
+        "stale_count": 23,
+        "stale_rate": 0.21296296296296297,
+        "stale_rate_worst": 0.2777777777777778,
+        "drift_recovered": true,
+        "checked_claims": 33,
+        "false_claims": 0,
+        "false_claim_rate": 0,
+        "false_claim_checks_used": [
+          "ingest_re_derivation",
+          "evidence_hash"
+        ],
+        "false_claim_checks_disabled": [
+          "pkg_manifest",
+          "route_source_grep"
+        ],
+        "token_savings": 0.9675433993047797,
+        "invocations": 22,
+        "time_to_first_useful": 3
+      },
+      "details": {
+        "tempDir": "/var/folders/f8/y3mzm1rd5ts_6cq_cp6df7th0000gn/T/lore-eval-7JiNSs",
+        "suite": {
+          "runnable": false,
+          "reason": "no test runner detected in fixture (no npm test script, no pytest target)"
+        },
+        "ingestClaims": 33,
+        "driftSet": {
+          "pre_registered": [
+            {
+              "ref": "AGENTS.md",
+              "claims": 10
+            },
+            {
+              "ref": "README.md",
+              "claims": 10
+            },
+            {
+              "ref": "CLAUDE_MILESTONE_PROMPT.md",
+              "claims": 3
+            }
+          ],
+          "note": "fixed BEFORE the scenario writes; docs included, worst case reported per file"
+        },
+        "revertTests": {
+          "phase": "after_revert",
+          "status": "skipped",
+          "reason": "no test runner detected in fixture (no npm test script, no pytest target)"
+        },
+        "falseClaimChecks": {
+          "ingest_re_derivation": {
+            "eligible": 33,
+            "flagged": 0
+          },
+          "evidence_hash": {
+            "eligible": 33,
+            "flagged": 0
+          },
+          "pkg_manifest": {
+            "eligible": 0,
+            "flagged": 0
+          },
+          "route_source_grep": {
+            "eligible": 0,
+            "flagged": 0
+          }
+        },
+        "questions": [
+          {
+            "id": "q1-dependencies",
+            "skipped": "no answerable repo files"
+          },
+          {
+            "id": "q2-scripts",
+            "skipped": "no answerable repo files"
+          },
+          {
+            "id": "q3-env-vars",
+            "claims": 2,
+            "hits": 9,
+            "baseTokens": 70530,
+            "memTokens": 1612
+          },
+          {
+            "id": "q4-imports",
+            "claims": 5,
+            "hits": 9,
+            "baseTokens": 70530,
+            "memTokens": 1610
+          },
+          {
+            "id": "q5-routes",
+            "claims": 0,
+            "hits": 9,
+            "baseTokens": 70530,
+            "memTokens": 1628
+          },
+          {
+            "id": "q6-doc",
+            "claims": 26,
+            "hits": 9,
+            "baseTokens": 6176,
+            "memTokens": 1495
+          },
+          {
+            "id": "q7-make",
+            "skipped": "no answerable repo files"
+          },
+          {
+            "id": "q8-compose",
+            "claims": 0,
+            "hits": 9,
+            "baseTokens": 391,
+            "memTokens": 1416
+          },
+          {
+            "id": "q9-entrypoint",
+            "skipped": "no answerable repo files"
+          },
+          {
+            "id": "q10-rules",
+            "claims": 0,
+            "hits": 9,
+            "baseTokens": 70530,
+            "memTokens": 1611
+          }
+        ],
+        "sessions": [
+          "default",
+          "eval_draft",
+          "eval_a1",
+          "eval_b1"
+        ]
+      },
+      "scenarios": {
+        "checks": {
+          "idempotency": "ok",
+          "draft_gate": "ok",
+          "draft_approve": "ok",
+          "draft_visible_after_approve": "ok",
+          "conflict_setup": "ok",
+          "conflict_abort": "ok",
+          "remerge_succeeds": "ok",
+          "revert_applies": "ok",
+          "revert_snapshot": "ok"
+        },
+        "failed": [
+          {
+            "check": "draft_not_in_retrieval",
+            "observed": "draft c_c2115a31ac83 appears in lore search output before approve",
+            "hint": "drafts must not enter retrieval"
+          }
+        ]
+      }
+    },
+    {
+      "fixture": "talotrace-interview-grading-tool",
+      "src": "/Users/thanhdatvu/repos/talotrace-interview-grading-tool",
+      "error": null,
+      "metrics": {
+        "revert_diff": {
+          "added": 0,
+          "removed": 0
+        },
+        "revert_snapshot_ok": true,
+        "conflict_attempts": 2,
+        "conflict_aborts": 1,
+        "conflict_rate": 0.5,
+        "active_total": 128,
+        "drift": [
+          {
+            "ref": "backend/app/routers/hr.py",
+            "stale_during": 10,
+            "stale_after": 0
+          },
+          {
+            "ref": "README.md",
+            "stale_during": 7,
+            "stale_after": 0
+          },
+          {
+            "ref": "lesson_learned.md",
+            "stale_during": 7,
+            "stale_after": 0
+          }
+        ],
+        "stale_count": 24,
+        "stale_rate": 0.0625,
+        "stale_rate_worst": 0.078125,
+        "drift_recovered": true,
+        "checked_claims": 125,
+        "false_claims": 0,
+        "false_claim_rate": 0,
+        "false_claim_checks_used": [
+          "ingest_re_derivation",
+          "evidence_hash",
+          "route_source_grep"
+        ],
+        "false_claim_checks_disabled": [
+          "pkg_manifest"
+        ],
+        "token_savings": 0.9405228058048248,
+        "invocations": 22,
+        "time_to_first_useful": 3
+      },
+      "details": {
+        "tempDir": "/var/folders/f8/y3mzm1rd5ts_6cq_cp6df7th0000gn/T/lore-eval-vQ15kf",
+        "suite": {
+          "runnable": false,
+          "reason": "python test files exist but pytest is not available"
+        },
+        "ingestClaims": 125,
+        "driftSet": {
+          "pre_registered": [
+            {
+              "ref": "backend/app/routers/hr.py",
+              "claims": 10
+            },
+            {
+              "ref": "README.md",
+              "claims": 7
+            },
+            {
+              "ref": "lesson_learned.md",
+              "claims": 7
+            }
+          ],
+          "note": "fixed BEFORE the scenario writes; docs included, worst case reported per file"
+        },
+        "revertTests": {
+          "phase": "after_revert",
+          "status": "skipped",
+          "reason": "python test files exist but pytest is not available"
+        },
+        "falseClaimChecks": {
+          "ingest_re_derivation": {
+            "eligible": 125,
+            "flagged": 0
+          },
+          "evidence_hash": {
+            "eligible": 125,
+            "flagged": 0
+          },
+          "pkg_manifest": {
+            "eligible": 0,
+            "flagged": 0
+          },
+          "route_source_grep": {
+            "eligible": 15,
+            "flagged": 0
+          }
+        },
+        "questions": [
+          {
+            "id": "q1-dependencies",
+            "skipped": "no answerable repo files"
+          },
+          {
+            "id": "q2-scripts",
+            "skipped": "no answerable repo files"
+          },
+          {
+            "id": "q3-env-vars",
+            "claims": 3,
+            "hits": 33,
+            "baseTokens": 139486,
+            "memTokens": 6232
+          },
+          {
+            "id": "q4-imports",
+            "claims": 45,
+            "hits": 33,
+            "baseTokens": 139486,
+            "memTokens": 6230
+          },
+          {
+            "id": "q5-routes",
+            "claims": 15,
+            "hits": 31,
+            "baseTokens": 139486,
+            "memTokens": 6020
+          },
+          {
+            "id": "q6-doc",
+            "claims": 62,
+            "hits": 33,
+            "baseTokens": 38944,
+            "memTokens": 5532
+          },
+          {
+            "id": "q7-make",
+            "claims": 0,
+            "hits": 33,
+            "baseTokens": 583,
+            "memTokens": 5272
+          },
+          {
+            "id": "q8-compose",
+            "skipped": "no answerable repo files"
+          },
+          {
+            "id": "q9-entrypoint",
+            "skipped": "no answerable repo files"
+          },
+          {
+            "id": "q10-rules",
+            "claims": 0,
+            "hits": 33,
+            "baseTokens": 139486,
+            "memTokens": 6253
+          }
+        ],
+        "sessions": [
+          "default",
+          "eval_draft",
+          "eval_a1",
+          "eval_b1"
+        ]
+      },
+      "scenarios": {
+        "checks": {
+          "idempotency": "ok",
+          "draft_gate": "ok",
+          "draft_approve": "ok",
+          "draft_visible_after_approve": "ok",
+          "conflict_setup": "ok",
+          "conflict_abort": "ok",
+          "remerge_succeeds": "ok",
+          "revert_applies": "ok",
+          "revert_snapshot": "ok"
+        },
+        "failed": [
+          {
+            "check": "draft_not_in_retrieval",
+            "observed": "draft c_8482a4acd43f appears in lore search output before approve",
+            "hint": "drafts must not enter retrieval"
+          }
+        ]
+      }
+    }
+  ],
+  "overall": {
+    "stale_rate": 0.11885245901639344,
+    "stale_rate_worst": 0.2777777777777778,
+    "false_claim_rate": 0,
+    "conflict_rate": 0.5,
+    "revert_correctness": 1,
+    "token_savings": 0.9023199548164811,
+    "time_to_first_useful": 3
+  },
+  "failed": [
+    "mcp-scan:draft_not_in_retrieval",
+    "global-ready:draft_not_in_retrieval",
+    "talotrace-interview-grading-tool:draft_not_in_retrieval",
+    "threshold:conflict_rate"
+  ]
+}
