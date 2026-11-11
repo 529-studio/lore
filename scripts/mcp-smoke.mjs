@@ -115,6 +115,21 @@ try {
   const names = (list.result?.tools ?? []).map((t) => t.name).sort();
   const expected = ['memory_approve', 'memory_blame', 'memory_commit', 'memory_diff', 'memory_search', 'memory_status', 'memory_write'];
   if (JSON.stringify(names) !== JSON.stringify(expected)) fail(`tools/list: ${JSON.stringify(names)} != ${JSON.stringify(expected)}`);
+  for (const tool of list.result?.tools ?? []) {
+    if (!tool.outputSchema || tool.outputSchema.type !== 'object') {
+      fail(`tools/list: ${tool.name} is missing an object outputSchema`);
+    }
+  }
+
+  // --- protocol negotiation -----------------------------------------------------------
+  const negotiated = await rpc('initialize', {
+    protocolVersion: '1999-01-01',
+    capabilities: {},
+    clientInfo: { name: 'future-client', version: '0' },
+  });
+  if (negotiated.result?.protocolVersion !== '2025-06-18') {
+    fail(`unsupported protocol should negotiate to 2025-06-18, got ${negotiated.result?.protocolVersion}`);
+  }
 
   // --- memory_search -----------------------------------------------------------------
   const search = await rpc('tools/call', {
