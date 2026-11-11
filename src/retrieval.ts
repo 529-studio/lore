@@ -321,7 +321,12 @@ export interface VerifyResult {
  * rewritten — stale only clears when the backing file/test matches what was
  * observed, or after re-ingesting with a fresh observation.
  */
-export function verifyClaim(db: DB, root: string, claimId: string): VerifyResult {
+export function verifyClaim(
+  db: DB,
+  root: string,
+  claimId: string,
+  opts: { accept?: boolean } = {},
+): VerifyResult {
   const rows = db
     .prepare(
       `SELECT kind, ref, hash FROM evidence
@@ -338,11 +343,17 @@ export function verifyClaim(db: DB, root: string, claimId: string): VerifyResult
   const markStale = db.prepare(
     "UPDATE evidence SET status = 'stale' WHERE claim_id = ? AND kind = ? AND ref = ?",
   );
+  const acceptNewHash = db.prepare(
+    "UPDATE evidence SET hash = ?, status = 'valid', verified_at = ? WHERE claim_id = ? AND kind = ? AND ref = ?",
+  );
   for (const row of rows) {
     checked++;
     const current = hashFile(root, row.ref);
     if (current === row.hash) {
       markValid.run(now, claimId, row.kind, row.ref);
+    } else if (opts.accept && current) {
+      // Re-observation: the file changed for a reason the human accepts.
+      acceptNewHash.run(current, now, claimId, row.kind, row.ref);
     } else {
       stale.push(row.ref);
       markStale.run(claimId, row.kind, row.ref);
