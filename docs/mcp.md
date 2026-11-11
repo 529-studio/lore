@@ -94,3 +94,16 @@ npm run mcp:smoke
 ```
 
 Performs a real handshake (`initialize` → `notifications/initialized` → `tools/list` → `tools/call memory_search` / `memory_write`) against a throwaway repo and asserts the write landed as a draft on an `agent/<session>` branch.
+
+## Protocol negotiation and result schemas
+
+The server supports MCP protocol versions `2025-06-18`, `2025-03-26` and `2024-11-05`.
+
+- A client that asks for a supported version gets that version echoed back.
+- A client that asks for anything else is negotiated down to `2025-06-18`; the reason is written to
+  stderr, never to stdout, so the JSON-RPC stream stays clean.
+- Every tool in `tools/list` carries an `outputSchema` that describes exactly the
+  `structuredContent` it returns, so a client can validate results instead of parsing the text block.
+
+`npm run mcp:smoke` asserts both: each tool has an object schema, and an unknown protocol version
+negotiates to `2025-06-18`.

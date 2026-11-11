@@ -25,7 +25,10 @@ import { parseRange, resolveRevision } from '../revision.js';
 import { branchFor, currentSession } from '../session.js';
 
 const SERVER_VERSION = '0.0.1';
-const FALLBACK_PROTOCOL_VERSION = '2025-06-18';
+// Newest first. A client asking for an unknown version is negotiated down to the
+// newest one we implement, and told so in the initialize result.
+const SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
+const FALLBACK_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0];
 const EVIDENCE_KINDS: EvidenceKind[] = ['test', 'file', 'command', 'human', 'agent'];
 
 const log = (...args: unknown[]): void => {
@@ -414,6 +417,7 @@ interface ToolDef {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
   run: (args: Record<string, unknown>) => ToolResult;
 }
 
@@ -512,6 +516,132 @@ const TOOLS: ToolDef[] = [
   },
 ];
 
+// --- output schemas ------------------------------------------------------------------
+// Each schema describes exactly the structuredContent the tool returns, so a client
+// can validate results instead of guessing from the text block.
+
+const CLAIM_SHAPE = {
+  type: 'object',
+  required: ['id', 'subject', 'predicate', 'object'],
+  properties: {
+    id: { type: 'string' },
+    subject: { type: 'string' },
+    predicate: { type: 'string' },
+    object: { type: 'string' },
+  },
+} as const;
+
+const OUTPUT_SCHEMAS: Record<string, Record<string, unknown>> = {
+  memory_search: {
+    type: 'object',
+    required: ['hits', 'count'],
+    properties: {
+      hits: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['id', 'subject', 'predicate', 'object', 'score', 'stale'],
+          properties: {
+            id: { type: 'string' },
+            subject: { type: 'string' },
+            predicate: { type: 'string' },
+            object: { type: 'string' },
+            score: { type: 'number' },
+            stale: { type: 'boolean' },
+            authority: { type: 'integer', minimum: 0, maximum: 4 },
+            author: { type: 'string' },
+            reasons: { type: 'array', items: { type: 'string' } },
+            evidence: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  kind: { type: 'string' },
+                  ref: { type: 'string' },
+                  hash: { type: ['string', 'null'] },
+                  status: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+      },
+      count: { type: 'integer', minimum: 0 },
+    },
+  },
+  memory_write: {
+    type: 'object',
+    required: ['id', 'state', 'authority', 'inserted', 'branch'],
+    properties: {
+      id: { type: 'string' },
+      state: { type: 'string', enum: ['draft', 'active', 'retracted'] },
+      authority: { type: 'integer', minimum: 0, maximum: 4 },
+      inserted: { type: 'boolean' },
+      branch: { type: 'string' },
+    },
+  },
+  memory_blame: {
+    type: 'object',
+    required: ['claims'],
+    properties: {
+      claims: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['id', 'subject', 'predicate', 'object', 'state', 'in_branch'],
+          properties: {
+            id: { type: 'string' },
+            subject: { type: 'string' },
+            predicate: { type: 'string' },
+            object: { type: 'string' },
+            state: { type: 'string' },
+            in_branch: { type: 'boolean' },
+            authority: { type: 'integer' },
+            confidence: { type: 'number' },
+            author: { type: 'string' },
+            evidence: { type: 'array', items: { type: 'object' } },
+          },
+        },
+      },
+    },
+  },
+  memory_status: {
+    type: 'object',
+    required: ['branch', 'session', 'active_set', 'drafts', 'stale'],
+    properties: {
+      branch: { type: 'string' },
+      session: { type: 'string' },
+      active_set: { type: 'integer', minimum: 0 },
+      drafts: { type: 'integer', minimum: 0 },
+      stale: { type: 'integer', minimum: 0 },
+    },
+  },
+  memory_diff: {
+    type: 'object',
+    required: ['from', 'to', 'added', 'removed'],
+    properties: {
+      from: { type: 'string' },
+      to: { type: 'string' },
+      added: { type: 'array', items: CLAIM_SHAPE },
+      removed: { type: 'array', items: CLAIM_SHAPE },
+    },
+  },
+  memory_approve: {
+    type: 'object',
+    required: ['approved'],
+    properties: { approved: { type: 'array', items: { type: 'string' } } },
+  },
+  memory_commit: {
+    type: 'object',
+    required: ['commit', 'branch'],
+    properties: { commit: { type: 'string' }, branch: { type: 'string' } },
+  },
+};
+
+for (const tool of TOOLS) {
+  tool.outputSchema = OUTPUT_SCHEMAS[tool.name] ?? { type: 'object', additionalProperties: true };
+}
+
 // --- method dispatch -----------------------------------------------------------------
 
 function dispatchToolCall(id: JsonId, params: Record<string, unknown> | undefined): void {
@@ -543,7 +673,11 @@ function handleRequest(id: JsonId, method: string, params: Record<string, unknow
   switch (method) {
     case 'initialize': {
       const requested = typeof params?.protocolVersion === 'string' ? params.protocolVersion : null;
-      const protocolVersion = requested ?? FALLBACK_PROTOCOL_VERSION;
+      const supported = requested ? SUPPORTED_PROTOCOL_VERSIONS.includes(requested) : false;
+      if (requested && !supported) {
+        console.error(`[lore] unsupported MCP protocol version ${requested}; negotiating ${FALLBACK_PROTOCOL_VERSION}`);
+      }
+      const protocolVersion = requested && supported ? requested : FALLBACK_PROTOCOL_VERSION;
       ok(id, {
         protocolVersion,
         capabilities: { tools: { listChanged: false } },
@@ -553,7 +687,14 @@ function handleRequest(id: JsonId, method: string, params: Record<string, unknow
       return;
     }
     case 'tools/list':
-      ok(id, { tools: TOOLS.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) });
+      ok(id, {
+        tools: TOOLS.map(({ name, description, inputSchema, outputSchema }) => ({
+          name,
+          description,
+          inputSchema,
+          ...(outputSchema ? { outputSchema } : {}),
+        })),
+      });
       return;
     case 'tools/call':
       dispatchToolCall(id, params);

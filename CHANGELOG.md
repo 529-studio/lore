@@ -12,6 +12,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
   to the last commit known at that instant, so it answers "what did the agent believe last week",
   not just "what is valid now".
 - `blame` shows the validity window (`valid_from`, `valid_to`).
+- MCP: every tool now publishes an `outputSchema`, and unknown protocol versions negotiate to
+  `2025-06-18` instead of being echoed back.
 
 ## [0.1.1] — 2026-11-11
 
