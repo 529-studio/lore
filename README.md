@@ -1,4 +1,4 @@
-# Lore
+# <img src="docs/assets/brand/lore-icon-128.png" width="48" align="left" alt="Lore icon"> Lore
 
 **Git for what your AI agents know.**
 
@@ -33,6 +33,17 @@ Lore fixes the **trust** problem, not the storage problem.
 | **Staleness** | On read, evidence is re-hashed; a claim whose file changed is marked stale and drops out of retrieval |
 | **Merge** | 3-way merge on `(subject, predicate)` with a deterministic ladder; unresolvable conflicts abort instead of guessing |
 | **Undo** | `lore revert` writes an inverse commit. History is never rewritten, so `blame` still works |
+
+## See it work
+
+![CLI demo: init, ingest, search, drift, status, verify](docs/assets/demo-cli.gif)
+
+*The CLI: initialise, derive claims, search with a score breakdown, edit a file, watch the claim go
+stale, then accept the new reality with `verify --accept`.*
+
+**GUI:** not available yet. The desktop shell that gives non-developers health, review and undo is
+[v0.3.0 #21](https://github.com/529-studio/lore/issues/21). Until it ships there is no mock-up here
+on purpose: the only demo is one you can run.
 
 ## 60-second demo
 
