@@ -14,6 +14,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 - `blame` shows the validity window (`valid_from`, `valid_to`).
 - MCP: every tool now publishes an `outputSchema`, and unknown protocol versions negotiate to
   `2025-06-18` instead of being echoed back.
+- Draft GC by session: `lore gc --ttl-sessions 3` retracts drafts nobody reviewed in the last three
+  sessions. Sessions are registered by any command; review is recorded by `blame`.
 
 ## [0.1.1] — 2026-11-11
 

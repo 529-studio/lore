@@ -4,7 +4,7 @@ import type { DB } from '../db.js';
 import { head, makeCommit } from '../model.js';
 import { planMerge } from '../merge.js';
 import { loadOntology } from '../ontology.js';
-import { branchFor, currentSession } from '../session.js';
+import { branchFor, currentSession, ensureSession } from '../session.js';
 
 const SEP = '\u0000';
 
@@ -30,7 +30,7 @@ export function promoteCommand(opts: PromoteOptions): void {
   const root = requireRoot();
   const db = openDb(root);
   const into = opts.into ?? 'main';
-  const session = currentSession(root, opts.session);
+  const session = ensureSession(db, root, opts.session);
   const fromRef = branchFor(session);
 
   const intoTip = head(db, into);

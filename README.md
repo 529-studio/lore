@@ -195,7 +195,7 @@ lore resolve <subject> <pred>  record a human decision for one conflict
 lore promote                   merge the current branch into main
 lore revert <commit>           inverse commit, history preserved
 lore verify <claim> | --all    re-hash evidence; --accept stores a legitimate change
-lore gc [--ttl-days 3]         retract aged drafts (rows are never deleted)
+lore gc [--ttl-sessions 3]     retract drafts nobody reviewed (rows are never deleted)
 lore export --md               deterministic projection; stale claims under Needs verification
 lore supersede <claim>         replace a claim, keeping the old version in history
 lore mcp                       MCP server over stdio
@@ -311,7 +311,6 @@ sessions). They are reported as measured; the harness fails the build when a sce
 
 ## Limitations (v0.1)
 
-- **Draft GC uses age**, not session count ([#2](https://github.com/529-studio/lore/issues/2)).
 - **`verify` does not rewrite hashes**; a legitimately changed file stays stale until `ingest` re-observes it ([#3](https://github.com/529-studio/lore/issues/3)).
 - **Code repositories only.** Entity ids come from `path#symbol`, which is what makes merge deterministic. Non-code entities are v0.3 ([#20](https://github.com/529-studio/lore/issues/20)).
 - **No team backend yet.** SQLite per repo; shared Postgres and auth are v0.2 ([#15](https://github.com/529-studio/lore/issues/15), [#16](https://github.com/529-studio/lore/issues/16)).

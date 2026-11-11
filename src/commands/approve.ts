@@ -1,12 +1,12 @@
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { makeCommit } from '../model.js';
-import { branchFor, currentSession } from '../session.js';
+import { branchFor, currentSession, ensureSession } from '../session.js';
 
 export function approveCommand(opts: { claim?: string; allDrafts?: boolean; session?: string }): void {
   const root = requireRoot();
   const db = openDb(root);
-  const session = currentSession(root, opts.session);
+  const session = ensureSession(db, root, opts.session);
   const ref = branchFor(session);
 
   const apply = db.transaction(() => {

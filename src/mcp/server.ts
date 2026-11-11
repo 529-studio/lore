@@ -22,7 +22,7 @@ import { claimsFor } from '../model.js';
 import { isStale } from '../merge.js';
 import { searchClaims } from '../retrieval.js';
 import { parseRange, resolveRevision } from '../revision.js';
-import { branchFor, currentSession } from '../session.js';
+import { branchFor, currentSession, recordReads } from '../session.js';
 
 const SERVER_VERSION = '0.0.1';
 // Newest first. A client asking for an unknown version is negotiated down to the
@@ -237,6 +237,8 @@ function toolBlame(args: BlameArgs): ToolResult {
       (c) => !args.predicate || c.predicate === args.predicate,
     );
     if (!rows.length) throw new Error(`no claims for ${args.subject}`);
+    // Reviewing a draft over MCP counts as "used" for GC, same as the CLI.
+    recordReads(ctx.db, ctx.session, rows.map((c) => c.id));
 
     const structured = rows.map((c) => ({
       id: c.id,

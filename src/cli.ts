@@ -171,10 +171,19 @@ program
 
 program
   .command('gc')
-  .description('retract aged draft claims (rows are never deleted)')
-  .option('--ttl-days <n>', 'maximum draft age in days', '3')
+  .description('retract draft claims nobody reviewed (rows are never deleted)')
+  .option('--ttl-sessions <n>', 'sessions without review before a draft is retracted', '3')
+  .option('--ttl-days <n>', 'explicit age override in days')
   .option('--dry-run')
-  .action((opts) => gcCommand({ ttlDays: opts.ttlDays, dryRun: opts.dryRun }));
+  .option('--session <id>')
+  .action((opts) =>
+    gcCommand({
+      ttlSessions: opts.ttlSessions,
+      ttlDays: opts.ttlDays,
+      dryRun: opts.dryRun,
+      session: opts.session,
+    }),
+  );
 
 program
   .command('status')

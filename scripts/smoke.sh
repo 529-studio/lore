@@ -245,6 +245,19 @@ expect_not_contains "$ESCAPE" "sha256:"
 
 LORE_SESSION=gc lore write --subject env:GC_FLAG --predicate read_by --object README.md --kind agent --author agent:gc >/dev/null
 expect_contains "$(LORE_SESSION=gc lore gc --ttl-days 0)" "retracted 1"
+
+# session-based GC: unreviewed drafts are retracted, reviewed ones survive
+LORE_SESSION=gs1 lore write --subject env:GC_STALE --predicate read_by --object README.md --kind agent --author agent:gs >/dev/null
+sleep 1.1
+LORE_SESSION=gs2 lore status >/dev/null
+LORE_SESSION=gs3 lore status >/dev/null
+expect_contains "$(LORE_SESSION=gs3 lore gc --ttl-sessions 2 --dry-run)" "env:GC_STALE"
+
+LORE_SESSION=gr1 lore write --subject env:GC_REVIEW --predicate read_by --object README.md --kind agent --author agent:gr >/dev/null
+sleep 1.1
+LORE_SESSION=gr2 lore status >/dev/null
+LORE_SESSION=gr3 lore blame env:GC_REVIEW >/dev/null
+expect_not_contains "$(LORE_SESSION=gr3 lore gc --ttl-sessions 2 --dry-run)" "env:GC_REVIEW"
 expect_contains "$(lore status)" "conflicts"
 expect_contains "$(lore status)" "gc"
 

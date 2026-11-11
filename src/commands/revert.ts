@@ -1,7 +1,7 @@
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { activeAt, head, makeCommit, type ClaimRow } from '../model.js';
-import { branchFor, currentSession } from '../session.js';
+import { branchFor, currentSession, ensureSession } from '../session.js';
 import { resolveRevision } from '../revision.js';
 
 type Op = 'add' | 'supersede' | 'retract' | 'restore';
@@ -9,7 +9,7 @@ type Op = 'add' | 'supersede' | 'retract' | 'restore';
 export function revertCommand(opts: { commit: string; session?: string }): void {
   const root = requireRoot();
   const db = openDb(root);
-  const session = currentSession(root, opts.session);
+  const session = ensureSession(db, root, opts.session);
   const ref = branchFor(session);
   const target = resolveRevision(db, opts.commit, root);
 

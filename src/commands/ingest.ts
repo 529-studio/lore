@@ -2,7 +2,7 @@ import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { extractAll, hashFile, type Candidate } from '../extract/index.js';
 import { activeAt, head, makeCommit, upsertClaim } from '../model.js';
-import { branchFor, currentSession } from '../session.js';
+import { branchFor, currentSession, ensureSession } from '../session.js';
 
 function evidenceRef(c: Candidate): string {
   if (c.subject.startsWith('file:')) return c.subject.slice(5);
@@ -15,7 +15,7 @@ function evidenceRef(c: Candidate): string {
 export function ingestCommand(opts: { author?: string; session?: string; dryRun?: boolean; quiet?: boolean }): void {
   const root = requireRoot();
   const db = openDb(root);
-  const session = currentSession(root, opts.session);
+  const session = ensureSession(db, root, opts.session);
   const ref = branchFor(session);
   const candidates = extractAll(root);
 

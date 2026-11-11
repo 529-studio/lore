@@ -1,45 +1,49 @@
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
+import { gcCandidates } from '../gc.js';
+import { ensureSession } from '../session.js';
 
 export interface GcOptions {
+  ttlSessions?: string;
   ttlDays?: string;
   dryRun?: boolean;
+  session?: string;
 }
 
-/**
- * SPEC §6: drafts that nobody used are retracted, never deleted.
- * Sessions are not tracked yet, so age (days) is the proxy — documented in SPEC.
- */
 export function gcCommand(opts: GcOptions): void {
   const root = requireRoot();
   const db = openDb(root);
-  const ttlDays = Number(opts.ttlDays ?? 3);
-  const cutoff = new Date(Date.now() - ttlDays * 86_400_000).toISOString();
+  ensureSession(db, root, opts.session);
 
-  const drafts = db
-    .prepare("SELECT id, subject_id, predicate, tx_from FROM claim WHERE state = 'draft' AND tx_from < ?")
-    .all(cutoff) as Array<{ id: string; subject_id: string; predicate: string; tx_from: string }>;
+  const policy = {
+    ttlSessions: Number(opts.ttlSessions ?? 3),
+    ...(opts.ttlDays !== undefined ? { ttlDays: Number(opts.ttlDays) } : {}),
+  };
 
-  if (!drafts.length) {
-    console.log(pc.dim(`no drafts older than ${ttlDays} day(s)`));
+  const candidates = gcCandidates(db, policy);
+
+  if (!candidates.length) {
+    console.log(pc.dim('no draft claims eligible for GC'));
     db.close();
     return;
   }
 
   if (opts.dryRun) {
-    console.log(`${drafts.length} draft(s) would be retracted (ttl ${ttlDays}d):`);
-    for (const d of drafts) console.log(pc.dim(`  ${d.id}  ${d.subject_id} — ${d.predicate}`));
+    console.log(`${candidates.length} draft(s) would be retracted:`);
+    for (const c of candidates) console.log(pc.dim(`  ${c.id}  ${c.subject} — ${c.predicate}  (${c.reason})`));
     db.close();
     return;
   }
 
   const update = db.prepare("UPDATE claim SET state = 'retracted' WHERE id = ?");
   db.transaction(() => {
-    for (const d of drafts) update.run(d.id);
+    for (const c of candidates) update.run(c.id);
   })();
 
-  console.log(`${pc.green('✓')} retracted ${drafts.length} stale draft(s) (ttl ${ttlDays}d, rows kept)`);
-  for (const d of drafts.slice(0, 10)) console.log(pc.dim(`  ${d.id}  ${d.subject_id} — ${d.predicate}`));
-  if (drafts.length > 10) console.log(pc.dim(`  … and ${drafts.length - 10} more claim(s)`));
+  console.log(`${pc.green('✓')} retracted ${candidates.length} stale draft(s); rows are kept`);
+  for (const c of candidates.slice(0, 10)) {
+    console.log(pc.dim(`  ${c.id}  ${c.subject} — ${c.predicate}  (${c.reason})`));
+  }
+  if (candidates.length > 10) console.log(pc.dim(`  … and ${candidates.length - 10} more`));
   db.close();
 }
