@@ -90,6 +90,9 @@ runs:
 
     - name: Detect memory invalidated by this pull request
       shell: bash
+      env:
+        NO_COLOR: '1'
+        FORCE_COLOR: '0'
       run: |
         set -euo pipefail
         # Run before ingest: ingest re-observes changed files and would hide the drift.
@@ -97,6 +100,9 @@ runs:
 
     - name: Ingest this pull request
       shell: bash
+      env:
+        NO_COLOR: '1'
+        FORCE_COLOR: '0'
       run: |
         set -euo pipefail
         LORE_SESSION=head lore ingest > /dev/null
@@ -116,8 +122,9 @@ runs:
 
         diff_path, status_path, out_path, metrics_path, max_claims = sys.argv[1:6]
         max_claims = int(max_claims)
-        diff = open(diff_path, encoding="utf-8").read().splitlines()
-        status = open(status_path, encoding="utf-8").read()
+        ANSI = re.compile(r"\x1b\[[0-9;]*m")
+        diff = [ANSI.sub("", line) for line in open(diff_path, encoding="utf-8").read().splitlines()]
+        status = ANSI.sub("", open(status_path, encoding="utf-8").read())
 
         added = [line[2:].strip() for line in diff if line.startswith("+ ")]
         removed = [line[2:].strip() for line in diff if line.startswith("- ")]
