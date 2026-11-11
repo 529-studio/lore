@@ -16,7 +16,7 @@ inputs:
   lore-ref:
     description: Git ref of the Lore CLI to build when lore-version is empty.
     required: false
-    default: v0.1.2
+    default: v0.1.3
   lore-version:
     description: Published version to install from npm instead of building from source.
     required: false

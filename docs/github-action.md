@@ -40,7 +40,7 @@ jobs:
         with:
           fetch-depth: 0 # the action compares against the base commit
 
-      - uses: 529-studio/lore/.github/actions/lore@v0.1.2
+      - uses: 529-studio/lore/.github/actions/lore@v0.1.3
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           base-ref: ${{ github.base_ref }}
@@ -54,7 +54,7 @@ The action posts one comment and updates it on later pushes; it never writes to 
 |---|---|---|
 | `github-token` | required | token used to create or update the comment |
 | `base-ref` | `main` | branch the pull request targets |
-| `lore-ref` | `v0.1.2` | Lore ref built from source when `lore-version` is empty |
+| `lore-ref` | `v0.1.3` | Lore ref built from source when `lore-version` is empty |
 | `lore-version` | `''` | published npm version to install instead of building |
 | `strict` | `false` | fail the check when `status --strict` exits 3 |
 | `max-claims` | `15` | maximum items listed per section |
