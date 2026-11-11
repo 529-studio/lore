@@ -46,19 +46,17 @@ runs:
       shell: bash
       run: npm install --global "@529studio/lore@${{ inputs.lore-version }}"
 
-    - name: Check out the Lore CLI
-      if: inputs.lore-version == ''
-      uses: actions/checkout@v4
-      with:
-        repository: 529-studio/lore
-        ref: ${{ inputs.lore-ref }}
-        path: ${{ runner.temp }}/lore-tool
-
-    - name: Build and link the CLI
+    - name: Build and link the CLI from source
       if: inputs.lore-version == ''
       shell: bash
-      working-directory: ${{ runner.temp }}/lore-tool
+      env:
+        LORE_REF: ${{ inputs.lore-ref }}
       run: |
+        set -euo pipefail
+        # Cloned outside the workspace: actions/checkout refuses paths outside it,
+        # and a tool checkout inside the workspace would be ingested as claims.
+        git clone --depth 1 --branch "${LORE_REF}" https://github.com/529-studio/lore.git "${RUNNER_TEMP}/lore-tool"
+        cd "${RUNNER_TEMP}/lore-tool"
         npm ci --no-audit --no-fund
         npm run build
         npm link
