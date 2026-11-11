@@ -144,6 +144,7 @@ expect_not_contains "$(lore search --files src/cli.js)" "read_by"
 expect_not_contains "$(lore search --files src/cli.js)" "STALE"
 expect_contains "$(lore search --files src/cli.js --include-stale)" "read_by"
 expect_contains "$(lore search --files src/cli.js --include-stale)" "STALE"
+expect_contains "$(lore export --md)" "Needs verification"
 
 # verify --all --strict exits 3 while a claim is still stale
 set +e
@@ -171,6 +172,7 @@ lore ingest >/dev/null
 expect_contains "$(lore verify --all)" "0 stale"
 expect_contains "$(lore search --files src/cli.js)" "read_by"
 expect_contains "$(lore search --files src/cli.js)" "env:DEMO_TOKEN"
+expect_not_contains "$(lore export --md)" "Needs verification"
 
 set +e
 lore status --strict >/dev/null 2>&1
