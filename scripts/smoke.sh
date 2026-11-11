@@ -57,7 +57,7 @@ ACTIVE_AFTER_INGEST="$(grep -oE '[0-9]+ active' <<<"$STATUS" | grep -oE '^[0-9]+
 
 # --- idempotency -------------------------------------------------------------
 SECOND="$(lore ingest)"
-expect_contains "$SECOND" "0 new claims"
+grep -qF "0 new claims" <<<"$SECOND" || fail "second ingest was not idempotent: $(tr '\n' ' | ' <<<"$SECOND")"
 
 # --- draft gating ------------------------------------------------------------
 DRAFT="$(lore write --subject env:DEMO_TOKEN --predicate rotated_by --object "ops rotation job" --kind agent --author agent:smoke)"
