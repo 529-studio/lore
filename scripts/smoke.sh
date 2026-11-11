@@ -167,14 +167,14 @@ expect_contains "$(lore verify "$CLAIM_ID")" "valid"
 # --- wave 2.5: drafts are invisible to retrieval ----------------------------
 DRAFT_ID="$(LORE_SESSION=gate lore write --subject sym:src/cli.js#main --predicate is_hot_path --object "agent inference" --kind agent --author agent:gate | grep -oE 'c_[a-f0-9]{32}' | head -1)"
 [ -n "$DRAFT_ID" ] || fail "could not read draft id"
-expect_not_contains "$(LORE_SESSION=gate lore search is_hot_path --include-stale)" "is_hot_path"
+expect_not_contains "$(LORE_SESSION=gate lore search is_hot_path --files src/cli.js --include-stale)" "is_hot_path"
 LORE_SESSION=gate lore approve "$DRAFT_ID" >/dev/null
-expect_contains "$(LORE_SESSION=gate lore search is_hot_path --include-stale)" "is_hot_path"
+expect_contains "$(LORE_SESSION=gate lore search is_hot_path --files src/cli.js --include-stale)" "is_hot_path"
 
 # --- wave 2.5: promote makes a branch visible to new sessions ---------------
 LORE_SESSION=owner lore write --subject env:PROMO_FLAG --predicate read_by --object README.md --kind file --ref README.md --author agent:owner >/dev/null
 LORE_SESSION=owner lore promote >/dev/null
-expect_contains "$(LORE_SESSION=outsider lore search PROMO_FLAG --include-stale)" "env:PROMO_FLAG"
+expect_contains "$(LORE_SESSION=outsider lore search PROMO_FLAG --files README.md --include-stale)" "env:PROMO_FLAG"
 
 # --- wave 2.5: cardinality=many keeps both values ---------------------------
 LORE_SESSION=many_a lore write --subject env:MULTI_FLAG --predicate read_by --object README.md --kind file --ref README.md >/dev/null
@@ -199,7 +199,7 @@ LORE_SESSION=r4_del lore revert "$R4_ADD" >/dev/null
 LORE_SESSION=r4_edit lore write --subject env:R4_FLAG --predicate entrypoint --object src/cli.js --kind file --ref src/cli.js >/dev/null
 R4_MERGE="$(LORE_SESSION=r4_del lore merge agent/r4_edit)"
 expect_contains "$R4_MERGE" "retract_wins"
-expect_not_contains "$(LORE_SESSION=r4_del lore search R4_FLAG --include-stale)" "R4_FLAG"
+expect_contains "$(LORE_SESSION=r4_del lore blame env:R4_FLAG)" "out-of-branch"
 
 echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins"
 

@@ -30,6 +30,7 @@ const W_VERIFIED = 1.0;
 const W_SIMILARITY = 0.5;
 const W_STALE = -10.0;
 
+
 /** A verification older than this no longer earns the recency bonus. */
 const VERIFIED_WINDOW_DAYS = 14;
 const DAY_MS = 86_400_000;
@@ -92,6 +93,8 @@ function jaccard(a: Set<string>, b: Set<string>): number {
 interface ScoreParts {
   score: number;
   reasons: string[];
+  /** True when the query or scope actually touches this claim. */
+  relevant: boolean;
 }
 
 interface ScopeContext {
@@ -142,6 +145,7 @@ function scoreClaim(
 ): ScoreParts {
   const parts: number[] = [];
   const reasons: string[] = [];
+  let relevant = false;
 
   // --- anchor: evidence ref or subject path inside the task scope -------------
   const anchorRefs: string[] = [];
@@ -154,6 +158,7 @@ function scoreClaim(
     if (ctx.files.includes(ev.ref)) anchorRefs.push(`evidence ${ev.ref}`);
   }
   if (anchorRefs.length) {
+    relevant = true;
     parts.push(W_ANCHOR);
     reasons.push(`+${W_ANCHOR.toFixed(1)} anchor (${anchorRefs.join(', ')})`);
   }
@@ -164,11 +169,13 @@ function scoreClaim(
   );
   const byPrefix = sameDirPrefix(proxPaths, ctx);
   if (byPrefix) {
+    relevant = true;
     parts.push(W_PROXIMITY);
     reasons.push(`+${W_PROXIMITY.toFixed(1)} proximity (same directory prefix as scope: ${dirOf(byPrefix)})`);
   } else {
     const link = closeByImports(subjectPath, ctx);
     if (link) {
+      relevant = true;
       parts.push(W_PROXIMITY);
       reasons.push(`+${W_PROXIMITY.toFixed(1)} proximity (imports_module: ${link})`);
     }
@@ -206,6 +213,7 @@ function scoreClaim(
     const claimTokens = tokenize(`${claim.subject_id} ${claim.predicate} ${objectText}`);
     const sim = jaccard(ctx.queryTokens, claimTokens);
     if (sim > 0) {
+      relevant = true;
       const part = W_SIMILARITY * sim;
       parts.push(part);
       reasons.push(`+${part.toFixed(1)} text (token overlap ${sim.toFixed(2)})`);
@@ -217,7 +225,7 @@ function scoreClaim(
     reasons.push(`${W_STALE.toFixed(1)} stale (evidence hash no longer matches)`);
   }
 
-  return { score: parts.reduce((sum, v) => sum + v, 0), reasons };
+  return { score: parts.reduce((sum, v) => sum + v, 0), reasons, relevant };
 }
 
 /** Approximate context cost of a hit, in tokens (chars/4 — SPEC §9 budget). */
@@ -271,13 +279,15 @@ export function searchClaims(db: DB, root: string, opts: SearchOptions = {}): Se
     hashlessEvidence.set(c.id, evidenceFor(db, c.id));
   }
 
-  const hits: SearchHit[] = [];
+  let hits: SearchHit[] = [];
   for (const c of current.values()) {
     const stale = isStale(db, root, c.id);
     if (stale && !opts.includeStale) continue;
     const evidence = hashlessEvidence.get(c.id) ?? [];
     const subjectPath = pathFromEntity(c.subject_id);
-    const { score, reasons } = scoreClaim(c, evidence, subjectPath, ctx, stale);
+    const { score, reasons, relevant } = scoreClaim(c, evidence, subjectPath, ctx, stale);
+    // A query must touch the claim: authority and freshness alone are not relevance.
+    if (ctx.queryTokens && !relevant) continue;
     hits.push({ claim: c, score, reasons, stale });
   }
 
@@ -286,6 +296,7 @@ export function searchClaims(db: DB, root: string, opts: SearchOptions = {}): Se
     const key = (h: SearchHit) => `${h.claim.subject_id}\u0000${h.claim.predicate}`;
     return key(a).localeCompare(key(b));
   });
+
 
   const out: SearchHit[] = [];
   let used = 0;

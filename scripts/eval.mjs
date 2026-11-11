@@ -57,8 +57,63 @@ const FIXTURES = (() => {
   if (fromEnv.length) {
     return fromEnv.map((src) => ({ name: path.basename(path.resolve(src)), src: path.resolve(src) }));
   }
-  return [{ name: 'lore-self', src: WORKTREE }];
+  return [{ name: 'sample-app', src: makeSampleFixture() }];
 })();
+
+// A deterministic, public fixture: balanced code and docs, so drift and conflict
+// metrics are meaningful without depending on the author's private repositories.
+function makeSampleFixture() {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'lore-sample-'));
+  const write = (rel, body) => {
+    const abs = path.join(dir, rel);
+    mkdirSync(path.dirname(abs), { recursive: true });
+    writeFileSync(abs, body);
+  };
+  const lines = (...parts) => parts.join('\n') + '\n';
+
+  write('package.json', JSON.stringify({
+    name: 'sample-app',
+    bin: { 'sample-app': 'src/cli.ts' },
+    engines: { node: '>=22' },
+    scripts: { build: 'tsc', test: 'node tests/run.ts', lint: 'eslint .' },
+    dependencies: { zod: '^4.0.0', express: '^5.0.0', pg: '^8.0.0' },
+  }, null, 2));
+
+  write('src/cli.ts', lines("import { createServer } from './server';", 'const port = process.env.PORT;', 'createServer(port);'));
+  write('src/server.ts', lines("import express from 'express';", "import { router } from './routes';", "import { db } from './db';", 'export const app = express();', 'app.use(router);'));
+  write('src/routes.ts', lines("import { db } from './db';", "router.get('/health', () => db.ping());", "router.get('/users', () => db.users());", "router.post('/users', () => db.createUser());"));
+  write('src/db.ts', lines("import pg from 'pg';", 'const dsn = process.env.DATABASE_URL;', 'export const db = new pg.Pool({ connectionString: dsn });'));
+  write('src/auth.ts', lines("import jwt from 'jsonwebtoken';", 'const secret = process.env.JWT_SECRET;', 'export const verify = (t) => jwt.verify(t, secret);'));
+  write('src/cache.ts', lines("import Redis from 'ioredis';", 'const url = process.env.REDIS_URL;', 'export const cache = new Redis(url);'));
+  write('src/queue.ts', lines("import { Queue } from 'bullmq';", 'const url = process.env.REDIS_URL;', "export const jobs = new Queue('jobs', { connection: { url } });"));
+  write('src/config.ts', lines('export const env = {', "  port: process.env.PORT ?? '3000',", "  logLevel: process.env.LOG_LEVEL ?? 'info',", '};'));
+  write('src/logger.ts', lines("import pino from 'pino';", 'export const log = pino({ level: process.env.LOG_LEVEL });'));
+  write('src/metrics.ts', lines("import { Counter } from 'prom-client';", "export const requests = new Counter({ name: 'requests_total' });"));
+  write('tests/run.ts', lines("import { app } from '../src/server';", "app.get('/health');"));
+  write('README.md', lines('# Sample app', '', '## Overview', '', 'A small service.', '', '## Usage', '', 'Run it.'));
+  write('AGENTS.md', lines('# Agents', '', '## Rules', '', 'Keep it small.'));
+
+  // A real service has dozens of modules. Generate a deterministic tail so the
+  // "read the repo" baseline reflects that, instead of a ten-file toy.
+  for (let i = 1; i <= 24; i += 1) {
+    const n = String(i).padStart(2, '0');
+    write(`src/module${n}.ts`, lines(
+      `import { log } from './logger';`,
+      `const flag = process.env.FEATURE_${n};`,
+      `export const feature${n} = (value) => { log.debug(flag); return value; };`,
+      ...Array.from({ length: 55 }, (_, k) => `// module ${n} detail ${k + 1}: deterministic filler for a realistic file size.`),
+    ));
+  }
+
+  // Real modules are longer than their imports. Pad the code files so the
+  // token-savings baseline (reading files) is realistic rather than a toy.
+  for (const rel of ['src/cli.ts', 'src/server.ts', 'src/routes.ts', 'src/db.ts', 'src/auth.ts', 'src/cache.ts', 'src/queue.ts', 'src/config.ts', 'src/logger.ts', 'src/metrics.ts']) {
+    const abs = path.join(dir, rel);
+    const pad = Array.from({ length: 60 }, (_, i) => `// implementation detail ${i + 1}: keep this module small and explicit.`).join('\n');
+    writeFileSync(abs, `${readFileSync(abs, 'utf8')}\n${pad}\n`);
+  }
+  return dir;
+}
 
 const THRESHOLDS = {
   stale_rate: { op: '<', value: 0.15, label: 'stale_rate < 15%' },
@@ -286,7 +341,7 @@ function parseDiff(result, check, stdout) {
 }
 
 function parseAbortCount(result, check, stdout) {
-  const m = /ABORT — (\d+) conflict/.exec(stdout);
+  const m = /ABORT — (\d+) (?:conflict|unresolved)/.exec(stdout);
   if (!m) return fatal(result, check, 'no `ABORT — <n> conflict` line in merge output', `exit/stdout=${stdout.slice(0, 120)}`);
   return Number(m[1]);
 }

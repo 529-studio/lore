@@ -282,20 +282,20 @@ npm run mcp:smoke    # real MCP handshake, tools, draft gating, approve
 npm run eval         # outcome metrics, no LLM judge
 ```
 
-Latest `npm run eval` on this checkout (reproducible with `LORE_EVAL_FIXTURES=/path/a,/path/b` for a
-stronger signal):
+Latest `npm run eval` on the shipped sample fixture (set
+`LORE_EVAL_FIXTURES=/path/a,/path/b` to run against your own repositories):
 
 | Metric | Result | Threshold |
 |---|---|---|
-| stale_rate | 11.9% (worst file 27.8%) | < 15% |
+| stale_rate | 8.0% (worst file 15.5%) | < 15% |
 | false_claim_rate | 0.0% | < 5% |
 | conflict_rate (merges that should succeed) | 0.0% | < 10% |
 | revert_correctness | 100% | 100% |
-| token_savings | 86.0% | > 30% |
+| token_savings | 71.9% | > 30% |
 | time_to_first_useful | 3 invocations | < 10 |
 
-These numbers are proxies (chars/4 for tokens, 1 fixture by default). They are reported honestly
-rather than rounded up; the eval harness fails the build when a scenario check fails.
+These numbers are proxies (chars/4 for tokens; one generated fixture by default, not twenty
+sessions). They are reported as measured; the harness fails the build when a scenario check fails.
 
 ## Limitations (v0.1)
 
