@@ -52,7 +52,7 @@ export function blameCommand(opts: { subject: string; predicate?: string }): voi
       console.log(`  ${pc.dim('•')} ${pc.bold(c.predicate)}: ${obj}`);
       console.log(
         pc.dim(
-          `    ${c.id}  ${state}  T${c.authority}  conf ${c.confidence.toFixed(2)}  ${c.author}  ${c.tx_from.replace('T', ' ').slice(0, 16)}${c.valid_to ? `  -> valid_to ${c.valid_to.slice(0, 10)}` : ''}`,
+          `    ${c.id}  ${state}  T${c.authority}  conf ${c.confidence.toFixed(2)}  ${c.author}  ${c.tx_from.replace('T', ' ').slice(0, 16)}${c.valid_from ? `  valid_from ${c.valid_from.slice(0, 10)}` : ''}${c.valid_to ? `  -> valid_to ${c.valid_to.slice(0, 10)}` : ''}`,
         ),
       );
       for (const ev of evidenceFor(db, c.id)) {

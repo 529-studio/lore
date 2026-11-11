@@ -3,6 +3,16 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Bi-temporal reads: `lore write --valid-from <iso>`, `lore search --as-of <iso>`, and the same
+  options over MCP (`memory_write.valid_from`, `memory_search.as_of`). `--as-of` walks the commit DAG
+  to the last commit known at that instant, so it answers "what did the agent believe last week",
+  not just "what is valid now".
+- `blame` shows the validity window (`valid_from`, `valid_to`).
+
 ## [0.1.1] — 2026-11-11
 
 ### Added

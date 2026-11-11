@@ -51,6 +51,7 @@ program
   .option('--confidence <n>', '0..1')
   .option('--author <id>', 'human:... or agent:...')
   .option('--session <id>', 'write to branch agent/<session>')
+  .option('--valid-from <iso>', 'when the claim became true (default: immediately)')
   .action((opts) =>
     writeCommand({
       subject: opts.subject,
@@ -62,6 +63,7 @@ program
       confidence: opts.confidence,
       author: opts.author,
       session: opts.session,
+      validFrom: opts.validFrom,
     }),
   );
 
@@ -196,6 +198,7 @@ program
   .option('--symbols <ids>', 'comma-separated entity ids in scope')
   .option('--budget <n>', 'token budget (chars/4)', '2000')
   .option('--include-stale', 'keep stale claims')
+  .option('--as-of <iso>', 'read memory as it was known and valid at this instant')
   .option('--json', 'machine-readable JSON')
   .action((query, opts) =>
     searchCommand({
@@ -204,6 +207,7 @@ program
       symbols: opts.symbols,
       budget: opts.budget,
       includeStale: opts.includeStale,
+      asOf: opts.asOf,
       json: opts.json,
     }),
   );

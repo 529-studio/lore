@@ -97,6 +97,7 @@ interface SearchArgs {
   symbols?: string[];
   budget_tokens?: number;
   include_stale?: boolean;
+  as_of?: string;
 }
 
 function toolSearch(args: SearchArgs): ToolResult {
@@ -108,6 +109,7 @@ function toolSearch(args: SearchArgs): ToolResult {
       symbols: args.symbols,
       budgetTokens: args.budget_tokens,
       includeStale: args.include_stale,
+      asOf: args.as_of,
     });
 
     const structured = hits.map((h) => ({
@@ -150,6 +152,7 @@ interface WriteArgs {
   kind?: string;
   ref?: string;
   confidence?: number;
+  valid_from?: string;
 }
 
 function toolWrite(args: WriteArgs): ToolResult {
@@ -179,6 +182,7 @@ function toolWrite(args: WriteArgs): ToolResult {
       predicate: args.predicate,
       object: args.object,
       confidence: args.confidence,
+      validFrom: args.valid_from,
       author,
       // Never writes to `main` — the commit always lands on agent/<session>.
       evidence: [{ kind, ref: evidenceRef, hash }],
@@ -428,6 +432,7 @@ const TOOLS: ToolDef[] = [
         symbols: { type: 'array', items: { type: 'string' }, description: 'entity ids in scope' },
         budget_tokens: { type: 'number', description: 'context budget, default 2000' },
         include_stale: { type: 'boolean', description: 'keep stale claims in the result' },
+        as_of: { type: 'string', description: 'ISO instant: read memory as it was known and valid then' },
       },
     },
     run: (args) => toolSearch(ARGS(args) as unknown as SearchArgs),
@@ -446,6 +451,7 @@ const TOOLS: ToolDef[] = [
         kind: { type: 'string', enum: EVIDENCE_KINDS },
         ref: { type: 'string', description: 'evidence source (default: subject)' },
         confidence: { type: 'number', minimum: 0, maximum: 1 },
+        valid_from: { type: 'string', description: 'ISO date when the claim became true' },
       },
     },
     run: (args) => toolWrite(ARGS(args) as unknown as WriteArgs),

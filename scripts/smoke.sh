@@ -257,4 +257,28 @@ expect_contains "$SUP_BLAME" "out-of-branch"
 expect_contains "$SUP_BLAME" "valid_to"
 expect_not_contains "$(lore search SUP_FLAG --files src/cli.js)" "README.md"
 
-echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede"
+# --- bi-temporal reads -------------------------------------------------------
+lore write --subject env:FUTURE_FLAG --predicate read_by --object README.md --kind file --ref README.md --valid-from 2099-01-01T00:00:00Z >/dev/null
+expect_not_contains "$(lore search FUTURE_FLAG --files README.md)" "env:FUTURE_FLAG"
+expect_contains "$(lore search FUTURE_FLAG --files README.md --as-of 2100-01-01T00:00:00Z)" "env:FUTURE_FLAG"
+expect_contains "$(lore blame env:FUTURE_FLAG)" "valid_from 2099-01-01"
+
+lore write --subject env:PAST_FLAG --predicate read_by --object README.md --kind file --ref README.md --valid-from 2020-01-01T00:00:00Z >/dev/null
+expect_contains "$(lore search PAST_FLAG --files README.md)" "env:PAST_FLAG"
+
+set +e
+lore write --subject env:BAD_FLAG --predicate read_by --object x --kind file --valid-from not-a-date >/dev/null 2>&1
+BAD_DATE=$?
+set -e
+[ "$BAD_DATE" -ne 0 ] || fail "expected a non-zero exit for an invalid --valid-from"
+
+# as-of reaches back through the commit DAG, not just the current active set
+BT_OLD="$(lore write --subject env:BT_TIME --predicate entrypoint --object README.md --kind file --ref README.md | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+sleep 1.2
+BT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+sleep 1.2
+lore supersede "$BT_OLD" --object package.json --kind file --ref package.json >/dev/null
+expect_contains "$(lore search BT_TIME --files README.md --as-of "$BT_AT")" "README.md"
+expect_contains "$(lore search BT_TIME --files package.json)" "package.json"
+
+echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal"

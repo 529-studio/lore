@@ -14,6 +14,7 @@ export interface WriteOptions {
   confidence?: string;
   author?: string;
   session?: string;
+  validFrom?: string;
 }
 
 export function writeCommand(opts: WriteOptions): void {
@@ -21,6 +22,10 @@ export function writeCommand(opts: WriteOptions): void {
   const db = openDb(root);
   const session = currentSession(root, opts.session);
   const ref = branchFor(session);
+
+  if (opts.validFrom && !Number.isFinite(Date.parse(opts.validFrom))) {
+    throw new Error(`--valid-from: not a valid ISO date: ${opts.validFrom}`);
+  }
 
   const evidenceRef = opts.ref ?? opts.subject;
   let hash = opts.hash ?? null;
@@ -35,6 +40,7 @@ export function writeCommand(opts: WriteOptions): void {
       object: opts.object,
       confidence: opts.confidence ? Number(opts.confidence) : undefined,
       author: opts.author ?? 'human:cli',
+      validFrom: opts.validFrom,
       evidence: [{ kind: opts.kind, ref: evidenceRef, hash }],
     });
 
