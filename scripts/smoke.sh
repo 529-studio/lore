@@ -41,6 +41,10 @@ cat > README.md <<'MD'
 ## How to run
 MD
 
+# A real HEAD lets the freshness logic tell drift from a stale checkout.
+git add -A
+git commit -qm "smoke baseline"
+
 fail() { echo "FAIL: $1" >&2; exit 1; }
 expect_contains() { grep -qF "$2" <<<"$1" || fail "expected to contain: $2"; }
 expect_not_contains() { if grep -qF "$2" <<<"$1"; then fail "expected NOT to contain: $2"; fi; }
@@ -386,4 +390,37 @@ expect_contains "$(lore blame pkg:leaky)" "no claims"
 cp package.json.bak package.json
 lore ingest >/dev/null
 
-echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall"
+# --- sync: shared directory round trip ---------------------------------------
+SYNC_DIR="$(mktemp -d)"
+lore promote >/dev/null 2>&1 || true
+lore remote "$SYNC_DIR" >/dev/null
+lore push >/dev/null
+SYNC_B="$(mktemp -d)"
+tar --exclude=.lore --exclude=.git -cf - . | tar -C "$SYNC_B" -xf -
+mkdir -p "$SYNC_B/.lore"
+cp .lore/config.json "$SYNC_B/.lore/config.json"
+(
+  cd "$SYNC_B"
+  node "$LORE_BIN" init >/dev/null
+  node "$LORE_BIN" remote "$SYNC_DIR" >/dev/null
+  node "$LORE_BIN" fetch >/dev/null
+)
+expect_contains "$(cd "$SYNC_B" && node "$LORE_BIN" search DEMO_TOKEN --files src/cli.js)" "env:DEMO_TOKEN"
+expect_contains "$(cd "$SYNC_B" && node "$LORE_BIN" status)" "in sync"
+
+# --- freshness: a claim observed on newer code is not stale -------------------
+printf 'export const ahead = 1;\n' > src/ahead.ts
+git add -A
+git commit -qm "ahead"
+AHEAD_COMMIT="$(git rev-parse HEAD)"
+lore write --subject file:src/ahead.ts --predicate entrypoint --object "v2" --kind file --ref src/ahead.ts >/dev/null
+BASE_COMMIT="$(git rev-list --max-parents=0 HEAD)"
+BRANCH_NAME="$(git branch --show-current)"
+git checkout -q "$BASE_COMMIT"
+expect_not_contains "$(lore search entrypoint --files src/ahead.ts)" "file:src/ahead.ts"
+expect_contains "$(lore search entrypoint --files src/ahead.ts --trust-remote)" "file:src/ahead.ts"
+expect_contains "$(lore blame file:src/ahead.ts)" "ahead-of-checkout"
+git checkout -q "$BRANCH_NAME"
+expect_contains "$(lore search entrypoint --files src/ahead.ts)" "file:src/ahead.ts"
+
+echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness"

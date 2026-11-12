@@ -244,8 +244,12 @@ Every claim carries the hash of what it depends on. On read (and in `status`):
 | `human` | never |
 | `agent` | the model id changed |
 
+A second case must be distinguished: the claim was observed on **newer code than this checkout**
+(evidence records the git HEAD at observation time). That claim is `ahead-of-checkout`, not stale:
+excluded from retrieval by default, included with `--trust-remote`, and labelled as such in `blame`.
+
 Consequences: retrieval excludes stale claims by default (`--include-stale` overrides); `status`
-reports the count; `export` marks them. Stale claims are kept, never deleted, and return to valid when
+reports stale and ahead separately; `export` marks them. Stale claims are kept, never deleted, and return to valid when
 re-observed.
 
 ## 9. Retrieval
@@ -349,6 +353,7 @@ No LLM judge. Outcome metrics on real repositories:
 | R4 "unless the retract is stale" | approximated by the survivor's tier (> T2 blocks deletion) | no per-side stale flag at that step yet |
 | `tree_hash = (claim_id, state)` | `(claim_id, op)` | op is what the fold actually uses |
 | `verify` updates the hash | does not rewrite it | avoid blessing drift; `ingest` is the re-observation path |
+| no team sync | `lore remote` + `fetch`/`push` over a shared directory, `bundle` for air gaps | internal and air-gapped repositories cannot depend on a git host |
 | `--as-of` reads the commit at that instant | folds the whole ancestry, skipping commits after the instant | a single commit chain hides facts on sibling branches before a merge |
 | hash cache keyed by content | keyed by size, mtime and ctime | mtime can be restored; ctime changes on any inode write |
 | file/test evidence auto-promotes | only when the evidence hash was actually observed | an unhashable file is not evidence |

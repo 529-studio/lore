@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS evidence (
   kind        TEXT NOT NULL,
   ref         TEXT NOT NULL,
   hash        TEXT,
+  commit_id   TEXT,
   verified_at TEXT,
   status      TEXT NOT NULL DEFAULT 'valid',
   PRIMARY KEY (claim_id, kind, ref)

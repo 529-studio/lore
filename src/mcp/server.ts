@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { openDb, requireRoot, type DB } from '../db.js';
 import { hashCache } from '../hash-cache.js';
+import { gitHead } from '../util/git.js';
 import {
   activeAt,
   evidenceFor,
@@ -19,7 +20,7 @@ import {
   type EvidenceKind,
 } from '../model.js';
 import { claimsFor } from '../model.js';
-import { isStale } from '../merge.js';
+import { claimFreshness, isStale } from '../merge.js';
 import { searchClaims } from '../retrieval.js';
 import { parseRange, resolveRevision } from '../revision.js';
 import { branchFor, currentSession, recordReads } from '../session.js';
@@ -101,6 +102,7 @@ interface SearchArgs {
   budget_tokens?: number;
   include_stale?: boolean;
   as_of?: string;
+  trust_remote?: boolean;
 }
 
 function toolSearch(args: SearchArgs): ToolResult {
@@ -113,6 +115,7 @@ function toolSearch(args: SearchArgs): ToolResult {
       budgetTokens: args.budget_tokens,
       includeStale: args.include_stale,
       asOf: args.as_of,
+      trustRemote: args.trust_remote,
     });
 
     const structured = hits.map((h) => ({
@@ -122,6 +125,7 @@ function toolSearch(args: SearchArgs): ToolResult {
       object: objectOf(h.claim),
       score: Number(h.score.toFixed(3)),
       stale: h.stale,
+      ahead: h.ahead,
       authority: h.claim.authority,
       author: h.claim.author,
       reasons: h.reasons,
@@ -192,7 +196,7 @@ function toolWrite(args: WriteArgs): ToolResult {
         validFrom: args.valid_from,
         author,
         // Never writes to `main` — the commit always lands on agent/<session>.
-        evidence: [{ kind, ref: evidenceRef, hash }],
+        evidence: [{ kind, ref: evidenceRef, hash, commit: gitHead(ctx.root) }],
       });
 
       // Drafts never enter the active set; a claim missing from this branch still needs an entry.
@@ -285,8 +289,11 @@ function toolStatus(_args: Record<string, never>): ToolResult {
       n: number;
     }).n;
     let stale = 0;
+    let ahead = 0;
     for (const id of ctx.branchActive.keys()) {
-      if (isStale(ctx.db, ctx.root, id)) stale++;
+      const freshness = claimFreshness(ctx.db, ctx.root, id);
+      if (freshness === 'stale') stale++;
+      if (freshness === 'ahead') ahead++;
     }
     const summary = {
       branch: ctx.branch,
@@ -294,12 +301,13 @@ function toolStatus(_args: Record<string, never>): ToolResult {
       active_set: ctx.branchActive.size,
       drafts,
       stale,
+      ahead,
     };
     return {
       content: [
         {
           type: 'text',
-          text: `branch ${summary.branch} — ${summary.active_set} active, ${drafts} draft, ${stale} stale`,
+          text: `branch ${summary.branch} — ${summary.active_set} active, ${drafts} draft, ${stale} stale, ${ahead} ahead of checkout`,
         },
       ],
       structuredContent: summary,
@@ -445,6 +453,7 @@ const TOOLS: ToolDef[] = [
         budget_tokens: { type: 'number', description: 'context budget, default 2000' },
         include_stale: { type: 'boolean', description: 'keep stale claims in the result' },
         as_of: { type: 'string', description: 'ISO instant: read memory as it was known and valid then' },
+        trust_remote: { type: 'boolean', description: 'include claims observed on newer code than this checkout' },
       },
     },
     run: (args) => toolSearch(ARGS(args) as unknown as SearchArgs),
@@ -556,6 +565,7 @@ const OUTPUT_SCHEMAS: Record<string, Record<string, unknown>> = {
             object: { type: 'string' },
             score: { type: 'number' },
             stale: { type: 'boolean' },
+            ahead: { type: 'boolean' },
             authority: { type: 'integer', minimum: 0, maximum: 4 },
             author: { type: 'string' },
             reasons: { type: 'array', items: { type: 'string' } },
@@ -615,13 +625,14 @@ const OUTPUT_SCHEMAS: Record<string, Record<string, unknown>> = {
   },
   memory_status: {
     type: 'object',
-    required: ['branch', 'session', 'active_set', 'drafts', 'stale'],
+    required: ['branch', 'session', 'active_set', 'drafts', 'stale', 'ahead'],
     properties: {
       branch: { type: 'string' },
       session: { type: 'string' },
       active_set: { type: 'integer', minimum: 0 },
       drafts: { type: 'integer', minimum: 0 },
       stale: { type: 'integer', minimum: 0 },
+      ahead: { type: 'integer', minimum: 0 },
     },
   },
   memory_diff: {

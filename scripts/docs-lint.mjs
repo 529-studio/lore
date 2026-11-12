@@ -41,7 +41,7 @@ for (const file of files) {
   const lines = text.split('\n');
   for (let i = 0; i < lines.length; i += 1) {
     if (EMOJI.test(lines[i])) fail(`${file}:${i + 1} contains an emoji`);
-    if (VIETNAMESE.test(lines[i]) && !file.endsWith('README.vi.md')) {
+    if (VIETNAMESE.test(lines[i]) && !file.endsWith('README.vi.md') && !file.startsWith('docs/i18n/')) {
       fail(`${file}:${i + 1} contains Vietnamese text; the codebase and docs are English`);
     }
   }

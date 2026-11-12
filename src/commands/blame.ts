@@ -1,6 +1,7 @@
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { activeAt, claimsFor, evidenceFor, head } from '../model.js';
+import { claimFreshness } from '../merge.js';
 import { branchFor, ensureSession, recordReads } from '../session.js';
 
 export function blameCommand(opts: { subject: string; predicate?: string }): void {
@@ -38,14 +39,17 @@ export function blameCommand(opts: { subject: string; predicate?: string }): voi
   for (const [subject, list] of bySubject) {
     console.log(pc.bold(pc.cyan(subject)));
     for (const c of list) {
+      const freshness = claimFreshness(db, root, c.id);
       const state =
         c.state === 'draft'
           ? pc.yellow('draft')
           : c.state === 'retracted'
             ? pc.red('retracted')
-            : inBranch.has(c.id)
-              ? pc.green('active')
-              : pc.dim('out-of-branch');
+            : freshness === 'ahead'
+              ? pc.yellow('ahead-of-checkout')
+              : inBranch.has(c.id)
+                ? pc.green('active')
+                : pc.dim('out-of-branch');
       const obj = (() => {
         try {
           return String(JSON.parse(c.object_json));

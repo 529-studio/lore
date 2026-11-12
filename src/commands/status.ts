@@ -3,6 +3,9 @@ import { openDb, requireRoot } from '../db.js';
 import { hashCache } from '../hash-cache.js';
 import { gcCandidates } from '../gc.js';
 import { activeAt, head } from '../model.js';
+import { claimFreshness } from '../merge.js';
+import { readConfig } from '../config.js';
+import { isAncestor } from '../sync.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
 
 interface CountRow {
@@ -41,13 +44,25 @@ export function statusCommand(opts: StatusOptions = {}): void {
   if (opts.noCache) cache.enabled = false;
 
   const stale: Array<{ claim_id: string; ref: string; state: string }> = [];
+  const ahead: Array<{ claim_id: string; ref: string }> = [];
   const markStale = db.prepare("UPDATE evidence SET status = 'stale' WHERE claim_id = ? AND ref = ?");
+  const markAhead = db.prepare("UPDATE evidence SET status = 'ahead' WHERE claim_id = ? AND ref = ?");
   const markValid = db.prepare("UPDATE evidence SET status = 'valid' WHERE claim_id = ? AND ref = ?");
+
+  const freshness = new Map<string, ReturnType<typeof claimFreshness>>();
+  const freshnessOf = (id: string) => {
+    if (!freshness.has(id)) freshness.set(id, claimFreshness(db, root, id));
+    return freshness.get(id)!;
+  };
+
   for (const ev of evidence) {
-    const current = cache.hash(ev.ref);
-    if (current !== ev.hash) {
+    const state = freshnessOf(ev.claim_id);
+    if (state === 'stale') {
       stale.push(ev);
       markStale.run(ev.claim_id, ev.ref);
+    } else if (state === 'ahead') {
+      ahead.push(ev);
+      markAhead.run(ev.claim_id, ev.ref);
     } else {
       markValid.run(ev.claim_id, ev.ref);
     }
@@ -64,13 +79,34 @@ export function statusCommand(opts: StatusOptions = {}): void {
   console.log(`  claims     ${pc.bold(String(total))} total  ${pc.green(`${byState.get('active') ?? 0} active`)}  ${pc.yellow(`${byState.get('draft') ?? 0} draft`)}  ${pc.red(`${byState.get('retracted') ?? 0} retracted`)}`);
   console.log(`  branch     ${ref}  ${pc.dim(`${branchActive} claims in the active set`)}`);
   console.log(`  commits    ${commits}   branches ${branches}`);
+
+  const config = readConfig(root);
+  if (config?.remote) {
+    const local = head(db, 'main');
+    const remote = config.remote_main;
+    let state = 'not synced yet';
+    if (local && remote) {
+      if (local === remote) state = 'in sync';
+      else if (isAncestor(db, remote, local)) state = 'local ahead';
+      else if (isAncestor(db, local, remote)) state = 'behind — run lore fetch';
+      else state = 'diverged';
+    }
+    console.log(`  remote     ${config.remote.path} ${pc.dim(`(${state})`)}`);
+  }
   console.log(`  stale      ${stale.length ? pc.red(String(stale.length)) : pc.green('0')} ${pc.dim('(evidence hash no longer matches)')}`);
+  console.log(`  ahead      ${ahead.length ? pc.yellow(String(ahead.length)) : pc.green('0')} ${pc.dim('(claim observed on newer code than this checkout)')}`);
   console.log(`  conflicts  ${conflicts ? pc.red(String(conflicts)) : pc.green('0')} ${pc.dim('(unresolved merges)')}`);
   console.log(`  gc         ${gcEligible ? pc.yellow(String(gcEligible)) : pc.green('0')} ${pc.dim('drafts unreviewed for 3 sessions — run lore gc')}`);
 
   if (opts.stats) {
     const c = cache.stats();
     console.log(`  cache      ${c.hits} hits, ${c.reads} reads, ${c.misses} misses${c.enabled ? '' : ' (disabled)'}`);
+  }
+
+  if (ahead.length) {
+    console.log(pc.dim('\n  ahead of checkout — run `lore fetch` or `lore search --trust-remote`:'));
+    for (const a of ahead.slice(0, 5)) console.log(pc.dim(`  • ${a.claim_id}  ${a.ref}`));
+    if (ahead.length > 5) console.log(pc.dim(`  … and ${ahead.length - 5} more`));
   }
 
   if (stale.length) {

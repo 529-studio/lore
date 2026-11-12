@@ -10,6 +10,8 @@ export interface EvidenceInput {
   kind: EvidenceKind;
   ref: string;
   hash?: string | null;
+  /** Git HEAD at observation time, used to tell drift from a stale checkout. */
+  commit?: string | null;
 }
 
 export interface WriteInput {
@@ -129,13 +131,14 @@ export function upsertClaim(db: DB, input: WriteInput): UpsertResult {
 
   for (const ev of input.evidence) {
     db.prepare(
-      `INSERT INTO evidence(claim_id, kind, ref, hash, verified_at, status)
-       VALUES (?, ?, ?, ?, ?, 'valid')
+      `INSERT INTO evidence(claim_id, kind, ref, hash, commit_id, verified_at, status)
+       VALUES (?, ?, ?, ?, ?, ?, 'valid')
        ON CONFLICT(claim_id, kind, ref) DO UPDATE SET
          hash = COALESCE(excluded.hash, evidence.hash),
+         commit_id = COALESCE(excluded.commit_id, evidence.commit_id),
          verified_at = excluded.verified_at,
          status = 'valid'`,
-    ).run(id, ev.kind, ev.ref, ev.hash ?? null, now);
+    ).run(id, ev.kind, ev.ref, ev.hash ?? null, ev.commit ?? null, now);
   }
 
   return { id, inserted: !existing, state, authority };

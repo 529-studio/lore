@@ -1,7 +1,7 @@
 import type { DB } from './db.js';
 import { hashCache } from './hash-cache.js';
 import { evidenceFor, activeAtAsOf, head, type ClaimRow } from './model.js';
-import { byKey, isStale } from './merge.js';
+import { byKey, claimFreshness, isStale } from './merge.js';
 import { loadOntology } from './ontology.js';
 import { branchFor, currentSession } from './session.js';
 
@@ -13,6 +13,8 @@ export interface SearchOptions {
   includeStale?: boolean;
   /** Bi-temporal read: what the branch knew, and what was valid, at this instant. */
   asOf?: string;
+  /** Include claims observed on newer code than this checkout. */
+  trustRemote?: boolean;
 }
 
 export interface SearchHit {
@@ -20,6 +22,8 @@ export interface SearchHit {
   score: number;
   reasons: string[]; // human-readable scoring breakdown
   stale: boolean;
+  /** The claim describes newer code than this checkout. */
+  ahead: boolean;
 }
 
 const BUDGET_DEFAULT = 2000;
@@ -296,14 +300,17 @@ export function searchClaims(db: DB, root: string, opts: SearchOptions = {}): Se
 
   let hits: SearchHit[] = [];
   for (const c of current.values()) {
-    const stale = isStale(db, root, c.id);
+    const freshness = claimFreshness(db, root, c.id);
+    const stale = freshness === 'stale';
+    const ahead = freshness === 'ahead';
     if (stale && !opts.includeStale) continue;
+    if (ahead && !opts.trustRemote) continue;
     const evidence = hashlessEvidence.get(c.id) ?? [];
     const subjectPath = pathFromEntity(c.subject_id);
     const { score, reasons, relevant } = scoreClaim(c, evidence, subjectPath, ctx, stale);
     // A query must touch the claim: authority and freshness alone are not relevance.
     if (ctx.queryTokens && !relevant) continue;
-    hits.push({ claim: c, score, reasons, stale });
+    hits.push({ claim: c, score, reasons, stale, ahead });
   }
 
   hits.sort((a, b) => {

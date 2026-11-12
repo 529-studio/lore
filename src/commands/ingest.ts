@@ -4,6 +4,7 @@ import { extractAll, type Candidate } from '../extract/index.js';
 import { activeAt, head, makeCommit, upsertClaim } from '../model.js';
 import { hashCache } from '../hash-cache.js';
 import { SecretDetected } from '../secrets.js';
+import { gitHead } from '../util/git.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
 
 function evidenceRef(c: Candidate): string {
@@ -45,7 +46,7 @@ export function ingestCommand(opts: { author?: string; session?: string; dryRun?
         object: c.object,
         confidence: c.confidence,
         author: opts.author ?? 'lore:ingest',
-          evidence: [{ kind: 'file', ref: evRef, hash: cache.hash(evRef) }],
+          evidence: [{ kind: 'file', ref: evRef, hash: cache.hash(evRef), commit: gitHead(root) }],
         });
       } catch (error) {
         if (error instanceof SecretDetected) {

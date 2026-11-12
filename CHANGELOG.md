@@ -7,6 +7,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 
 ### Added
 
+- Team sync without a git host: repository identity in `.lore/config.json`, `lore remote <dir>`,
+  `lore fetch`/`push`, and `lore bundle export/import` for air-gapped sharing.
+- Freshness is now two axes: a claim observed on newer code than the checkout is reported as
+  `ahead-of-checkout` (excluded by default, `--trust-remote` includes it) instead of stale.
+- Vietnamese team-mode brief at `docs/i18n/team-mode.vi.md`.
 - Secret firewall: `lore write` and `lore ingest` reject secrets in claims, `lore guard [--staged]`
   scans files and staged diffs, `--install` adds a pre-commit hook, and `.loresecretignore` holds
   reviewed exceptions.

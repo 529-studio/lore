@@ -198,6 +198,9 @@ lore promote                   merge the current branch into main
 lore revert <commit>           inverse commit, history preserved
 lore verify <claim> | --all    re-hash evidence; --accept stores a legitimate change
 lore guard [--staged]         scan for secrets before they enter a claim or a commit
+lore remote <dir>             point fetch/push at a shared directory (no git host needed)
+lore fetch | push             exchange commits with that directory
+lore bundle export|import     air-gapped exchange of the missing commits
 lore gc [--ttl-sessions 3]     retract drafts nobody reviewed (rows are never deleted)
 lore export --md               deterministic projection; stale claims under Needs verification
 lore supersede <claim>         replace a claim, keeping the old version in history
@@ -265,6 +268,11 @@ main ──────────●──────────────
   - if nothing applies, the merge **aborts with exit 2** and asks a human.
 - `lore resolve <subject> <predicate> --take theirs --reason "..."` records the decision, and the
   next merge applies it. Every decision is stored in `merge_decision` for audit.
+
+**Internal or offline repositories.** Memory does not depend on a git host: `lore remote <shared-dir>`
+plus `lore fetch`/`lore push` shares commits with a team directory, and `lore bundle` moves them across
+an air gap. A claim observed on newer code than your checkout is reported as *ahead of checkout*, not
+stale; `--trust-remote` includes it. See [docs/team-mode.md](docs/team-mode.md).
 
 **CI integration.** The GitHub Action comments on every pull request with what it teaches the agent
 and which claims it invalidates. See [docs/github-action.md](docs/github-action.md).

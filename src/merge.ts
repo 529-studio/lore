@@ -1,5 +1,6 @@
 import type { DB } from './db.js';
 import { hashCache } from './hash-cache.js';
+import { gitHead, isGitAncestor } from './util/git.js';
 import type { ClaimRow } from './model.js';
 import { activeAt } from './model.js';
 import type { Cardinality, Ontology } from './ontology.js';
@@ -87,15 +88,39 @@ export function byKey(
   return out;
 }
 
-export function isStale(db: DB, root: string, claimId: string): boolean {
+export type Freshness = 'valid' | 'stale' | 'ahead';
+
+/**
+ * Distinguish "the file changed" from "my checkout is older than the claim".
+ * The evidence records the git HEAD at observation time; if that commit is not an
+ * ancestor of the current HEAD, the claim describes newer code than this checkout.
+ */
+export function claimFreshness(db: DB, root: string, claimId: string): Freshness {
   const rows = db
-    .prepare(
-      `SELECT ref, hash FROM evidence WHERE claim_id = ? AND kind IN ('file','test')`,
-    )
-    .all(claimId) as Array<{ ref: string; hash: string | null }>;
-  if (!rows.length) return false;
+    .prepare(`SELECT ref, hash, commit_id FROM evidence WHERE claim_id = ? AND kind IN ('file','test')`)
+    .all(claimId) as Array<{ ref: string; hash: string | null; commit_id: string | null }>;
+  if (!rows.length) return 'valid';
+
   const cache = hashCache(db, root);
-  return rows.some((r) => !r.hash || cache.hash(r.ref) !== r.hash);
+  const head = gitHead(root);
+  let ahead = false;
+
+  for (const row of rows) {
+    if (!row.hash) return 'stale';
+    if (cache.hash(row.ref) === row.hash) continue;
+    if (row.commit_id && head && !isGitAncestor(root, row.commit_id, head)) {
+      ahead = true;
+      continue;
+    }
+    return 'stale';
+  }
+
+  return ahead ? 'ahead' : 'valid';
+}
+
+/** Conservative: anything not valid locally (drifted or ahead) is untrusted for merge. */
+export function isStale(db: DB, root: string, claimId: string): boolean {
+  return claimFreshness(db, root, claimId) !== 'valid';
 }
 
 interface CommitParents {
