@@ -40,8 +40,12 @@ export function blameCommand(opts: { subject: string; predicate?: string }): voi
     console.log(pc.bold(pc.cyan(subject)));
     for (const c of list) {
       const freshness = claimFreshness(db, root, c.id);
-      const state =
-        c.state === 'draft'
+      const redaction = db.prepare('SELECT reason FROM redaction WHERE claim_id = ?').get(c.id) as
+        | { reason: string | null }
+        | undefined;
+      const state = redaction
+        ? pc.magenta('redacted')
+        : c.state === 'draft'
           ? pc.yellow('draft')
           : c.state === 'retracted'
             ? pc.red('retracted')
@@ -63,6 +67,7 @@ export function blameCommand(opts: { subject: string; predicate?: string }): voi
           `    ${c.id}  ${state}  T${c.authority}  conf ${c.confidence.toFixed(2)}  ${c.author}  ${c.tx_from.replace('T', ' ').slice(0, 16)}${c.valid_from ? `  valid_from ${c.valid_from.slice(0, 10)}` : ''}${c.valid_to ? `  -> valid_to ${c.valid_to.slice(0, 10)}` : ''}`,
         ),
       );
+      if (redaction) console.log(pc.dim(`    ↳ redacted${redaction.reason ? `: ${redaction.reason}` : ''}`));
       for (const ev of evidenceFor(db, c.id)) {
         const badge = ev.status === 'valid' ? pc.green('valid') : pc.red(ev.status);
         console.log(pc.dim(`    ↳ ${ev.kind}:${ev.ref} `) + badge + pc.dim(ev.hash ? ` ${ev.hash.slice(0, 15)}…` : ''));

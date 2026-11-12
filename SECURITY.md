@@ -36,6 +36,15 @@ path:
 This is a gate, not a guarantee: provider patterns and entropy checks have false negatives. Assume a
 secret can leak, keep credentials short-lived and scoped, and rotate.
 
+If a secret reaches memory:
+
+- `lore redact <claim> --reason "..."` replaces the object with `[redacted]`, keeps the claim id and
+  records who redacted it and why. The claim stays visible in `blame`, and nothing can resurrect it.
+- `lore purge <claim> --yes --reason "..."` removes the row and its evidence permanently, leaving an
+  audit entry with id, actor, reason and time.
+- Rotate the credential regardless. Redaction removes it from the store, not from backups you already
+  took.
+
 ## Hardening already in place
 
 - `hashFile` resolves real paths, rejects anything outside the repository, rejects non-regular files,

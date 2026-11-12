@@ -10,6 +10,8 @@ import { guardCommand } from './commands/guard.js';
 import { bundleCommand } from './commands/bundle.js';
 import { fetchCommand } from './commands/fetch.js';
 import { pushCommand } from './commands/push.js';
+import { purgeCommand } from './commands/purge.js';
+import { redactCommand } from './commands/redact.js';
 import { remoteCommand } from './commands/remote.js';
 import { exportCommand } from './commands/export.js';
 import { ingestCommand } from './commands/ingest.js';
@@ -172,6 +174,26 @@ program
       strict: opts.strict,
       dryRun: opts.dryRun,
     }),
+  );
+
+program
+  .command('redact <claim>')
+  .description('replace a claim object with [redacted], keeping the id and an audit row')
+  .option('--reason <text>')
+  .option('--author <id>')
+  .option('--session <id>')
+  .action((claim, opts) =>
+    redactCommand({ claim, reason: opts.reason, author: opts.author, session: opts.session }),
+  );
+
+program
+  .command('purge <claim>')
+  .description('permanently remove a claim row, keeping an audit entry')
+  .option('--reason <text>')
+  .option('--author <id>')
+  .option('--yes', 'confirm the permanent deletion')
+  .action((claim, opts) =>
+    purgeCommand({ claim, reason: opts.reason, author: opts.author, yes: opts.yes }),
   );
 
 program

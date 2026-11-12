@@ -54,7 +54,7 @@ audit disagreement, rollback), không review từng claim.
 |---|---|---|
 | `retract` | đổi state, nội dung còn | author/maintainer |
 | `redact` | nội dung → `[redacted]`, **giữ id**, ghi audit | maintainer |
-| `purge` | xoá row, audit giữ id + lý do, không giữ nội dung | maintainer, 2 approval |
+| `purge` | xoá row, audit giữ id + lý do, không giữ nội dung | maintainer, 2 approval (hiện tại: `--yes`) |
 
 Dùng cho PII, secret lỡ ghi, yêu cầu pháp lý.
 

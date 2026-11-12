@@ -95,6 +95,11 @@ npm run mcp:smoke
 
 Performs a real handshake (`initialize` → `notifications/initialized` → `tools/list` → `tools/call memory_search` / `memory_write`) against a throwaway repo and asserts the write landed as a draft on an `agent/<session>` branch.
 
+## Deliberate omissions
+
+Redaction and purge are CLI-only. An agent must never be able to erase the evidence of what it learned,
+so there is no `memory_redact` or `memory_purge` tool.
+
 ## Protocol negotiation and result schemas
 
 The server supports MCP protocol versions `2025-06-18`, `2025-03-26` and `2024-11-05`.
