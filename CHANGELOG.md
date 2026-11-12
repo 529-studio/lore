@@ -3,12 +3,18 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
-## [0.3.0] — 2026-11-12
+## [0.4.0] — 2026-11-12
 
 ### Added
 
 - `lore onboard`: detects the stack, copies a starter ontology (`code`, `product`, `content`,
   `support`), runs the first ingest and prints the agent-connection and dashboard commands.
+- `templates/` with four starter ontologies, shipped in the npm package.
+
+## [0.3.0] — 2026-11-12
+
+### Added
+
 - macOS desktop app: Tauri v2 shell that bundles the Node runtime, the CLI and better-sqlite3, so the
   `.dmg` installs offline with no Node dependency. Ad-hoc signed; Gatekeeper instructions in
   `docs/desktop.md`. Built by `desktop/` and the `Desktop` workflow on tags.
@@ -160,6 +166,7 @@ First public release.
   files, and capped at 4 MB.
 
 [0.2.0]: https://github.com/529-studio/lore/releases/tag/v0.2.0
+[0.4.0]: https://github.com/529-studio/lore/releases/tag/v0.4.0
 [0.3.0]: https://github.com/529-studio/lore/releases/tag/v0.3.0
 [0.2.0]: https://github.com/529-studio/lore/releases/tag/v0.2.0
 [0.1.4]: https://github.com/529-studio/lore/releases/tag/v0.1.4
