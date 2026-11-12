@@ -443,4 +443,45 @@ set -e
 lore purge "$PURGE_ID" --reason "smoke purge" --yes >/dev/null
 expect_contains "$(lore blame env:PURGE)" "no claims"
 
-echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge"
+# --- team identity and policy ------------------------------------------------
+SECRET="smoke-team-secret-0123456789"
+MAINT_TOKEN="$(LORE_TEAM_SECRET=$SECRET node "$LORE_BIN" identity issue --user alice@smoke --role maintainer)"
+CONTRIB_TOKEN="$(LORE_TEAM_SECRET=$SECRET node "$LORE_BIN" identity issue --user bob@smoke --role contributor)"
+POLICY_DRAFT="$(lore write --subject env:POLICY --predicate read_by --object README.md --kind agent --author agent:policy | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+
+set +e
+LORE_TEAM_SECRET=$SECRET LORE_TOKEN=$CONTRIB_TOKEN lore approve "$POLICY_DRAFT" >/dev/null 2>&1
+CONTRIB_APPROVE=$?
+set -e
+[ "$CONTRIB_APPROVE" -ne 0 ] || fail "a contributor must not approve agent inference"
+
+LORE_TEAM_SECRET=$SECRET LORE_TOKEN=$MAINT_TOKEN lore approve "$POLICY_DRAFT" >/dev/null
+
+cat > lore.policy.yml <<'YAML'
+roles:
+  maintainers: [alice@smoke]
+approve:
+  t4: [maintainers]
+resolve:
+  "*": [maintainers]
+protected:
+  "sym:src/*": [maintainers]
+YAML
+
+set +e
+LORE_TEAM_SECRET=$SECRET LORE_TOKEN=$CONTRIB_TOKEN lore resolve env:POLICY read_by --take theirs --reason test >/dev/null 2>&1
+CONTRIB_RESOLVE=$?
+set -e
+[ "$CONTRIB_RESOLVE" -ne 0 ] || fail "a contributor must not resolve conflicts"
+
+LORE_TEAM_SECRET=$SECRET LORE_TOKEN=$MAINT_TOKEN lore resolve env:POLICY read_by --take theirs --reason "maintainer decision" >/dev/null
+rm -f lore.policy.yml
+
+set +e
+LORE_TEAM_SECRET=$SECRET lore identity >/dev/null 2>&1
+NO_ID=$?
+set -e
+[ "$NO_ID" -ne 0 ] || fail "team mode without a token must fail"
+LORE_TEAM_SECRET=$SECRET LORE_TOKEN=$MAINT_TOKEN lore identity | grep -q "alice@smoke" || fail "identity show must print the principal"
+
+echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge, identity, policy"

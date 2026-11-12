@@ -1,0 +1,22 @@
+# Copy to lore.policy.yml and commit it. Team mode is enabled by LORE_TEAM_SECRET.
+roles:
+  maintainers: [alice@example.com, bob@example.com]
+  contributors: ["*"]
+
+# Agent inference (T4) and human chat (T3) need a maintainer; T0/T1 are evidence-backed.
+approve:
+  t0: ["*"]
+  t1: ["*"]
+  t3: [maintainers]
+  t4: [maintainers]
+
+resolve:
+  "*": [maintainers]
+  "sym:src/payments/*": [maintainers]
+
+redact: [maintainers]
+purge: [maintainers]
+promote: [maintainers]
+
+protected:
+  "sym:src/auth/*": [maintainers]

@@ -355,6 +355,7 @@ No LLM judge. Outcome metrics on real repositories:
 | `tree_hash = (claim_id, state)` | `(claim_id, op)` | op is what the fold actually uses |
 | `verify` updates the hash | does not rewrite it | avoid blessing drift; `ingest` is the re-observation path |
 | purge exists as an audited exception | `lore purge --yes` deletes the row; `purge_audit` keeps id/actor/reason | PII and leaked secrets must be removable |
+| no identity | local OS user; team mode uses HMAC tokens or an asserted OIDC email, enforced by `lore.policy.yml` | actions that grant trust must be attributable |
 | no team sync | `lore remote` + `fetch`/`push` over a shared directory or Postgres, `bundle` for air gaps | internal and air-gapped repositories cannot depend on a git host |
 | `--as-of` reads the commit at that instant | folds the whole ancestry, skipping commits after the instant | a single commit chain hides facts on sibling branches before a merge |
 | hash cache keyed by content | keyed by size, mtime and ctime | mtime can be restored; ctime changes on any inode write |

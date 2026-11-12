@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS merge_decision (
   loser      TEXT,
   rule       TEXT NOT NULL,
   reason     TEXT,
+  actor      TEXT,
   ts         TEXT NOT NULL
 );
 

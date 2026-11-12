@@ -32,6 +32,11 @@ function migrate(db: DB): void {
     db.exec("ALTER TABLE file_hash ADD COLUMN ctime_ns TEXT NOT NULL DEFAULT ''");
   }
 
+  const decisionCols = db.prepare('PRAGMA table_info(merge_decision)').all() as Array<{ name: string }>;
+  if (!decisionCols.some((c) => c.name === 'actor')) {
+    db.exec('ALTER TABLE merge_decision ADD COLUMN actor TEXT');
+  }
+
   const evCols = db.prepare('PRAGMA table_info(evidence)').all() as Array<{ name: string }>;
   if (!evCols.some((c) => c.name === 'commit_id')) {
     db.exec('ALTER TABLE evidence ADD COLUMN commit_id TEXT');

@@ -140,12 +140,12 @@ export function mergeCommand(opts: MergeOptions): void {
     });
 
     const insertDecision = db.prepare(
-      `INSERT INTO merge_decision(commit_id, subject_id, predicate, winner, loser, rule, reason, ts)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO merge_decision(commit_id, subject_id, predicate, winner, loser, rule, reason, actor, ts)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const ts = new Date().toISOString();
     for (const d of plan.decisions) {
-      insertDecision.run(id, d.subject, d.predicate, d.winner, d.loser, d.rule, d.reason, ts);
+      insertDecision.run(id, d.subject, d.predicate, d.winner, d.loser, d.rule, d.reason, `agent:${session}`, ts);
     }
     db.prepare('UPDATE resolution SET applied = 1 WHERE applied = 0').run();
     db.prepare('UPDATE merge_conflict SET resolved = 1 WHERE resolved = 0').run();

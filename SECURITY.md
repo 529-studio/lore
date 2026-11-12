@@ -45,6 +45,15 @@ If a secret reaches memory:
 - Rotate the credential regardless. Redaction removes it from the store, not from backups you already
   took.
 
+## Team tokens
+
+- `LORE_TEAM_SECRET` signs tokens; it lives in the environment or a secret manager, never in the repo.
+- `lore identity issue --user <email> --role maintainer|contributor --days 30` prints a token.
+- `LORE_TOKEN` carries it. Tokens are HMAC-signed and expire; there is no revocation list yet, so keep
+  lifetimes short and rotate the secret to invalidate every token.
+- `LORE_OIDC_EMAIL` is only trusted when a launcher (SSO wrapper, CI) sets it; a user can set it
+  themselves, so do not treat it as verified identity without that wrapper.
+
 ## Hardening already in place
 
 - `hashFile` resolves real paths, rejects anything outside the repository, rejects non-regular files,
