@@ -80,6 +80,11 @@ audit:
   agent: [lore-auditor] # read-only principal, signs attestations
 ```
 
+Identity is resolved in this order: `LORE_TOKEN` (HMAC-signed by `LORE_TEAM_SECRET`, issued with
+`lore identity issue --user <email> --role maintainer|contributor`), then `LORE_OIDC_EMAIL` /
+`LORE_OIDC_ROLE` asserted by a trusted launcher, then the local OS user. Local mode allows every
+action; team mode requires a token and enforces the policy below.
+
 Three kinds of approver:
 
 | Approver | Evidence it must attach | Notes |
@@ -87,6 +92,10 @@ Three kinds of approver:
 | Human | role from the policy | default |
 | Machine | policy version + the rule it applied | only for T0/T1 |
 | N-of-M | one human plus one audit attestation | for protected subjects |
+
+Enforcement lives in one function (`requireAction`) used by `approve`, `resolve`, `redact`, `purge`,
+`promote` and the MCP `memory_approve` tool. The principal is written into the commit author and into
+`merge_decision.actor`.
 
 **Separation of duties:** an audit agent cannot approve its own write. Its output is a signed
 attestation, stored as a claim with authority T2 and linked to the claims it reviewed.

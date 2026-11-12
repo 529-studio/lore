@@ -1,5 +1,6 @@
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
+import { requireAction } from '../policy.js';
 
 export interface PurgeOptions {
   claim: string;
@@ -21,7 +22,8 @@ export function purgeCommand(opts: PurgeOptions): void {
     | undefined;
   if (!claim) throw new Error(`no such claim: ${opts.claim}`);
 
-  const actor = opts.author ?? 'human:cli';
+  const principal = requireAction(root, 'purge', { subject: claim.subject_id });
+  const actor = opts.author ?? `human:${principal.id}`;
   const now = new Date().toISOString();
 
   const apply = db.transaction(() => {

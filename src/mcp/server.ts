@@ -9,6 +9,7 @@ import path from 'node:path';
 import { openDb, requireRoot, type DB } from '../db.js';
 import { hashCache } from '../hash-cache.js';
 import { gitHead } from '../util/git.js';
+import { requireAction } from '../policy.js';
 import {
   activeAt,
   evidenceFor,
@@ -382,6 +383,12 @@ function toolApprove(args: ApproveArgs): ToolResult {
       return { content: [{ type: 'text', text: 'no draft claims to approve' }], structuredContent: { approved: [] } };
     }
 
+    const tiers = (ctx.db.prepare('SELECT id, authority FROM claim WHERE state = \'draft\'').all() as Array<{
+      id: string;
+      authority: number;
+    }>).map((row) => row.authority);
+    const principal = requireAction(ctx.root, 'approve', { tier: Math.max(...tiers) });
+
     ctx.db.transaction(() => {
       const update = ctx.db.prepare("UPDATE claim SET state = 'active', authority = MIN(authority, 2) WHERE id = ?");
       for (const t of targets) update.run(t.id);
@@ -389,7 +396,7 @@ function toolApprove(args: ApproveArgs): ToolResult {
         ref: ctx.branch,
         entries: targets.map((t) => ({ claim_id: t.id, op: 'add' as const })),
         message: `mcp approve: ${targets.length} claim(s)`,
-        author: 'agent:mcp',
+        author: `human:${principal.id}`,
         kind: 'write',
       });
     })();

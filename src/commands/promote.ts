@@ -5,6 +5,7 @@ import { head, makeCommit } from '../model.js';
 import { planMerge } from '../merge.js';
 import { loadOntology } from '../ontology.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
+import { requireAction } from '../policy.js';
 
 const SEP = '\u0000';
 
@@ -29,6 +30,7 @@ export interface PromoteOptions {
 export function promoteCommand(opts: PromoteOptions): void {
   const root = requireRoot();
   const db = openDb(root);
+  const principal = requireAction(root, 'promote');
   const into = opts.into ?? 'main';
   const session = ensureSession(db, root, opts.session);
   const fromRef = branchFor(session);
@@ -90,17 +92,17 @@ export function promoteCommand(opts: PromoteOptions): void {
         ...plan.retract.map((claim_id) => ({ claim_id, op: 'retract' as const })),
       ],
       message: `promote ${fromRef} into ${into}`,
-      author: `agent:${session}`,
+      author: `human:${principal.id}`,
       kind: 'merge',
       mergeParent: fromTip,
     });
     const insert = db.prepare(
-      `INSERT INTO merge_decision(commit_id, subject_id, predicate, winner, loser, rule, reason, ts)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO merge_decision(commit_id, subject_id, predicate, winner, loser, rule, reason, actor, ts)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const ts = new Date().toISOString();
     for (const d of plan.decisions) {
-      insert.run(id, d.subject, d.predicate, d.winner, d.loser, d.rule, d.reason, ts);
+      insert.run(id, d.subject, d.predicate, d.winner, d.loser, d.rule, d.reason, `human:${principal.id}`, ts);
     }
     db.prepare('UPDATE resolution SET applied = 1 WHERE applied = 0').run();
     return id;

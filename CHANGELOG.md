@@ -7,6 +7,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 
 ### Added
 
+- Team identity and policy: `lore identity issue/show`, HMAC tokens signed with `LORE_TEAM_SECRET`,
+  OIDC email assertion from a trusted launcher, and `lore.policy.yml` enforced for approve, resolve,
+  redact, purge, promote and MCP `memory_approve`. The principal is recorded in the commit author and
+  `merge_decision.actor`.
+- `lore.policy.example.yml`.
 - Postgres transport: `lore remote --postgres --env LORE_REMOTE_URL` stores the commit bundle in a
   `lore_bundles` table. Push takes a per-repository advisory lock and imports the remote first, so
   concurrent pushes cannot drop commits. `npm run pg:smoke` proves two stores, bidirectional sync and

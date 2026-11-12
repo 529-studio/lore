@@ -198,6 +198,7 @@ lore promote                   merge the current branch into main
 lore revert <commit>           inverse commit, history preserved
 lore verify <claim> | --all    re-hash evidence; --accept stores a legitimate change
 lore guard [--staged]         scan for secrets before they enter a claim or a commit
+lore identity [issue]         show the current identity, or issue a team token
 lore remote <dir>             point fetch/push at a shared directory (no git host needed)
 lore fetch | push             exchange commits with that directory
 lore bundle export|import     air-gapped exchange of the missing commits
@@ -270,6 +271,10 @@ main ──────────●──────────────
   - if nothing applies, the merge **aborts with exit 2** and asks a human.
 - `lore resolve <subject> <predicate> --take theirs --reason "..."` records the decision, and the
   next merge applies it. Every decision is stored in `merge_decision` for audit.
+
+**Team identity.** Local mode trusts the OS user. Team mode (set `LORE_TEAM_SECRET`) requires an
+identity and enforces `lore.policy.yml`: `LORE_TOKEN` from `lore identity issue`, or `LORE_OIDC_EMAIL`
+asserted by a trusted launcher. See [docs/team-mode.md](docs/team-mode.md).
 
 **Internal or offline repositories.** Memory does not depend on a git host: `lore remote <shared-dir>`
 plus `lore fetch`/`lore push` shares commits with a team directory, `lore remote --postgres --env

@@ -3,6 +3,7 @@ import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { inBranch, makeCommit, type ClaimRow } from '../model.js';
 import { branchFor, ensureSession } from '../session.js';
+import { requireAction } from '../policy.js';
 
 export interface RedactOptions {
   claim: string;
@@ -25,7 +26,8 @@ export function redactCommand(opts: RedactOptions): void {
   const existing = db.prepare('SELECT claim_id FROM redaction WHERE claim_id = ?').get(opts.claim);
   if (existing) throw new Error(`claim ${opts.claim} is already redacted`);
 
-  const actor = opts.author ?? 'human:cli';
+  const principal = requireAction(root, 'redact', { subject: claim.subject_id });
+  const actor = opts.author ?? `human:${principal.id}`;
   const originalHash = `sha256:${createHash('sha256').update(claim.object_json).digest('hex')}`;
   const now = new Date().toISOString();
 

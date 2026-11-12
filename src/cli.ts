@@ -7,6 +7,7 @@ import { blameCommand } from './commands/blame.js';
 import { diffCommand } from './commands/diff.js';
 import { gcCommand } from './commands/gc.js';
 import { guardCommand } from './commands/guard.js';
+import { identityCommand } from './commands/identity.js';
 import { bundleCommand } from './commands/bundle.js';
 import { fetchCommand } from './commands/fetch.js';
 import { pushCommand } from './commands/push.js';
@@ -194,6 +195,16 @@ program
   .option('--yes', 'confirm the permanent deletion')
   .action((claim, opts) =>
     purgeCommand({ claim, reason: opts.reason, author: opts.author, yes: opts.yes }),
+  );
+
+program
+  .command('identity [action]')
+  .description('show the current identity, or issue a team token')
+  .option('--user <email>', 'identity to issue a token for')
+  .option('--role <role>', 'maintainer | contributor', 'maintainer')
+  .option('--days <n>', 'token lifetime in days', '30')
+  .action((action, opts) =>
+    identityCommand({ action, user: opts.user, role: opts.role, days: opts.days }),
   );
 
 program
