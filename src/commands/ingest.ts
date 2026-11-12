@@ -9,8 +9,9 @@ import { gateTier } from '../policy.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
 
 function evidenceRef(c: Candidate): string {
-  if (c.subject.startsWith('file:')) return c.subject.slice(5);
-  if (c.subject.startsWith('doc:')) return c.subject.slice(4);
+  if (c.subject.startsWith('file:')) return c.subject.slice(5).split('#')[0];
+  if (c.subject.startsWith('doc:')) return c.subject.slice(4).split('#')[0];
+  if (c.subject.startsWith('sym:')) return c.subject.slice(4).split('#')[0];
   if (c.subject.startsWith('pkg:')) return 'package.json';
   if (c.subject.startsWith('env:')) return c.object;
   return c.subject;

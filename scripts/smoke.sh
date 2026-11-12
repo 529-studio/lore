@@ -159,7 +159,7 @@ set -e
 
 # status --strict gates memory health the same way
 set +e
-lore status --strict >/dev/null 2>&1
+lore status --strict --max-stale 5 >/dev/null 2>&1
 STATUS_STRICT=$?
 set -e
 [ "$STATUS_STRICT" -eq 3 ] || fail "expected status --strict exit 3 while drifted, got $STATUS_STRICT"
@@ -179,7 +179,7 @@ expect_contains "$(lore search --files src/cli.js)" "env:DEMO_TOKEN"
 expect_not_contains "$(lore export --md)" "Needs verification"
 
 set +e
-lore status --strict >/dev/null 2>&1
+lore status --strict --max-stale 5 >/dev/null 2>&1
 STATUS_CLEAN=$?
 set -e
 [ "$STATUS_CLEAN" -eq 0 ] || fail "expected status --strict exit 0 after restore, got $STATUS_CLEAN"
@@ -525,4 +525,25 @@ set -e
 
 rm -f lore.policy.yml
 
-echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge, identity, policy, machine, attest"
+# --- non-code entities, aliases, rename --------------------------------------
+mkdir -p docs/adr issues
+printf '# Guide\n\n## Refund flow\n' > docs/guide.md
+printf '# ADR-002: Docs entities\n\nStatus: accepted\n' > docs/adr/ADR-002-docs.md
+printf '# Issue 7: docs\n\nStatus: open\n' > issues/7-docs.md
+git add -A
+git commit -qm "docs entities"
+lore ingest >/dev/null
+expect_contains "$(lore blame doc:docs/guide.md#refund-flow)" "section_title"
+expect_contains "$(lore blame adr:002)" "accepted"
+expect_contains "$(lore blame issue:local:7)" "open"
+
+lore alias add "refund flow" "doc:docs/guide.md#refund-flow" >/dev/null
+expect_contains "$(lore blame "refund flow")" "doc:docs/guide.md#refund-flow"
+expect_contains "$(lore search "refund flow" --files docs/guide.md)" "doc:docs/guide.md#refund-flow"
+
+git mv docs/guide.md docs/handbook.md
+lore rename docs/guide.md docs/handbook.md >/dev/null
+expect_contains "$(lore blame doc:docs/handbook.md)" "section_title"
+expect_contains "$(lore blame docs/guide.md)" "doc:docs/handbook.md"
+
+echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge, identity, policy, machine, attest, entities, alias, rename"

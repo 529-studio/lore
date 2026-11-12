@@ -7,6 +7,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 
 ### Added
 
+- Non-code entities: sections (`doc:<path>#<slug>`), ADRs (`adr:<NNN>`) and local issues
+  (`issue:local:<id>`), extracted from Markdown without a model.
+- `lore alias add/list/remove`: explicit, reviewed mapping from a human phrase to an entity; used by
+  `blame` and `search`.
+- `lore rename <old> <new>`: moves entities and evidence after a file rename, keeps the old path as an
+  alias, and records the move in `rename_audit`.
 - Machine approvers: a policy tier without `*` gates auto-promotion, and `LORE_MACHINE=1` principals can
   approve only T0/T1.
 - `lore attest <claim> --verdict agree|disagree`: an independent review stored as a T2 claim, linked in

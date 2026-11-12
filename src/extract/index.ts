@@ -123,6 +123,22 @@ const MAKE_TARGET_RE = /^([A-Za-z0-9_.-]+):(?!=)/gm;
 const COMPOSE_IMAGE_RE = /^\s*image:\s*(\S+)/gm;
 const COMPOSE_PORT_RE = /^\s*-\s*["']?(\d{2,5}:\d{2,5})["']?\s*$/gm;
 const HEADING_RE = /^##\s+(.+?)\s*$/gm;
+const TITLE_RE = /^#\s+(.+?)\s*$/m;
+const STATUS_RE = /^\s*Status:\s*(.+?)\s*$/im;
+const ADR_PATH_RE = /(?:^|\/)(?:adr\/)?ADR-(\d+)[-_]?([^/]*)\.md$/i;
+const ISSUE_PATH_RE = /^(?:docs\/)?issues\/(\d+)[-_]?([^/]*)\.md$/i;
+
+/** Stable, readable section id: lowercase, accents removed, punctuation collapsed. */
+export function slug(text: string): string {
+  const value = text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  return value || 'section';
+}
 
 function isRelativeOrBuiltin(spec: string): boolean {
   return spec.startsWith('.') || spec.startsWith('/') || spec.startsWith('node:') || spec.startsWith('~');
@@ -269,11 +285,41 @@ export function extractAll(root: string): Candidate[] {
       }
     }
 
-    if (!rel.includes('/') && rel.endsWith('.md')) {
+    if (rel.endsWith('.md')) {
       const text = readText(root, rel);
       if (text) {
+        const title = text.match(TITLE_RE)?.[1];
+        if (title) {
+          out.push({ subject: `doc:${rel}`, predicate: 'title', object: title, confidence: 0.85 });
+        }
         for (const m of text.matchAll(HEADING_RE)) {
-          out.push({ subject: `doc:${rel}`, predicate: 'has_section', object: m[1], confidence: 0.8 });
+          const heading = m[1];
+          out.push({ subject: `doc:${rel}`, predicate: 'has_section', object: heading, confidence: 0.8 });
+          out.push({
+            subject: `doc:${rel}#${slug(heading)}`,
+            predicate: 'section_title',
+            object: heading,
+            confidence: 0.85,
+          });
+        }
+
+        const adr = rel.match(ADR_PATH_RE);
+        if (adr) {
+          const id = `adr:${adr[1].padStart(3, '0')}`;
+          if (title) out.push({ subject: id, predicate: 'title', object: title, confidence: 0.95, evidenceRef: rel });
+          const status = text.match(STATUS_RE)?.[1];
+          if (status) out.push({ subject: id, predicate: 'status', object: status, confidence: 0.95, evidenceRef: rel });
+          for (const m of text.matchAll(HEADING_RE)) {
+            out.push({ subject: id, predicate: 'has_section', object: m[1], confidence: 0.8, evidenceRef: rel });
+          }
+        }
+
+        const issue = rel.match(ISSUE_PATH_RE);
+        if (issue) {
+          const id = `issue:local:${issue[1]}`;
+          if (title) out.push({ subject: id, predicate: 'title', object: title, confidence: 0.9, evidenceRef: rel });
+          const status = text.match(STATUS_RE)?.[1];
+          if (status) out.push({ subject: id, predicate: 'status', object: status, confidence: 0.9, evidenceRef: rel });
         }
       }
     }

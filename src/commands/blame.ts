@@ -10,9 +10,18 @@ export function blameCommand(opts: { subject: string; predicate?: string }): voi
   const session = ensureSession(db, root);
   const ref = branchFor(session);
   const inBranch = activeAt(db, head(db, ref) ?? head(db, 'main'));
-  const claims = claimsFor(db, opts.subject).filter(
+  let claims = claimsFor(db, opts.subject).filter(
     (c) => !opts.predicate || c.predicate === opts.predicate,
   );
+
+  if (!claims.length) {
+    const alias = db
+      .prepare('SELECT entity_id FROM alias WHERE lower(alias) = lower(?)')
+      .get(opts.subject) as { entity_id: string } | undefined;
+    if (alias) {
+      claims = claimsFor(db, alias.entity_id).filter((c) => !opts.predicate || c.predicate === opts.predicate);
+    }
+  }
 
   if (claims.length) recordReads(db, session, claims.map((c) => c.id));
 
