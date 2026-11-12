@@ -3,7 +3,7 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [0.1.4] — 2026-11-12
 
 ### Added
 
@@ -101,6 +101,7 @@ First public release.
 - Evidence paths are resolved with `realpath`, confined to the repository, restricted to regular
   files, and capped at 4 MB.
 
+[0.1.4]: https://github.com/529-studio/lore/releases/tag/v0.1.4
 [0.1.3]: https://github.com/529-studio/lore/releases/tag/v0.1.3
 [0.1.2]: https://github.com/529-studio/lore/releases/tag/v0.1.2
 [0.1.1]: https://github.com/529-studio/lore/releases/tag/v0.1.1
