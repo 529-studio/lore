@@ -50,6 +50,8 @@ The release checklist lives in [docs/release.md](docs/release.md).
 
 - A decision that is expensive to reverse gets an ADR: `docs/adr/ADR-<NNN>-<slug>.md`, plus a row in
   [docs/adr/README.md](docs/adr/README.md).
+- A design decision that spans several issues gets a brief: for example
+  [docs/team-mode.md](docs/team-mode.md) for the shared-backend work.
 - An expensive mistake gets a lesson: `docs/lessons/L<NN>-<slug>.md` and one row in
   [docs/lessons/INDEX.md](docs/lessons/INDEX.md). One lesson per file; never append to a register.
 
