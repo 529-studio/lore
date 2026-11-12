@@ -1,6 +1,6 @@
 {
   "name": "@529studio/lore",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Git for what your AI agents know — versioned, verifiable, mergeable memory for multi-agent coding.",
   "type": "module",
   "bin": {
