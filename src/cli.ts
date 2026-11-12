@@ -12,6 +12,7 @@ import { uiCommand } from './commands/ui.js';
 import { attestCommand } from './commands/attest.js';
 import { rejectCommand } from './commands/reject.js';
 import { reviewCommand } from './commands/review.js';
+import { onboardCommand } from './commands/onboard.js';
 import { aliasCommand } from './commands/alias.js';
 import { renameCommand } from './commands/rename.js';
 import { digestCommand } from './commands/digest.js';
@@ -220,6 +221,14 @@ program
   .action((oldPath, newPath, opts) =>
     renameCommand({ old: oldPath, new: newPath, author: opts.author, session: opts.session }),
   );
+
+program
+  .command('onboard')
+  .description('first run: detect the stack, choose a template, ingest, print next steps')
+  .option('--path <dir>', 'repository to onboard (default: cwd)')
+  .option('--template <name>', 'code | product | content | support')
+  .option('--yes', 'no prompts (CI)')
+  .action((opts) => onboardCommand({ path: opts.path, template: opts.template, yes: opts.yes }));
 
 program
   .command('review')

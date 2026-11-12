@@ -7,6 +7,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 
 ### Added
 
+- `lore onboard`: detects the stack, copies a starter ontology (`code`, `product`, `content`,
+  `support`), runs the first ingest and prints the agent-connection and dashboard commands.
 - macOS desktop app: Tauri v2 shell that bundles the Node runtime, the CLI and better-sqlite3, so the
   `.dmg` installs offline with no Node dependency. Ad-hoc signed; Gatekeeper instructions in
   `docs/desktop.md`. Built by `desktop/` and the `Desktop` workflow on tags.

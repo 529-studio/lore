@@ -1,7 +1,7 @@
 {
   "name": "@529studio/lore",
   "version": "0.3.0",
-  "description": "Git for what your AI agents know — versioned, verifiable, mergeable memory for multi-agent coding.",
+  "description": "Git for what your AI agents know \u2014 versioned, verifiable, mergeable memory for multi-agent coding.",
   "type": "module",
   "bin": {
     "lore": "dist/cli.js"
@@ -9,7 +9,8 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "templates"
   ],
   "engines": {
     "node": ">=22"

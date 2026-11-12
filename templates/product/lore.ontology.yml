@@ -1,0 +1,12 @@
+# Product team template: decisions, ownership and customer impact.
+predicates:
+  title:            { cardinality: one,  domain: doc }
+  status:           { cardinality: one,  domain: concept }
+  has_section:      { cardinality: many, domain: doc }
+  section_title:    { cardinality: one,  domain: section }
+  decides:          { cardinality: many, domain: adr }
+  owned_by:         { cardinality: many, domain: concept }
+  targets_customer: { cardinality: many, domain: concept }
+  depends_on:       { cardinality: many, domain: concept }
+  supersedes:       { cardinality: one,  domain: concept }
+  success_metric:   { cardinality: one,  domain: concept }
