@@ -8,6 +8,8 @@ lore ui --port 0   # pick a free port
 
 ![Lore dashboard](assets/dashboard.png)
 
+![Dashboard demo: filtering claims](assets/demo-gui.gif)
+
 Read-only by design: health counters, a filterable claim table, and the recent commit list. It reads
 the same `.lore/lore.db` the CLI uses, so the page is live and needs no export step.
 

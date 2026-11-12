@@ -1,0 +1,31 @@
+- generic [active] [ref=f2e1]:
+  - banner [ref=f2e2]:
+    - heading "Lore — memory health" [level=1] [ref=f2e3]
+  - main [ref=f2e4]:
+    - generic [ref=f2e5]:
+      - heading "Claims" [level=2] [ref=f2e6]
+      - generic [ref=f2e7]:
+        - textbox "filter subject, predicate, object" [ref=f2e8]
+        - combobox [ref=f2e9]:
+          - option "all states" [selected]
+          - option "active"
+          - option "draft"
+          - option "retracted"
+        - combobox [ref=f2e10]:
+          - option "any freshness" [selected]
+          - option "valid"
+          - option "stale"
+          - option "ahead of checkout"
+      - table [ref=f2e11]:
+        - rowgroup [ref=f2e12]:
+          - row [ref=f2e13]:
+            - columnheader "subject" [ref=f2e14]
+            - columnheader "predicate" [ref=f2e15]
+            - columnheader "object" [ref=f2e16]
+            - columnheader "state" [ref=f2e17]
+            - columnheader "freshness" [ref=f2e18]
+            - columnheader "authority" [ref=f2e19]
+        - rowgroup
+    - generic [ref=f2e20]:
+      - heading "Recent commits" [level=2] [ref=f2e21]
+      - list [ref=f2e22]
