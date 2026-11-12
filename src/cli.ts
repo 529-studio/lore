@@ -6,6 +6,7 @@ import { approveCommand } from './commands/approve.js';
 import { blameCommand } from './commands/blame.js';
 import { diffCommand } from './commands/diff.js';
 import { gcCommand } from './commands/gc.js';
+import { guardCommand } from './commands/guard.js';
 import { exportCommand } from './commands/export.js';
 import { ingestCommand } from './commands/ingest.js';
 import { initCommand } from './commands/init.js';
@@ -167,6 +168,17 @@ program
       strict: opts.strict,
       dryRun: opts.dryRun,
     }),
+  );
+
+program
+  .command('guard')
+  .description('scan for secrets before they enter a claim or a commit')
+  .option('--staged', 'scan the staged diff (used by the pre-commit hook)')
+  .option('--path <dir>', 'scan a directory instead of the whole repository')
+  .option('--install', 'install a pre-commit hook that runs `lore guard --staged`')
+  .option('--force', 'replace an existing pre-commit hook')
+  .action((opts) =>
+    guardCommand({ staged: opts.staged, path: opts.path, install: opts.install, force: opts.force }),
   );
 
 program

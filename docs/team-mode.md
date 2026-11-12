@@ -1,137 +1,153 @@
-# Team mode: decision brief
+# Team mode: decision brief (v2)
 
-Status: **draft for discussion** · affects #15 (Postgres adapter) and #16 (auth and permissions)
+Status: **decided, ready to cut** · affects #15 (shared backend), #16 (auth and permissions),
+#49 (sync and repo identity), #50 (redact and purge), #51 (secret firewall), #52 (policy engine)
 
-Lore today is local-first: one SQLite file per checkout, one OS user. Team mode means several people
-and several machines sharing what their agents know. This brief lists the decisions that must be made
-before code, with a recommendation for each. It is intentionally opinionated; disagree with the
-recommendation, not with the framing.
+v2 records the answers from the team and the architecture they imply. The central change from v1:
+**memory is decoupled from the git host.** Teams use internal GitLab, Azure DevOps, or no remote at
+all; memory still has to be shared.
 
 ## What team mode must deliver
 
 1. A reviewer can see what an agent learned and approve or reject it.
-2. Two people can work at the same time without corrupting or silently overwriting memory.
+2. Two people work at the same time without corrupting or silently overwriting memory.
 3. Every claim says who taught it and who approved it, and that record survives disputes.
-4. A local-only user keeps working exactly as today: no server required.
+4. A local-only or air-gapped repository keeps working with no server.
+5. Memory can be newer than a colleague's checkout, and the tool says so instead of lying.
 
-Everything else (dashboards, notifications, hosted SaaS) is downstream of these four.
+## Decisions from the team
 
-## Decision 1: storage backend
-
-| Option | Pros | Cons |
+| Question | Answer | Consequence |
 |---|---|---|
-| **A. Postgres as an optional backend** | real concurrency, backups, one store per team, standard ops | server to run, schema duplication, migration path |
-| B. SQLite + sync (push/pull) | offline-first, no server | conflict resolution on top of merge; two sources of truth |
-| C. Hosted service only | simplest client | kills local-first; vendor lock-in; we must run it |
-| D. SQLite on a shared network drive | no new code | corruption risk, locking is not reliable |
+| First team | 2-3 developers, internal repos that cannot be pushed public | No dependency on GitHub; identity from a corporate IdP |
+| Offline | Required; some repositories never leave the machine | Local-first is the default, not a fallback |
+| Reviewers | One human reviewer plus an optional independent audit agent; automation later | Policy engine with human, machine and n-of-m approvers |
+| Delete | Needs a defined meaning (see below) | Redact and purge as separate operations |
+| Postgres | Self-hosted, or corporate-managed with a shared connection | Support both; no cloud assumptions |
 
-**Recommendation: A.** Keep SQLite as the default and add Postgres behind the same `Store` interface.
-It preserves the local story, gives teams a real backend, and does not require inventing sync
-semantics. B is a later option if offline teams ask for it.
+## Architecture
 
-Open question: one Postgres database per team, or per repository? Recommendation: per repository,
-schema `lore`, so a team can use one cluster without mixing projects.
+```
+Postgres (team source of truth)        optional, self-hosted or corporate-managed
+      ^  push / fetch commits
+SQLite .lore (local cache + outbox)    always present, works offline
+      ^  MCP / CLI
+Claude, Codex, Gemini, ...
+```
 
-## Decision 2: identity
+- **Repository identity is not the git remote.** A UUID is generated once into `.lore/config.json`.
+  Azure DevOps, GitLab self-host, a bare directory and a public GitHub repo all work the same way.
+- **Sync is the commit DAG, not a new protocol.** `lore fetch` pulls missing commits and merges them
+  with the existing ladder. `lore push` sends local commits. There is no CRDT and no realtime channel.
+- **Offline is a queue.** Writes always land locally; push happens when a remote is configured and
+  reachable. Nothing blocks on the network.
+- **Air-gapped sharing uses bundles.** `lore bundle export` writes the missing commits, signed and
+  encrypted; `lore bundle import` merges them. This replaces passing `AGENTS.md` around by hand.
 
-| Option | Notes |
-|---|---|
-| `git config user.email` | zero setup, spoofable, good enough for local mode |
-| `LORE_USER` env / token | explicit, still spoofable if the machine is shared |
-| OIDC / SSO | required for hosted or regulated teams |
+### Two kinds of freshness
 
-**Recommendation:** local mode trusts the OS user and records `git config user.email`; team mode
-requires an authenticated identity (OIDC or a per-user token) and records it in every commit and
-approval. Never let a client assert an arbitrary author string in team mode.
+A colleague can fetch memory about code they have not pulled. That is not staleness.
 
-## Decision 3: permissions
+| Axis | Question | Behaviour |
+|---|---|---|
+| Memory | Is the shared store ahead of my local commits? | `lore fetch`; `status` shows `memory ahead by N commits` |
+| Code | Does the evidence hash match the file on this machine? | if not, the claim is **ahead of checkout**, not stale: excluded from default retrieval, shown with a warning, still visible in `blame` |
 
-The authority ladder only means something if approval is restricted.
+`--trust-remote` accepts the remote evidence hash when the local file is absent, so a reviewer can read
+memory for a branch they do not have.
 
-Proposed policy file, versioned with the repository:
+## Permissions and automation
+
+`lore.policy.yml`, versioned in the repository:
 
 ```yaml
-# lore.policy.yml
 approve:
-  t3: [maintainers]        # human chat claims
-  t4: [maintainers]        # agent inference
+  t0: [anyone]          # test-verified
+  t1: [anyone]          # tool-observed
+  t3: [maintainers]
+  t4: [maintainers]     # inference is never auto-approved
 resolve:
   "*": [maintainers]
   "sym:src/payments/*": [payments-team]
 protected:
-  - "sym:src/auth/*"       # requires two approvals
+  - "sym:src/auth/*"    # two approvals
+audit:
+  agent: [lore-auditor] # read-only principal, signs attestations
 ```
 
-**Recommendation:** start with two roles, `contributor` and `maintainer`. Anything richer becomes a
-configuration language nobody reads. Enforce in the CLI and MCP; log every denial.
+Three kinds of approver:
 
-## Decision 4: concurrency semantics
+| Approver | Evidence it must attach | Notes |
+|---|---|---|
+| Human | role from the policy | default |
+| Machine | policy version + the rule it applied | only for T0/T1 |
+| N-of-M | one human plus one audit attestation | for protected subjects |
 
-Postgres makes writes safe, not correct. Two people can still approve contradictory claims.
+**Separation of duties:** an audit agent cannot approve its own write. Its output is a signed
+attestation, stored as a claim with authority T2 and linked to the claims it reviewed.
 
-**Recommendation:** keep the existing model — branch per session, merge with the ladder, human
-resolution when the ladder cannot decide. Postgres adds row locking for the merge transaction and a
-unique constraint on claim ids. Do **not** add realtime collaboration; it is a different product.
+**When humans only check the UI:** review policy changes and a digest, not every claim. The digest
+reports claims added, conflicts resolved, auto-approvals by policy, audit disagreements, and rollbacks.
+Sampling plus a rollback button is the control; per-claim review does not scale.
 
-## Decision 5: migration
+## Redact and purge
 
-- `lore init --backend postgres` creates the schema and records the connection in `.lore/config.json`.
-- `lore migrate --to postgres` copies entities, claims, evidence, commits, refs and merge decisions,
-  preserving ids. Ids are content hashes, so a partial copy is still consistent.
-- The SQLite store stays valid; teams can switch back for a local experiment.
+Nothing is hard-deleted today. Team mode needs three distinct operations:
 
-Open question: what happens when two clones migrate the same history into one database? Claim ids
-deduplicate, commits do not (they embed timestamps). Recommendation: migration is a one-time operation
-per repository, run by one person, and the result becomes the shared history.
+| Operation | Effect | Who |
+|---|---|---|
+| `retract` | state changes; content stays; `blame` still shows it | author or maintainer |
+| `redact` | content replaced with `[redacted]`, **id kept**, audit row records who and why | maintainer |
+| `purge` | row removed from the store; audit row keeps id, actor, reason, never the content | maintainer, two approvals |
 
-## Decision 6: threat model
+Redaction keeps the id because ids are content hashes and history references them. A `redaction` table
+records the original hash, actor, reason and timestamp. Purging without an audit row is not allowed.
 
-| Threat | Mitigation |
+Use cases: PII, a secret written into memory, a legal deletion request.
+
+## Secrets
+
+The threat is not only "a secret in a file". It is an agent reading a value and writing it into code or
+memory. Prevention is layered; no single layer is sufficient.
+
+| Layer | Control |
 |---|---|
-| Poisoned memory from an untrusted source | authority tiers plus approval; untrusted content can never exceed T4 |
-| Stolen token | per-user tokens, short expiry, audit log of approvals |
-| Silent overwrite | merge never overwrites; it retracts and records a decision |
-| PII that must be forgotten | retraction plus a hard-delete path for a specific claim, with an audit record |
-| Malicious MCP client | tool calls carry an identity; approve/resolve require the maintainer role |
+| Do not expose | `.env` outside the agent sandbox; inject secrets at process start; context files carry names, not values |
+| Do not store | `lore` scans every claim write; a match is rejected and never persisted; MCP redacts documents before returning them |
+| Do not commit | `lore guard --staged` in a pre-commit hook; CI; host push protection; pre-receive hook on self-hosted GitLab/ADO |
+| Contain | canary tokens, short-lived credentials, least privilege, rotation runbook |
 
-Hard delete does not exist today. Team mode needs a documented exception for legal removal; decide
-whether that is a separate command with an audit entry, or an operator-only SQL procedure.
+`lore guard` scans staged files for provider prefixes, high-entropy tokens and credential assignments,
+and prints a masked match. It is a gate, not a guarantee: assume a secret can leak and rotate.
 
-## Decision 7: operations
+## Operations
 
-- Backups: `pg_dump` nightly; the store is small (claims are text).
-- Migrations: numbered SQL files, applied on `lore init` and on server start; no ORM.
-- Observability: one log line per write and per approval, structured JSON.
-- Hosting: a single Postgres instance is enough for tens of teams; do not build a control plane yet.
+- Postgres self-hosted or corporate-managed; connection string from the environment or a secret
+  manager, never from the repository.
+- TLS required; one schema per repository (`lore`); numbered SQL migrations, no ORM.
+- Backups: `pg_dump` nightly. The store is text; size is not a problem.
+- Observability: one structured log line per write and per approval.
+- No control plane, billing or multi-tenant isolation yet.
 
-## What we should not build yet
-
-- Realtime sync, presence, or CRDTs.
-- A web admin panel before the read-only dashboard (#18).
-- Billing, multi-tenant isolation, or a hosted service.
-- Per-field encryption. Disk encryption plus access control first.
-
-## Proposed sprint shape
+## Sprint shape
 
 | Step | Content | Estimate |
 |---|---|---|
-| 1 | `Store` interface extracted from the SQLite code, no behaviour change | 12h |
-| 2 | Postgres implementation plus migration command and CI service container | 24h |
-| 3 | Identity and policy file; enforcement in CLI and MCP | 20h |
-| 4 | Audit log and approval record | 8h |
-| 5 | Docs: team setup, roles, migration, threat model | 8h |
+| 0 | Secret firewall and `lore guard` (issue #51) | 10h |
+| 1 | Repository identity, `fetch`/`push`, bundles (#49) | 24h |
+| 2 | `Store` interface, then Postgres and migration (#15) | 36h |
+| 3 | Identity and policy enforcement (#16) | 20h |
+| 4 | Redact and purge (#50) | 12h |
+| 5 | Policy engine and audit attestations (#52) | 24h |
+| 6 | Docs: team setup, roles, migration, secret handling | 8h |
 
-Total ~72h. Do not start step 2 before step 1 is merged: the interface is the expensive part.
+Total ~134h. Step 0 ships first because it protects every later step.
 
-## Questions for the team
+## Remaining open questions
 
-1. Is the first real user a team of 2-3 developers, or a larger group with a compliance requirement?
-   The answer changes whether OIDC is needed in step 3 or later.
-2. Does anyone need offline work on a plane? If yes, option B (sync) moves up; if no, Postgres-only is
-   enough.
-3. Who is allowed to approve agent inference in practice — every developer, or one reviewer?
-4. Is "forget this claim" a real requirement in the next 6 months? It changes the data model (hard
-   delete plus audit) more than any other item here.
-5. Where will Postgres run — the existing self-hosted box, or a managed service?
-
-Answer these five and the sprint can be cut without further design work.
+1. Where does the corporate IdP live (Azure AD, Keycloak, something else)? This decides whether step 3
+   uses OIDC or per-user tokens.
+2. Is there a compliance requirement that forces purge within a deadline? If yes, step 4 moves up.
+3. Who owns the Postgres instance operationally — the team, or a platform group?
+4. Do internal repositories share one Postgres database or one schema per repository? Recommendation:
+   one schema per repository, one database per team.

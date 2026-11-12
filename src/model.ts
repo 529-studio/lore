@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { DB } from './db.js';
 import { claimId, sha256, treeHash } from './util/hash.js';
+import { assertNoSecrets } from './secrets.js';
 
 export type EvidenceKind = 'test' | 'file' | 'command' | 'human' | 'agent';
 export type ClaimState = 'draft' | 'active' | 'retracted';
@@ -75,6 +76,9 @@ export function ensureEntity(db: DB, id: string, now = new Date().toISOString())
  * except for draft -> active promotion, which is a state change, not content.
  */
 export function upsertClaim(db: DB, input: WriteInput): UpsertResult {
+  // Memory is an exfiltration path: a secret must never be persisted as a claim.
+  assertNoSecrets({ subject: input.subject, predicate: input.predicate, object: input.object });
+
   const now = new Date().toISOString();
   const authority = Math.min(...input.evidence.map((e) => authorityOf(e.kind)), 4);
   const id = claimId({

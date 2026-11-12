@@ -7,6 +7,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 
 ### Added
 
+- Secret firewall: `lore write` and `lore ingest` reject secrets in claims, `lore guard [--staged]`
+  scans files and staged diffs, `--install` adds a pre-commit hook, and `.loresecretignore` holds
+  reviewed exceptions.
 - `docs/team-mode.md`: decision brief for the shared backend and permissions work (#15, #16).
 - Architecture decision records (`docs/adr/`) for storage, the MCP transport and the branch model,
   plus four lessons from the second audit (L05–L08).
