@@ -47,6 +47,8 @@ commit list — from the local store. Editing, review and undo belong to the des
 
 ![Lore dashboard](docs/assets/dashboard.png)
 
+![Dashboard demo: filtering claims](docs/assets/demo-gui.gif)
+
 ## 60-second demo
 
 ```bash
