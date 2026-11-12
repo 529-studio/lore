@@ -7,6 +7,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 
 ### Added
 
+- `docs/team-mode.md`: decision brief for the shared backend and permissions work (#15, #16).
 - Architecture decision records (`docs/adr/`) for storage, the MCP transport and the branch model,
   plus four lessons from the second audit (L05–L08).
 - Eval replays 20 distinct sessions per fixture, records wall time, invocations and token cost per
