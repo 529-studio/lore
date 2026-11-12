@@ -15,7 +15,7 @@ export async function uiCommand(opts: UiCommandOptions): Promise<void> {
   const port = opts.port ? Number(opts.port) : 4173;
 
   const handle = await startUi(root, { host, port });
-  console.log(`${pc.green('✓')} lore ui ${pc.bold(handle.url)} ${pc.dim('(read-only)')}`);
+  console.log(`${pc.green('✓')} lore ui ${pc.bold(handle.url)} ${pc.dim('(local, loopback only)')}`);
   if (host !== '127.0.0.1' && host !== 'localhost') {
     console.log(pc.yellow('[WARN] bound to a non-loopback address; anyone on the network can read this memory'));
   }

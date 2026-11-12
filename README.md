@@ -41,9 +41,9 @@ Lore fixes the **trust** problem, not the storage problem.
 *The CLI: initialise, derive claims, search with a score breakdown, edit a file, watch the claim go
 stale, then accept the new reality with `verify --accept`.*
 
-**GUI:** `lore ui` serves a read-only dashboard — health counters, a filterable claim table and the
-commit list — from the local store. Editing, review and undo belong to the desktop shell
-([v0.3.0 #21](https://github.com/529-studio/lore/issues/21)).
+**GUI:** `lore ui` serves a local dashboard with four tabs — Health, Review (approve/reject drafts),
+Undo (revert a commit) and Settings. Writes go through the same policy layer as the CLI. The desktop
+app that wraps it is [v0.3.0 #21](https://github.com/529-studio/lore/issues/21).
 
 ![Lore dashboard](docs/assets/dashboard.png)
 

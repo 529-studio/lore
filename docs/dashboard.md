@@ -10,8 +10,13 @@ lore ui --port 0   # pick a free port
 
 ![Dashboard demo: filtering claims](assets/demo-gui.gif)
 
-Read-only by design: health counters, a filterable claim table, and the recent commit list. It reads
-the same `.lore/lore.db` the CLI uses, so the page is live and needs no export step.
+Four tabs: **Health**, **Review**, **Undo**, **Settings**. It reads the same `.lore/lore.db` the CLI
+uses, so the page is live and needs no export step. Review and Undo write through `src/actions.ts`, so
+policy is enforced exactly as it is in the CLI.
+
+![Review](assets/dashboard-review.png)
+
+![Undo](assets/dashboard-undo.png)
 
 ## What it shows
 
@@ -30,8 +35,14 @@ the same `.lore/lore.db` the CLI uses, so the page is live and needs no export s
 | `GET /api/claims?q=&status=&fresh=&limit=` | claim rows with freshness |
 | `GET /api/commits` | last 50 commits |
 | `GET /api/conflicts` | unresolved merge conflicts |
+| `GET /api/identity` | principal, role, team mode, policy, remote |
+| `POST /api/approve` | `{ ids }` — approve drafts |
+| `POST /api/reject` | `{ claim, reason }` — retract a draft |
+| `POST /api/revert` | `{ commit }` — inverse commit |
+| `POST /api/attest` | `{ claim, verdict, reason }` — independent review |
 
-Every non-GET request returns 405. There is no write path, and MCP has no dashboard tool.
+Writes require the `x-lore-csrf` header (token injected into the page) and an `Origin` that matches the
+bound host; anything else is 403. Unknown writes return 403 before routing. MCP has no dashboard tool.
 
 ## Security
 
@@ -41,6 +52,7 @@ Every non-GET request returns 405. There is no write path, and MCP has no dashbo
 
 ## Limits
 
-- Read-only: no approve, redact or undo. Those arrive with the desktop shell (#21).
-- No history view per claim; use `lore blame` for that.
-- No charts; counters and tables only.
+- No redact or purge from the UI; those stay CLI-only on purpose.
+- No per-claim history; use `lore blame` for that.
+- No charts; counters, cards and tables only.
+- Desktop packaging is #66; this is the web app it will wrap.

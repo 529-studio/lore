@@ -1,0 +1,23 @@
+- generic [ref=e1]:
+  - banner [ref=e2]:
+    - heading "Lore" [level=1] [ref=e3]
+    - navigation [ref=e4]:
+      - button "Health" [ref=e5] [cursor=pointer]
+      - button "Review" [active] [ref=e6] [cursor=pointer]
+      - button "Undo" [ref=e7] [cursor=pointer]
+      - button "Settings" [ref=e8] [cursor=pointer]
+    - generic [ref=e26]: branch agent/ses_mwd50rgw
+  - main [ref=e9]:
+    - generic [ref=e28]:
+      - heading "What the agent learned — needs your call" [level=2] [ref=e29]
+      - generic [ref=e30]:
+        - button "Approve all" [ref=e31] [cursor=pointer]
+        - generic [ref=e32]: 1 draft(s)
+      - generic [ref=e34]:
+        - generic [ref=e35]: sym:src/refund.ts#refund — is_hot_path
+        - generic [ref=e36]: called on every retry
+        - generic [ref=e37]: suggested by agent:codex · T4 · c_4eee554ea6275bf574edbf9dbd94aa94
+        - generic [ref=e38]: agent:sym:src/refund.ts#refund
+        - generic [ref=e39]:
+          - button "Approve" [ref=e40] [cursor=pointer]
+          - button "Reject" [ref=e41] [cursor=pointer]

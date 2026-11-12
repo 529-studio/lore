@@ -1,6 +1,6 @@
 # ADR-004: Read-only dashboard with no framework
 
-Status: accepted · 2026-11-12
+Status: accepted · 2026-11-12 · updated 2026-11-12 (#65 added writes)
 
 ## Context
 
@@ -13,6 +13,9 @@ otherwise installs with four packages and no build step for users.
 `lore ui` serves one HTML page from `node:http`, with vanilla JavaScript and JSON endpoints. The page
 is a template string in `src/ui/server.ts`. It reads the existing SQLite store; there is no separate
 backend.
+
+Update (#65): the dashboard gained Review and Undo. Writes go through `src/actions.ts` and require a
+CSRF token plus a matching Origin. The no-framework decision still holds.
 
 ## Consequences
 
