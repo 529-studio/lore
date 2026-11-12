@@ -7,6 +7,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 
 ### Added
 
+- Postgres transport: `lore remote --postgres --env LORE_REMOTE_URL` stores the commit bundle in a
+  `lore_bundles` table. Push takes a per-repository advisory lock and imports the remote first, so
+  concurrent pushes cannot drop commits. `npm run pg:smoke` proves two stores, bidirectional sync and
+  concurrent pushes in CI.
 - `lore redact` replaces a claim object with `[redacted]`, keeps the id and records an audit row;
   `lore purge --yes` removes the row and its evidence, leaving an audit entry. Redacted claims cannot
   be resurrected by a later write or a merge.

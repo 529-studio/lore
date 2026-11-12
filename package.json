@@ -21,6 +21,7 @@
     "smoke": "bash scripts/smoke.sh",
     "mcp:smoke": "node scripts/mcp-smoke.mjs",
     "mcp:concurrency": "node scripts/mcp-concurrency.mjs",
+    "pg:smoke": "node scripts/pg-sync.mjs",
     "eval": "node scripts/eval.mjs",
     "demo:cli": "node scripts/demo/record-cli.mjs",
     "docs:lint": "node scripts/docs-lint.mjs",
@@ -50,12 +51,14 @@
   "dependencies": {
     "better-sqlite3": "^13.0.3",
     "commander": "^15.1.0",
+    "pg": "^8.23.1",
     "picocolors": "^1.1.1",
     "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
     "sharp": "^0.35.5",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
