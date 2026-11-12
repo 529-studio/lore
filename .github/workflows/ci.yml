@@ -41,6 +41,21 @@ jobs:
       - name: MCP concurrency (4 servers x 25 writes)
         run: npm run mcp:concurrency
 
+      - name: Start postgres
+        run: docker run -d --name lore-pg -e POSTGRES_PASSWORD=test -p 5432:5432 postgres:16-alpine
+
+      - name: Wait for postgres
+        run: |
+          for i in $(seq 1 30); do
+            docker exec lore-pg pg_isready -U postgres >/dev/null 2>&1 && exit 0
+            sleep 1
+          done
+          echo "postgres did not start" >&2
+          exit 1
+
+      - name: Postgres sync (two stores, concurrent pushes)
+        run: npm run pg:smoke
+
       - name: Outcome eval (self fixture)
         run: npm run eval -- --fixtures 1
 

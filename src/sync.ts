@@ -6,6 +6,7 @@ import { head, makeCommit } from './model.js';
 import { planMerge } from './merge.js';
 import { loadOntology } from './ontology.js';
 import { readConfig } from './config.js';
+import { branchFor, currentSession } from './session.js';
 
 export interface Bundle {
   format: 'lore-bundle/1';
@@ -124,7 +125,7 @@ export function isAncestor(db: DB, ancestor: string, descendant: string): boolea
   return false;
 }
 
-function setRef(db: DB, name: string, commitId: string): void {
+export function setRef(db: DB, name: string, commitId: string): void {
   db.prepare(
     'INSERT INTO ref(name, commit_id) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET commit_id = excluded.commit_id',
   ).run(name, commitId);
@@ -254,6 +255,18 @@ export function importBundle(
   }
 
   return counts;
+}
+
+/**
+ * After a fetch, move the current session branch forward when it is strictly
+ * behind main. A branch with its own unpushed commits is left alone.
+ */
+export function fastForwardSession(db: DB, root: string): void {
+  const ref = branchFor(currentSession(root));
+  const tip = head(db, ref);
+  const main = head(db, 'main');
+  if (!tip || !main || tip === main) return;
+  if (isAncestor(db, tip, main)) setRef(db, ref, main);
 }
 
 /** Import the remote bundle if present, then write ours. Returns the import result. */

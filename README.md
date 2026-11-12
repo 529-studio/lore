@@ -272,8 +272,9 @@ main ──────────●──────────────
   next merge applies it. Every decision is stored in `merge_decision` for audit.
 
 **Internal or offline repositories.** Memory does not depend on a git host: `lore remote <shared-dir>`
-plus `lore fetch`/`lore push` shares commits with a team directory, and `lore bundle` moves them across
-an air gap. A claim observed on newer code than your checkout is reported as *ahead of checkout*, not
+plus `lore fetch`/`lore push` shares commits with a team directory, `lore remote --postgres --env
+LORE_REMOTE_URL` uses a database instead (self-hosted or corporate-managed), and `lore bundle` moves
+commits across an air gap. A claim observed on newer code than your checkout is reported as *ahead of checkout*, not
 stale; `--trust-remote` includes it. See [docs/team-mode.md](docs/team-mode.md).
 
 **CI integration.** The GitHub Action comments on every pull request with what it teaches the agent

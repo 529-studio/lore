@@ -28,12 +28,17 @@ all; memory still has to be shared.
 ## Architecture
 
 ```
-Postgres (team source of truth)        optional, self-hosted or corporate-managed
-      ^  push / fetch commits
-SQLite .lore (local cache + outbox)    always present, works offline
+Postgres (team transport)              optional, self-hosted or corporate-managed
+      ^  push / fetch a commit bundle
+SQLite .lore (source of truth locally) always present, works offline
       ^  MCP / CLI
 Claude, Codex, Gemini, ...
 ```
+
+Postgres is a **transport**, not the query backend: one row per repository in `lore_bundles`, holding
+the commit bundle. This keeps offline first-class and avoids rewriting every query to be asynchronous.
+A query-level backend would only be needed for a hosted dashboard; the read-only dashboard (#18) can
+read the local store.
 
 - **Repository identity is not the git remote.** A UUID is generated once into `.lore/config.json`.
   Azure DevOps, GitLab self-host, a bare directory and a public GitHub repo all work the same way.

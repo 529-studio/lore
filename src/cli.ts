@@ -198,9 +198,13 @@ program
 
 program
   .command('remote [path]')
-  .description('configure a shared directory for fetch/push (no git host required)')
+  .description('configure a shared directory or a postgres database for fetch/push')
   .option('--show', 'print the current remote')
-  .action((path, opts) => remoteCommand({ path, show: opts.show }));
+  .option('--postgres', 'use a postgres connection instead of a directory')
+  .option('--env <name>', 'read the postgres connection string from this environment variable')
+  .action((path, opts) =>
+    remoteCommand({ path, show: opts.show, postgres: opts.postgres, env: opts.env }),
+  );
 
 program
   .command('fetch')
@@ -333,7 +337,7 @@ program
   .action(() => mcpCommand());
 
 try {
-  program.parse();
+  await program.parseAsync();
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   console.error(pc.red(`error: ${message}`));

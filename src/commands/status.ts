@@ -91,7 +91,13 @@ export function statusCommand(opts: StatusOptions = {}): void {
       else if (isAncestor(db, local, remote)) state = 'behind — run lore fetch';
       else state = 'diverged';
     }
-    console.log(`  remote     ${config.remote.path} ${pc.dim(`(${state})`)}`);
+    const label =
+      config.remote.type === 'dir'
+        ? config.remote.path
+        : config.remote.url_env
+          ? `postgres ($${config.remote.url_env})`
+          : 'postgres';
+    console.log(`  remote     ${label} ${pc.dim(`(${state})`)}`);
   }
   console.log(`  stale      ${stale.length ? pc.red(String(stale.length)) : pc.green('0')} ${pc.dim('(evidence hash no longer matches)')}`);
   console.log(`  ahead      ${ahead.length ? pc.yellow(String(ahead.length)) : pc.green('0')} ${pc.dim('(claim observed on newer code than this checkout)')}`);

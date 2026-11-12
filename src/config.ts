@@ -2,10 +2,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
+export type RemoteConfig =
+  | { type: 'dir'; path: string }
+  | { type: 'postgres'; url?: string; url_env?: string };
+
 export interface LoreConfig {
   /** Stable identity of the project, independent of any git remote. */
   repo_id: string;
-  remote?: { type: 'dir'; path: string };
+  remote?: RemoteConfig;
   /** Last remote main commit seen by fetch/push, used for the ahead/behind line. */
   remote_main?: string | null;
 }
