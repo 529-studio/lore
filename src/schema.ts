@@ -110,6 +110,21 @@ CREATE TABLE IF NOT EXISTS redaction (
   ts            TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS alias (
+  alias      TEXT PRIMARY KEY,
+  entity_id  TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  author     TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS rename_audit (
+  old_path TEXT NOT NULL,
+  new_path TEXT NOT NULL,
+  actor    TEXT NOT NULL,
+  claims   INTEGER NOT NULL,
+  ts       TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS attestation (
   claim_id             TEXT NOT NULL,
   attestation_claim_id TEXT NOT NULL,

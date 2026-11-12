@@ -9,6 +9,8 @@ import { gcCommand } from './commands/gc.js';
 import { guardCommand } from './commands/guard.js';
 import { identityCommand } from './commands/identity.js';
 import { attestCommand } from './commands/attest.js';
+import { aliasCommand } from './commands/alias.js';
+import { renameCommand } from './commands/rename.js';
 import { digestCommand } from './commands/digest.js';
 import { bundleCommand } from './commands/bundle.js';
 import { fetchCommand } from './commands/fetch.js';
@@ -197,6 +199,23 @@ program
   .option('--yes', 'confirm the permanent deletion')
   .action((claim, opts) =>
     purgeCommand({ claim, reason: opts.reason, author: opts.author, yes: opts.yes }),
+  );
+
+program
+  .command('alias [action] [alias] [entity]')
+  .description('name an entity so humans can say "refund flow" instead of doc:...#refund-flow')
+  .option('--author <id>')
+  .action((action, alias, entity, opts) =>
+    aliasCommand({ action, alias, entity, author: opts.author }),
+  );
+
+program
+  .command('rename <old> <new>')
+  .description('move entities and evidence after a file rename, keeping history')
+  .option('--author <id>')
+  .option('--session <id>')
+  .action((oldPath, newPath, opts) =>
+    renameCommand({ old: oldPath, new: newPath, author: opts.author, session: opts.session }),
   );
 
 program

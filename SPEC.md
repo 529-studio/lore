@@ -64,7 +64,14 @@ Merge    ── 3-way on the fact key (subject, predicate[, object]).
 | `env` | `env:<NAME>` | source scan |
 | `pkg` | `pkg:<name>` | manifest |
 | `doc` | `doc:<path>` | markdown |
+| `section` | `doc:<path>#<heading-slug>` | markdown heading |
+| `adr` | `adr:<NNN>` | ADR file naming convention |
+| `issue` | `issue:local:<id>` | exported issue file under `issues/` |
 | `concept` | `concept:<slug>` | human/agent, weakest |
+
+Aliases (`alias` table, `lore alias`) map a human phrase to an entity id; they are explicit, reviewed,
+and used by `blame` and `search`. `lore rename` moves entities and evidence after a file rename and
+keeps the old path as an alias.
 
 Entity resolution must be deterministic: two agents observing the same fact must produce the same id.
 In a code repository, never use embeddings to resolve an entity — `path#symbol` is unique and stable.

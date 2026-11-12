@@ -170,7 +170,10 @@ function scoreClaim(
   const anchorRefs: string[] = [];
   const subjectHit = subjectPath ? ctx.files.includes(subjectPath) : false;
   if (subjectHit) anchorRefs.push(`subject path ${subjectPath}`);
-  if (ctx.symbols.has(claim.subject_id)) {
+  if (
+    ctx.symbols.has(claim.subject_id) ||
+    [...ctx.symbols].some((symbol) => claim.subject_id.startsWith(`${symbol}#`))
+  ) {
     anchorRefs.push(`subject ${claim.subject_id} in symbols scope`);
   }
   for (const ev of evidence) {
@@ -270,10 +273,21 @@ export function searchClaims(db: DB, root: string, opts: SearchOptions = {}): Se
   const budget = opts.budgetTokens ?? BUDGET_DEFAULT;
   const current = branchClaims(db, root, opts.asOf);
 
+  // Aliases let a human say "refund flow" and reach doc:...#refund-flow.
+  const aliasTargets = new Set<string>();
+  if (opts.query) {
+    const needle = opts.query.toLowerCase();
+    const rows = db.prepare('SELECT alias, entity_id FROM alias').all() as Array<{
+      alias: string;
+      entity_id: string;
+    }>;
+    for (const row of rows) if (needle.includes(row.alias.toLowerCase())) aliasTargets.add(row.entity_id);
+  }
+
   const ctx: ScopeContext = {
     files: (opts.files ?? []).map(normPath).filter(Boolean),
     dirs: new Set((opts.files ?? []).map(normPath).filter((p) => p !== '.').map(dirOf)),
-    symbols: new Set(opts.symbols ?? []),
+    symbols: new Set([...(opts.symbols ?? []), ...aliasTargets]),
     importsOf: new Map(),
     queryTokens: opts.query ? tokenize(opts.query) : null,
   };

@@ -199,6 +199,8 @@ lore revert <commit>           inverse commit, history preserved
 lore verify <claim> | --all    re-hash evidence; --accept stores a legitimate change
 lore guard [--staged]         scan for secrets before they enter a claim or a commit
 lore identity [issue]         show the current identity, or issue a team token
+lore alias add <name> <id>    name an entity ("refund flow" -> doc:...#refund-flow)
+lore rename <old> <new>       move entities and evidence after a file rename
 lore attest <claim>           independent review: agree or disagree, linked to the claim
 lore digest                   what changed since the last review
 lore remote <dir>             point fetch/push at a shared directory (no git host needed)
