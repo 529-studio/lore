@@ -7,6 +7,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 
 ### Added
 
+- `src/actions.ts`: approve, reject, revert and attest implemented once, with policy checks, and used
+  by the CLI (and later by the web UI and desktop shell). `lore reject` is the new command.
 - Dashboard demo GIF (`docs/assets/demo-gui.gif`) and `scripts/demo/record-gui.mjs` to regenerate it.
 - `lore ui`: read-only dashboard on localhost (health, claims, commits), served by `node:http` with no
   framework and no new dependency. ADR-004 records the decision.

@@ -10,6 +10,7 @@ import { guardCommand } from './commands/guard.js';
 import { identityCommand } from './commands/identity.js';
 import { uiCommand } from './commands/ui.js';
 import { attestCommand } from './commands/attest.js';
+import { rejectCommand } from './commands/reject.js';
 import { aliasCommand } from './commands/alias.js';
 import { renameCommand } from './commands/rename.js';
 import { digestCommand } from './commands/digest.js';
@@ -218,6 +219,13 @@ program
   .action((oldPath, newPath, opts) =>
     renameCommand({ old: oldPath, new: newPath, author: opts.author, session: opts.session }),
   );
+
+program
+  .command('reject <claim>')
+  .description('reject a draft: retract it, keeping the row and the reason')
+  .option('--reason <text>')
+  .option('--session <id>')
+  .action((claim, opts) => rejectCommand({ claim, reason: opts.reason, session: opts.session }));
 
 program
   .command('attest <claim>')

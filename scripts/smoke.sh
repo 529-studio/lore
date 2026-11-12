@@ -546,4 +546,10 @@ lore rename docs/guide.md docs/handbook.md >/dev/null
 expect_contains "$(lore blame doc:docs/handbook.md)" "section_title"
 expect_contains "$(lore blame docs/guide.md)" "doc:docs/handbook.md"
 
-echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge, identity, policy, machine, attest, entities, alias, rename"
+# --- actions layer: reject ---------------------------------------------------
+REJECT_ID="$(lore write --subject env:REJECT --predicate read_by --object README.md --kind agent --author agent:reject | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+lore reject "$REJECT_ID" --reason "not true" >/dev/null
+expect_contains "$(lore blame env:REJECT)" "retracted"
+expect_not_contains "$(lore search REJECT --files README.md --include-stale)" "env:REJECT"
+
+echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge, identity, policy, machine, attest, entities, alias, rename, reject"
