@@ -205,6 +205,7 @@ lore guard [--staged]         scan for secrets before they enter a claim or a co
 lore identity [issue]         show the current identity, or issue a team token
 lore alias add <name> <id>    name an entity ("refund flow" -> doc:...#refund-flow)
 lore rename <old> <new>       move entities and evidence after a file rename
+lore review                   review drafts one by one (approve / reject / skip)
 lore reject <claim>           reject a draft: retract it, keep the row and reason
 lore attest <claim>           independent review: agree or disagree, linked to the claim
 lore digest                   what changed since the last review
