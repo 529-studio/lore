@@ -23,6 +23,10 @@ export interface WriteInput {
   author?: string;
   validFrom?: string | null;
   supersedes?: string | null;
+  /** Create the claim as active even when it would normally be a draft. */
+  forceActive?: boolean;
+  /** Keep an otherwise auto-promoted claim as a draft (policy gate). */
+  forceDraft?: boolean;
 }
 
 export interface UpsertResult {
@@ -101,7 +105,8 @@ export function upsertClaim(db: DB, input: WriteInput): UpsertResult {
   const verifiable = input.evidence.every((e) =>
     e.kind === 'file' || e.kind === 'test' ? Boolean(e.hash) : true,
   );
-  const state: ClaimState = authority <= 1 && verifiable ? 'active' : 'draft';
+  const autoActive = authority <= 1 && verifiable;
+  const state: ClaimState = input.forceActive || (autoActive && !input.forceDraft) ? 'active' : 'draft';
 
   if (!existing) {
     db.prepare(

@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 
-export type Role = 'maintainer' | 'contributor';
+export type Role = 'maintainer' | 'contributor' | 'machine' | 'auditor';
 
 export interface Principal {
   id: string;
@@ -76,6 +76,10 @@ export function resolvePrincipal(): Principal {
   if (asserted) {
     const role: Role = process.env.LORE_OIDC_ROLE === 'maintainer' ? 'maintainer' : 'contributor';
     return { id: asserted, role, source: 'assertion' };
+  }
+
+  if (process.env.LORE_MACHINE === '1') {
+    return { id: 'machine:local', role: 'machine', source: 'local' };
   }
 
   if (teamMode()) {

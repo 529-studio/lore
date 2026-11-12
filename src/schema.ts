@@ -110,6 +110,15 @@ CREATE TABLE IF NOT EXISTS redaction (
   ts            TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS attestation (
+  claim_id             TEXT NOT NULL,
+  attestation_claim_id TEXT NOT NULL,
+  verdict              TEXT NOT NULL CHECK (verdict IN ('agree','disagree')),
+  actor                TEXT NOT NULL,
+  ts                   TEXT NOT NULL,
+  PRIMARY KEY (claim_id, attestation_claim_id)
+);
+
 CREATE TABLE IF NOT EXISTS purge_audit (
   claim_id TEXT PRIMARY KEY,
   actor    TEXT NOT NULL,

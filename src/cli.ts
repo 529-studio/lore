@@ -8,6 +8,8 @@ import { diffCommand } from './commands/diff.js';
 import { gcCommand } from './commands/gc.js';
 import { guardCommand } from './commands/guard.js';
 import { identityCommand } from './commands/identity.js';
+import { attestCommand } from './commands/attest.js';
+import { digestCommand } from './commands/digest.js';
 import { bundleCommand } from './commands/bundle.js';
 import { fetchCommand } from './commands/fetch.js';
 import { pushCommand } from './commands/push.js';
@@ -196,6 +198,25 @@ program
   .action((claim, opts) =>
     purgeCommand({ claim, reason: opts.reason, author: opts.author, yes: opts.yes }),
   );
+
+program
+  .command('attest <claim>')
+  .description('independent review: agree or disagree with a claim')
+  .requiredOption('--verdict <v>', 'agree | disagree')
+  .option('--reason <text>')
+  .option('--session <id>')
+  .action((claim, opts) => {
+    if (opts.verdict !== 'agree' && opts.verdict !== 'disagree') {
+      throw new Error('--verdict must be agree or disagree');
+    }
+    attestCommand({ claim, verdict: opts.verdict, reason: opts.reason, session: opts.session });
+  });
+
+program
+  .command('digest')
+  .description('what changed since the last review: claims, conflicts, attestations')
+  .option('--days <n>', 'window in days', '7')
+  .action((opts) => digestCommand({ days: opts.days }));
 
 program
   .command('identity [action]')

@@ -1,8 +1,9 @@
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
-import { inBranch, makeCommit, upsertClaim, type EvidenceKind } from '../model.js';
+import { authorityOf, inBranch, makeCommit, upsertClaim, type EvidenceKind } from '../model.js';
 import { hashCache } from '../hash-cache.js';
 import { gitHead } from '../util/git.js';
+import { gateTier } from '../policy.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
 
 export interface WriteOptions {
@@ -42,6 +43,7 @@ export function writeCommand(opts: WriteOptions): void {
       confidence: opts.confidence ? Number(opts.confidence) : undefined,
       author: opts.author ?? 'human:cli',
       validFrom: opts.validFrom,
+      forceDraft: gateTier(root, authorityOf(opts.kind)),
       evidence: [{ kind: opts.kind, ref: evidenceRef, hash, commit: gitHead(root) }],
     });
 

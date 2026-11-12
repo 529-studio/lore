@@ -85,6 +85,10 @@ Identity is resolved in this order: `LORE_TOKEN` (HMAC-signed by `LORE_TEAM_SECR
 `LORE_OIDC_ROLE` asserted by a trusted launcher, then the local OS user. Local mode allows every
 action; team mode requires a token and enforces the policy below.
 
+Tiers listed in the policy without `*` become **gated**: a T1 claim stays a draft until an approver
+acts. This is how a machine approver becomes useful — by default T0/T1 auto-promote, so there is
+nothing to approve.
+
 Three kinds of approver:
 
 | Approver | Evidence it must attach | Notes |
@@ -97,12 +101,16 @@ Enforcement lives in one function (`requireAction`) used by `approve`, `resolve`
 `promote` and the MCP `memory_approve` tool. The principal is written into the commit author and into
 `merge_decision.actor`.
 
-**Separation of duties:** an audit agent cannot approve its own write. Its output is a signed
-attestation, stored as a claim with authority T2 and linked to the claims it reviewed.
+**Attestation is implemented** as `lore attest <claim> --verdict agree|disagree --reason`. It writes a
+claim `claim:<id> — attested_by — <verdict>` with authority T2, links it in the `attestation` table, and
+refuses to attest a claim written by the same principal.
 
-**When humans only check the UI:** review policy changes and a digest, not every claim. The digest
-reports claims added, conflicts resolved, auto-approvals by policy, audit disagreements, and rollbacks.
-Sampling plus a rollback button is the control; per-claim review does not scale.
+**Separation of duties:** an audit agent cannot approve its own write.
+
+**When humans only check the UI:** review policy changes and a digest, not every claim.
+`lore digest [--days 7]` reports claims added, commits, conflicts resolved, attestations (and
+disagreements), machine approvals, redactions and purges. Sampling plus a rollback button is the
+control; per-claim review does not scale.
 
 ## Redact and purge
 

@@ -9,7 +9,8 @@ import path from 'node:path';
 import { openDb, requireRoot, type DB } from '../db.js';
 import { hashCache } from '../hash-cache.js';
 import { gitHead } from '../util/git.js';
-import { requireAction } from '../policy.js';
+import { authorityOf } from '../model.js';
+import { gateTier, requireAction } from '../policy.js';
 import {
   activeAt,
   evidenceFor,
@@ -198,6 +199,7 @@ function toolWrite(args: WriteArgs): ToolResult {
         author,
         // Never writes to `main` — the commit always lands on agent/<session>.
         evidence: [{ kind, ref: evidenceRef, hash, commit: gitHead(ctx.root) }],
+        forceDraft: gateTier(ctx.root, authorityOf(kind)),
       });
 
       // Drafts never enter the active set; a claim missing from this branch still needs an entry.

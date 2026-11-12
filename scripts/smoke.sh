@@ -484,4 +484,45 @@ set -e
 [ "$NO_ID" -ne 0 ] || fail "team mode without a token must fail"
 LORE_TEAM_SECRET=$SECRET LORE_TOKEN=$MAINT_TOKEN lore identity | grep -q "alice@smoke" || fail "identity show must print the principal"
 
-echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge, identity, policy"
+# --- machine approvers and audit attestations --------------------------------
+cat > lore.policy.yml <<'YAML'
+roles:
+  maintainers: [alice@smoke]
+approve:
+  t1: [machines]
+  t4: [maintainers]
+attest: [maintainers]
+YAML
+
+# a machine may not approve inference
+AGENT_DRAFT="$(lore write --subject env:MACHINE_T4 --predicate read_by --object README.md --kind agent --author agent:policy | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+set +e
+LORE_MACHINE=1 lore approve "$AGENT_DRAFT" >/dev/null 2>&1
+MACHINE_T4=$?
+set -e
+[ "$MACHINE_T4" -ne 0 ] || fail "a machine approver must not approve T4"
+
+# a machine may approve a gated T1 claim
+TEAM_SECRET="smoke-team-secret-0123456789"
+GATED="$(LORE_TEAM_SECRET=$TEAM_SECRET lore write --subject env:MACHINE_T1 --predicate read_by --object README.md --kind file --ref README.md | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+expect_contains "$(LORE_TEAM_SECRET=$TEAM_SECRET lore blame env:MACHINE_T1)" "draft"
+LORE_TEAM_SECRET=$TEAM_SECRET LORE_MACHINE=1 lore approve "$GATED" >/dev/null
+expect_contains "$(lore blame env:MACHINE_T1)" "active"
+
+# attestation and separation of duties
+ALICE="$(LORE_TEAM_SECRET=$TEAM_SECRET node "$LORE_BIN" identity issue --user alice@smoke --role maintainer)"
+ATTEST_TARGET="$(lore write --subject env:ATTESTED --predicate read_by --object README.md --kind file --ref README.md | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+LORE_TEAM_SECRET=$TEAM_SECRET LORE_TOKEN=$ALICE lore attest "$ATTEST_TARGET" --verdict agree --reason "looks right" >/dev/null
+expect_contains "$(lore blame "claim:$ATTEST_TARGET")" "attested_by"
+expect_contains "$(LORE_TEAM_SECRET=$TEAM_SECRET LORE_TOKEN=$ALICE lore digest)" "attestations        1"
+
+OWN="$(lore write --subject env:OWN_CLAIM --predicate read_by --object README.md --kind file --ref README.md --author human:alice@smoke | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+set +e
+LORE_TEAM_SECRET=$TEAM_SECRET LORE_TOKEN=$ALICE lore attest "$OWN" --verdict agree >/dev/null 2>&1
+SELF_ATTEST=$?
+set -e
+[ "$SELF_ATTEST" -ne 0 ] || fail "an auditor must not attest their own claim"
+
+rm -f lore.policy.yml
+
+echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge, identity, policy, machine, attest"

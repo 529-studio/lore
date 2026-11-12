@@ -3,7 +3,7 @@ import path from 'node:path';
 import { parse } from 'yaml';
 import { resolvePrincipal, teamMode, type Principal, type Role } from './identity.js';
 
-export type Action = 'approve' | 'resolve' | 'redact' | 'purge' | 'promote';
+export type Action = 'approve' | 'resolve' | 'redact' | 'purge' | 'promote' | 'attest';
 
 interface PolicyFile {
   roles?: Record<string, string[]>;
@@ -12,6 +12,7 @@ interface PolicyFile {
   redact?: string[];
   purge?: string[];
   promote?: string[];
+  attest?: string[];
   protected?: Record<string, string[]>;
 }
 
@@ -33,6 +34,8 @@ function isMember(policy: PolicyFile | null, role: string, principal: Principal)
   if (role === '*') return true;
   if (role === 'maintainers') return principal.role === 'maintainer';
   if (role === 'contributors') return true; // any authenticated identity
+  if (role === 'machines') return principal.role === 'machine';
+  if (role === 'auditors') return principal.role === 'auditor' || principal.role === 'maintainer';
   const members = policy?.roles?.[role];
   if (members?.includes('*')) return true;
   if (members?.includes(principal.id)) return true;
@@ -77,6 +80,9 @@ export function requireAction(
   ctx: { tier?: number; subject?: string } = {},
 ): Principal {
   const principal = resolvePrincipal();
+  if (principal.role === 'machine' && action === 'approve' && (ctx.tier ?? 4) > 1) {
+    throw new Error('a machine approver may only approve T0/T1 evidence-backed claims');
+  }
   if (!teamMode()) return principal;
 
   const policy = loadPolicy(root);
@@ -87,6 +93,14 @@ export function requireAction(
   throw new Error(
     `${label} requires role ${roles.join(' or ')}; ${principal.id} is ${principal.role} (policy: ${path.basename(policyPath(root))})`,
   );
+}
+
+/** True when the policy requires an explicit approval for this tier. */
+export function gateTier(root: string, tier: number): boolean {
+  if (!teamMode()) return false;
+  const policy = loadPolicy(root);
+  const roles = policy?.approve?.[`t${tier}`];
+  return Boolean(roles && !roles.includes('*'));
 }
 
 export function describePolicy(root: string): string {
