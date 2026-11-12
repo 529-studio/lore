@@ -22,6 +22,7 @@
     "mcp:smoke": "node scripts/mcp-smoke.mjs",
     "mcp:concurrency": "node scripts/mcp-concurrency.mjs",
     "pg:smoke": "node scripts/pg-sync.mjs",
+    "ui:smoke": "node scripts/ui-smoke.mjs",
     "eval": "node scripts/eval.mjs",
     "demo:cli": "node scripts/demo/record-cli.mjs",
     "docs:lint": "node scripts/docs-lint.mjs",
