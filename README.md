@@ -41,9 +41,11 @@ Lore fixes the **trust** problem, not the storage problem.
 *The CLI: initialise, derive claims, search with a score breakdown, edit a file, watch the claim go
 stale, then accept the new reality with `verify --accept`.*
 
-**GUI:** not available yet. The desktop shell that gives non-developers health, review and undo is
-[v0.3.0 #21](https://github.com/529-studio/lore/issues/21). Until it ships there is no mock-up here
-on purpose: the only demo is one you can run.
+**GUI:** `lore ui` serves a read-only dashboard — health counters, a filterable claim table and the
+commit list — from the local store. Editing, review and undo belong to the desktop shell
+([v0.3.0 #21](https://github.com/529-studio/lore/issues/21)).
+
+![Lore dashboard](docs/assets/dashboard.png)
 
 ## 60-second demo
 
@@ -203,6 +205,7 @@ lore alias add <name> <id>    name an entity ("refund flow" -> doc:...#refund-fl
 lore rename <old> <new>       move entities and evidence after a file rename
 lore attest <claim>           independent review: agree or disagree, linked to the claim
 lore digest                   what changed since the last review
+lore ui                       read-only dashboard on localhost (health, claims, commits)
 lore remote <dir>             point fetch/push at a shared directory (no git host needed)
 lore fetch | push             exchange commits with that directory
 lore bundle export|import     air-gapped exchange of the missing commits

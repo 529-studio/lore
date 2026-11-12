@@ -8,6 +8,7 @@ import { diffCommand } from './commands/diff.js';
 import { gcCommand } from './commands/gc.js';
 import { guardCommand } from './commands/guard.js';
 import { identityCommand } from './commands/identity.js';
+import { uiCommand } from './commands/ui.js';
 import { attestCommand } from './commands/attest.js';
 import { aliasCommand } from './commands/alias.js';
 import { renameCommand } from './commands/rename.js';
@@ -236,6 +237,14 @@ program
   .description('what changed since the last review: claims, conflicts, attestations')
   .option('--days <n>', 'window in days', '7')
   .action((opts) => digestCommand({ days: opts.days }));
+
+program
+  .command('ui')
+  .description('read-only dashboard on localhost: health, claims, commits')
+  .option('--port <n>', 'port (0 picks a free one)', '4173')
+  .option('--host <host>', 'bind address', '127.0.0.1')
+  .option('--open', 'open the browser')
+  .action((opts) => uiCommand({ port: opts.port, host: opts.host, open: opts.open }));
 
 program
   .command('identity [action]')
