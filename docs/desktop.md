@@ -80,6 +80,9 @@ npm run build
 The installer is **not code-signed**, so SmartScreen shows "Windows protected your PC": choose
 **More info → Run anyway**. Authenticode signing is a later configuration change.
 
+Status: the x64 installer is built and attached to v0.4.0 by CI, but it has not been launched on a real
+Windows machine by the maintainer. Treat it as beta; report issues on GitHub.
+
 ARM64 Windows is not built. On an Apple Silicon Mac with a Windows ARM VM, use an x64 Windows VM
 instead, or add the `aarch64-pc-windows-msvc` target later.
 
