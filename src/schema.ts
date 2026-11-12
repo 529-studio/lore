@@ -21,7 +21,21 @@ CREATE TABLE IF NOT EXISTS claim (
   confidence  REAL NOT NULL,
   author      TEXT NOT NULL,
   supersedes  TEXT REFERENCES claim(id),
-  state       TEXT NOT NULL DEFAULT 'draft' CHECK (state IN ('draft','active','retracted'))
+  state       TEXT NOT NULL DEFAULT 'draft' CHECK (state IN ('draft','active','retracted')),
+
+  -- Canon trust axis (separate from branch state).
+  trust          TEXT NOT NULL DEFAULT 'candidate'
+                 CHECK (trust IN ('canonical','candidate','contested','stale','retracted')),
+  ttl_days       INTEGER,
+  last_verified_at TEXT,
+  confirmations  INTEGER NOT NULL DEFAULT 0,
+  contradictions INTEGER NOT NULL DEFAULT 0,
+  invalidated_by_json TEXT,
+  written_by     TEXT NOT NULL DEFAULT 'legacy',
+  agent_id       TEXT,
+  session_id     TEXT,
+  run_id         TEXT,
+  tags_json      TEXT NOT NULL DEFAULT '[]'
 );
 CREATE INDEX IF NOT EXISTS claim_key   ON claim(subject_id, predicate);
 CREATE INDEX IF NOT EXISTS claim_state ON claim(state);

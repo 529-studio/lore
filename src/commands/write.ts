@@ -44,6 +44,7 @@ export function writeCommand(opts: WriteOptions): void {
       author: opts.author ?? 'human:cli',
       validFrom: opts.validFrom,
       forceDraft: gateTier(root, authorityOf(opts.kind)),
+      sessionId: session,
       evidence: [{ kind: opts.kind, ref: evidenceRef, hash, commit: gitHead(root) }],
     });
 

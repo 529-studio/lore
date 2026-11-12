@@ -46,8 +46,12 @@ export function approveDrafts(db: DB, root: string, ref: string, ids: string[]):
   let commitId: string | null = null;
 
   db.transaction(() => {
-    const update = db.prepare("UPDATE claim SET state = 'active', authority = MIN(authority, 2) WHERE id = ?");
-    for (const row of rows) update.run(row.id);
+    const update = db.prepare(
+      `UPDATE claim SET state = 'active', authority = MIN(authority, 2),
+                        trust = 'canonical', last_verified_at = ? WHERE id = ?`,
+    );
+    const now = new Date().toISOString();
+    for (const row of rows) update.run(now, row.id);
     commitId = makeCommit(db, {
       ref,
       entries: rows.map((row) => ({ claim_id: row.id, op: 'add' as const })),
@@ -75,7 +79,7 @@ export function rejectDraft(db: DB, root: string, ref: string, id: string, reaso
   let commitId: string | null = null;
 
   db.transaction(() => {
-    db.prepare("UPDATE claim SET state = 'retracted' WHERE id = ?").run(id);
+    db.prepare("UPDATE claim SET state = 'retracted', trust = 'retracted' WHERE id = ?").run(id);
     if (inBranch(db, ref, id)) {
       commitId = makeCommit(db, {
         ref,

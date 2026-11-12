@@ -41,6 +41,9 @@ jobs:
       - name: MCP concurrency (4 servers x 25 writes)
         run: npm run mcp:concurrency
 
+      - name: Canon trust axis (migration, backfill, idempotence)
+        run: npm run canon:smoke
+
       - name: Dashboard smoke
         run: npm run ui:smoke
 

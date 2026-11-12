@@ -51,6 +51,9 @@ export function ingestCommand(opts: { author?: string; session?: string; dryRun?
         author: opts.author ?? 'lore:ingest',
           evidence: [{ kind: 'file', ref: evRef, hash: cache.hash(evRef), commit: gitHead(root) }],
           forceDraft: gated,
+          writtenBy: 'agent',
+          agentId: 'lore-ingest',
+          sessionId: session,
         });
       } catch (error) {
         if (error instanceof SecretDetected) {

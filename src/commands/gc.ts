@@ -36,7 +36,7 @@ export function gcCommand(opts: GcOptions): void {
     return;
   }
 
-  const update = db.prepare("UPDATE claim SET state = 'retracted' WHERE id = ?");
+  const update = db.prepare("UPDATE claim SET state = 'retracted', trust = 'retracted' WHERE id = ?");
   db.transaction(() => {
     for (const c of candidates) update.run(c.id);
   })();

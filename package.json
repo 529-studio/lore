@@ -22,6 +22,7 @@
     "smoke": "bash scripts/smoke.sh",
     "mcp:smoke": "node scripts/mcp-smoke.mjs",
     "mcp:concurrency": "node scripts/mcp-concurrency.mjs",
+    "canon:smoke": "node scripts/canon-smoke.mjs",
     "pg:smoke": "node scripts/pg-sync.mjs",
     "ui:smoke": "node scripts/ui-smoke.mjs",
     "eval": "node scripts/eval.mjs",
