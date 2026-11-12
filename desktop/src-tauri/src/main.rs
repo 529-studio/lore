@@ -69,7 +69,16 @@ fn choose_repo() -> Option<PathBuf> {
 }
 
 fn start_server(app: &tauri::AppHandle, repo: &Path) -> Result<String, String> {
-    let node = resource(app, "node");
+    let node = {
+        #[cfg(windows)]
+        {
+            resource(app, "runtime/node.exe")
+        }
+        #[cfg(not(windows))]
+        {
+            resource(app, "runtime/node")
+        }
+    };
     let cli = resource(app, "app").join("dist").join("cli.js");
     if !node.exists() || !cli.exists() {
         return Err(format!("missing runtime: {} / {}", node.display(), cli.display()));

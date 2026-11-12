@@ -63,8 +63,27 @@ waits for the port to accept connections, then opens a window pointing at it. Th
 the app exits. Writes from the window go through the dashboard's CSRF token and the same
 `src/actions.ts` policy layer as the CLI.
 
+## Windows
+
+CI builds an **x64 NSIS installer** on `windows-latest` and attaches it to the release. To build
+locally on Windows you need Rust, the Visual Studio C++ build tools and WebView2 (present on Windows 11).
+
+```powershell
+npm ci; npm run build
+cd desktop
+npm ci
+npm run build
+# desktop/src-tauri/target/release/bundle/nsis/*.exe
+```
+
+The installer is **not code-signed**, so SmartScreen shows "Windows protected your PC": choose
+**More info → Run anyway**. Authenticode signing is a later configuration change.
+
+ARM64 Windows is not built. On an Apple Silicon Mac with a Windows ARM VM, use an x64 Windows VM
+instead, or add the `aarch64-pc-windows-msvc` target later.
+
 ## Limits
 
 - No tray icon, no auto-update, no menu bar extra.
-- macOS only for now; Windows is #67.
+- Windows builds are x64 only for now; ARM64 is a follow-up.
 - The .app carries its own Node runtime, so the download is larger than a native app.
