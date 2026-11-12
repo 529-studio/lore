@@ -20,6 +20,7 @@ redact: [maintainers]
 purge: [maintainers]
 promote: [maintainers]
 attest: [auditors]
+revert: [maintainers]
 
 protected:
   "sym:src/auth/*": [maintainers]

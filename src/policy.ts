@@ -3,7 +3,7 @@ import path from 'node:path';
 import { parse } from 'yaml';
 import { resolvePrincipal, teamMode, type Principal, type Role } from './identity.js';
 
-export type Action = 'approve' | 'resolve' | 'redact' | 'purge' | 'promote' | 'attest';
+export type Action = 'approve' | 'resolve' | 'redact' | 'purge' | 'promote' | 'attest' | 'revert';
 
 interface PolicyFile {
   roles?: Record<string, string[]>;
@@ -13,6 +13,7 @@ interface PolicyFile {
   purge?: string[];
   promote?: string[];
   attest?: string[];
+  revert?: string[];
   protected?: Record<string, string[]>;
 }
 
