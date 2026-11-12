@@ -257,7 +257,7 @@ program
 
 program
   .command('ui')
-  .description('read-only dashboard on localhost: health, claims, commits')
+  .description('local dashboard: health, review, undo, settings')
   .option('--port <n>', 'port (0 picks a free one)', '4173')
   .option('--host <host>', 'bind address', '127.0.0.1')
   .option('--open', 'open the browser')
