@@ -1,0 +1,20 @@
+# Code repository template. Predicates decide which facts may hold several values.
+predicates:
+  declared_dependency:  { cardinality: one,  domain: pkg }
+  defines_script:       { cardinality: many, domain: file }
+  imports_module:       { cardinality: many, domain: file }
+  exposes_route:        { cardinality: many, domain: file }
+  read_by:              { cardinality: many, domain: env }
+  uses_image:           { cardinality: many, domain: file }
+  publishes_port:       { cardinality: many, domain: file }
+  has_make_target:      { cardinality: many, domain: file }
+  has_section:          { cardinality: many, domain: doc }
+  section_title:        { cardinality: one,  domain: section }
+  title:                { cardinality: one,  domain: doc }
+  status:               { cardinality: one,  domain: concept }
+  main_entry:           { cardinality: one,  domain: pkg }
+  package_name:         { cardinality: one,  domain: pkg }
+  requires_idempotency_key: { cardinality: one, domain: symbol }
+  uses_library:         { cardinality: many, domain: symbol }
+  has_known_bug:        { cardinality: many, domain: symbol }
+  entrypoint:           { cardinality: one,  domain: file }

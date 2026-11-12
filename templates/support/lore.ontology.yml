@@ -1,0 +1,11 @@
+# Support team template: answers, escalation and affected customers.
+predicates:
+  title:            { cardinality: one,  domain: doc }
+  status:           { cardinality: one,  domain: concept }
+  has_section:      { cardinality: many, domain: doc }
+  section_title:    { cardinality: one,  domain: section }
+  answers:          { cardinality: many, domain: concept }
+  escalates_to:     { cardinality: many, domain: concept }
+  affects_customer: { cardinality: many, domain: concept }
+  workaround:       { cardinality: one,  domain: concept }
+  resolved_by:      { cardinality: many, domain: concept }

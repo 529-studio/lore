@@ -1,0 +1,11 @@
+# Content team template: what a piece covers and who owns it.
+predicates:
+  title:          { cardinality: one,  domain: doc }
+  status:         { cardinality: one,  domain: concept }
+  has_section:    { cardinality: many, domain: doc }
+  section_title:  { cardinality: one,  domain: section }
+  covers_topic:   { cardinality: many, domain: doc }
+  owned_by:       { cardinality: many, domain: concept }
+  published_at:   { cardinality: one,  domain: doc }
+  references:     { cardinality: many, domain: doc }
+  targets_audience: { cardinality: many, domain: concept }

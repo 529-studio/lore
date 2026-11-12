@@ -570,4 +570,30 @@ REVIEW_DIR="$(mktemp -d)"
   node "$LORE_BIN" blame env:REVIEW_B | grep -q "retracted" || fail "review must reject the second draft"
 )
 
-echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge, identity, policy, machine, attest, entities, alias, rename, reject, review"
+# --- onboarding --------------------------------------------------------------
+ONBOARD_DIR="$(mktemp -d)"
+(
+  cd "$ONBOARD_DIR"
+  git init -q
+  git config user.email onboard@smoke
+  git config user.name onboard
+  printf '{"name":"onboard-app","dependencies":{"zod":"^4.0.0"}}\n' > package.json
+  mkdir -p src
+  printf 'const a = process.env.ONBOARD_FLAG;\n' > src/a.ts
+  node "$LORE_BIN" onboard --yes >/dev/null
+  grep -q "declared_dependency" lore.ontology.yml || fail "onboard must copy the code template"
+  node "$LORE_BIN" blame env:ONBOARD_FLAG | grep -q "read_by" || fail "onboard must ingest"
+)
+ONBOARD_DOCS="$(mktemp -d)"
+(
+  cd "$ONBOARD_DOCS"
+  git init -q
+  git config user.email onboard@smoke
+  git config user.name onboard
+  mkdir -p docs/adr
+  printf '# ADR-001: pick a database\n\nStatus: accepted\n' > docs/adr/ADR-001-db.md
+  node "$LORE_BIN" onboard --yes --template product >/dev/null
+  grep -q "decides" lore.ontology.yml || fail "onboard must honour --template"
+)
+
+echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge, identity, policy, machine, attest, entities, alias, rename, reject, review, onboard"
