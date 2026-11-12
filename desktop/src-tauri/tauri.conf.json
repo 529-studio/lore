@@ -14,15 +14,12 @@
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "app",
-      "dmg"
-    ],
+    "targets": "all",
     "icon": [
       "icons/icon.icns"
     ],
     "resources": {
-      "../stage/node": "node",
+      "../stage/runtime": "runtime",
       "../stage/app": "app"
     },
     "macOS": {

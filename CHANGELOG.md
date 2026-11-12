@@ -3,6 +3,13 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Windows x64 installer: the Desktop workflow builds an NSIS `.exe` on `windows-latest` and attaches
+  it to the release. Unsigned; SmartScreen instructions in `docs/desktop.md`.
+
 ## [0.4.0] — 2026-11-12
 
 ### Added

@@ -23,11 +23,15 @@ cpSync(
   { recursive: true },
 );
 
-// The Node runtime itself.
-const node = process.execPath;
-copyFileSync(node, path.join(STAGE, 'node'));
-chmodSync(path.join(STAGE, 'node'), 0o755);
+// The Node runtime itself. Windows needs the .exe suffix; the Rust shell looks
+// for the matching name at runtime.
+const runtime = path.join(STAGE, 'runtime');
+mkdirSync(runtime, { recursive: true });
+const nodeName = process.platform === 'win32' ? 'node.exe' : 'node';
+const nodeTarget = path.join(runtime, nodeName);
+copyFileSync(process.execPath, nodeTarget);
+if (process.platform !== 'win32') chmodSync(nodeTarget, 0o755);
 
 const mb = (file) => `${(statSync(file).size / 1024 / 1024).toFixed(0)} MB`;
 console.log(`staged ${STAGE}`);
-console.log(`  node ${mb(path.join(STAGE, 'node'))}`);
+console.log(`  ${nodeName} ${mb(nodeTarget)}`);
