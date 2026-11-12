@@ -103,7 +103,7 @@ npm i -g @529studio/lore
 npx @529studio/lore --version
 
 # B. release tarball (works today, no registry needed)
-curl -L -o lore.tgz https://github.com/529-studio/lore/releases/download/v0.1.3/529studio-lore-0.1.3.tgz
+curl -L -o lore.tgz https://github.com/529-studio/lore/releases/download/v0.3.0/529studio-lore-0.3.0.tgz
 npm i -g ./lore.tgz
 
 # C. from source

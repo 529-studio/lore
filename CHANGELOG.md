@@ -3,7 +3,7 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
-## [0.1.4] — 2026-11-12
+## [0.3.0] — 2026-11-12
 
 ### Added
 
@@ -16,27 +16,32 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 - `lore review`: readline review of draft claims (approve, reject with reason, skip, quit), with a
   non-interactive listing when stdin is empty. No dependency added.
 - `src/actions.ts`: approve, reject, revert and attest implemented once, with policy checks, and used
-  by the CLI (and later by the web UI and desktop shell). `lore reject` is the new command.
+  by the CLI, the web UI and the desktop shell. `lore reject` is the new command.
+- `lore ui`: local dashboard (health, claims, commits, review, undo, settings) served by `node:http`
+  with no framework and no new dependency. ADR-004 records the decision.
 - Dashboard demo GIF (`docs/assets/demo-gui.gif`) and `scripts/demo/record-gui.mjs` to regenerate it.
-- `lore ui`: read-only dashboard on localhost (health, claims, commits), served by `node:http` with no
-  framework and no new dependency. ADR-004 records the decision.
 - Non-code entities: sections (`doc:<path>#<slug>`), ADRs (`adr:<NNN>`) and local issues
   (`issue:local:<id>`), extracted from Markdown without a model.
 - `lore alias add/list/remove`: explicit, reviewed mapping from a human phrase to an entity; used by
   `blame` and `search`.
 - `lore rename <old> <new>`: moves entities and evidence after a file rename, keeps the old path as an
   alias, and records the move in `rename_audit`.
+
+## [0.2.0] — 2026-11-12
+
+### Added
+
+- Team identity and policy: `lore identity issue/show`, HMAC tokens signed with `LORE_TEAM_SECRET`,
+  OIDC email assertion from a trusted launcher, and `lore.policy.yml` enforced for approve, resolve,
+  redact, purge, promote and MCP `memory_approve`. The principal is recorded in the commit author and
+  `merge_decision.actor`.
+- `lore.policy.example.yml`.
 - Machine approvers: a policy tier without `*` gates auto-promotion, and `LORE_MACHINE=1` principals can
   approve only T0/T1.
 - `lore attest <claim> --verdict agree|disagree`: an independent review stored as a T2 claim, linked in
   `attestation`, with separation of duties (no self-attestation).
 - `lore digest [--days 7]`: claims added, conflicts resolved, attestations and disagreements, machine
   approvals, redactions, purges.
-- Team identity and policy: `lore identity issue/show`, HMAC tokens signed with `LORE_TEAM_SECRET`,
-  OIDC email assertion from a trusted launcher, and `lore.policy.yml` enforced for approve, resolve,
-  redact, purge, promote and MCP `memory_approve`. The principal is recorded in the commit author and
-  `merge_decision.actor`.
-- `lore.policy.example.yml`.
 - Postgres transport: `lore remote --postgres --env LORE_REMOTE_URL` stores the commit bundle in a
   `lore_bundles` table. Push takes a per-repository advisory lock and imports the remote first, so
   concurrent pushes cannot drop commits. `npm run pg:smoke` proves two stores, bidirectional sync and
@@ -53,10 +58,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
   scans files and staged diffs, `--install` adds a pre-commit hook, and `.loresecretignore` holds
   reviewed exceptions.
 - `docs/team-mode.md`: decision brief for the shared backend and permissions work (#15, #16).
-- Architecture decision records (`docs/adr/`) for storage, the MCP transport and the branch model,
-  plus four lessons from the second audit (L05–L08).
+
+## [0.1.4] — 2026-11-12
+
+### Added
+
 - Eval replays 20 distinct sessions per fixture, records wall time, invocations and token cost per
   session, and runs the fixture's own test suite before and after the revert. See `docs/eval.md`.
+- Architecture decision records (`docs/adr/`) for storage, the MCP transport and the branch model,
+  plus four lessons from the second audit (L05–L08).
 
 ## [0.1.3] — 2026-11-11
 
@@ -147,6 +157,8 @@ First public release.
 - Evidence paths are resolved with `realpath`, confined to the repository, restricted to regular
   files, and capped at 4 MB.
 
+[0.2.0]: https://github.com/529-studio/lore/releases/tag/v0.2.0
+[0.3.0]: https://github.com/529-studio/lore/releases/tag/v0.3.0
 [0.2.0]: https://github.com/529-studio/lore/releases/tag/v0.2.0
 [0.1.4]: https://github.com/529-studio/lore/releases/tag/v0.1.4
 [0.1.3]: https://github.com/529-studio/lore/releases/tag/v0.1.3
