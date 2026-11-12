@@ -49,10 +49,12 @@ function seed(dir, name) {
   writeFileSync(path.join(dir, 'src', 'app.ts'), 'const flag = process.env.PG_FLAG;\nexport default flag;\n');
 }
 
-function gitInit(dir) {
+function gitInit(dir, email) {
   spawnSync('git', ['init', '-q'], { cwd: dir });
-  spawnSync('git', ['config', 'user.email', 'pg@lore.local'], { cwd: dir });
-  spawnSync('git', ['config', 'user.name', 'pg'], { cwd: dir });
+  // Distinct authors keep the two repositories' commit ids different, so a claim
+  // observed at B's HEAD is genuinely "ahead of checkout" at A.
+  spawnSync('git', ['config', 'user.email', email], { cwd: dir });
+  spawnSync('git', ['config', 'user.name', email.split('@')[0]], { cwd: dir });
 }
 
 function commitAll(dir) {
@@ -63,7 +65,7 @@ function commitAll(dir) {
 // --- A: create and push ------------------------------------------------------
 const A = path.join(work, 'a');
 mkdirSync(A);
-gitInit(A);
+gitInit(A, 'a@pg.local');
 seed(A, 'pg-a');
 commitAll(A);
 run(A, ['init']);
@@ -75,7 +77,7 @@ run(A, ['push']);
 // --- B: independent store, same repository identity --------------------------
 const B = path.join(work, 'b');
 mkdirSync(B);
-gitInit(B);
+gitInit(B, 'b@pg.local');
 seed(B, 'pg-a');
 commitAll(B);
 mkdirSync(path.join(B, '.lore'));
@@ -90,6 +92,7 @@ if (!bHits.some((h) => h.subject === 'env:PG_FLAG')) fail('B did not receive A c
 
 // --- B pushes a new fact, A fetches it ---------------------------------------
 writeFileSync(path.join(B, 'src', 'b.ts'), 'const b = process.env.FROM_B;\n');
+commitAll(B);
 run(B, ['ingest']);
 run(B, ['promote']);
 run(B, ['push']);
@@ -101,9 +104,11 @@ if (!(JSON.parse(aSearch).hits ?? []).some((h) => h.subject === 'env:FROM_B')) {
 
 // --- concurrent pushes under the advisory lock -------------------------------
 writeFileSync(path.join(A, 'src', 'a2.ts'), 'const a2 = process.env.FROM_A2;\n');
+commitAll(A);
 run(A, ['ingest']);
 run(A, ['promote']);
 writeFileSync(path.join(B, 'src', 'b2.ts'), 'const b2 = process.env.FROM_B2;\n');
+commitAll(B);
 run(B, ['ingest']);
 run(B, ['promote']);
 
