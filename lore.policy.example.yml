@@ -2,11 +2,13 @@
 roles:
   maintainers: [alice@example.com, bob@example.com]
   contributors: ["*"]
+  machines: ["*"]      # CI principals with LORE_MACHINE=1, limited to T0/T1
+  auditors: [carol@example.com]
 
 # Agent inference (T4) and human chat (T3) need a maintainer; T0/T1 are evidence-backed.
 approve:
   t0: ["*"]
-  t1: ["*"]
+  t1: [machines]      # a gated tier: claims stay draft until a machine or maintainer approves
   t3: [maintainers]
   t4: [maintainers]
 
@@ -17,6 +19,7 @@ resolve:
 redact: [maintainers]
 purge: [maintainers]
 promote: [maintainers]
+attest: [auditors]
 
 protected:
   "sym:src/auth/*": [maintainers]

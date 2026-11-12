@@ -5,6 +5,7 @@ import { activeAt, head, makeCommit, upsertClaim } from '../model.js';
 import { hashCache } from '../hash-cache.js';
 import { SecretDetected } from '../secrets.js';
 import { gitHead } from '../util/git.js';
+import { gateTier } from '../policy.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
 
 function evidenceRef(c: Candidate): string {
@@ -32,6 +33,7 @@ export function ingestCommand(opts: { author?: string; session?: string; dryRun?
   const apply = db.transaction(() => {
     const present = activeAt(db, head(db, ref) ?? head(db, 'main'));
     const cache = hashCache(db, root);
+    const gated = gateTier(root, 1);
     const inserted: string[] = [];
     const byPredicate = new Map<string, number>();
     const blocked: Array<{ subject: string; detail: string }> = [];
@@ -47,6 +49,7 @@ export function ingestCommand(opts: { author?: string; session?: string; dryRun?
         confidence: c.confidence,
         author: opts.author ?? 'lore:ingest',
           evidence: [{ kind: 'file', ref: evRef, hash: cache.hash(evRef), commit: gitHead(root) }],
+          forceDraft: gated,
         });
       } catch (error) {
         if (error instanceof SecretDetected) {

@@ -7,6 +7,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 
 ### Added
 
+- Machine approvers: a policy tier without `*` gates auto-promotion, and `LORE_MACHINE=1` principals can
+  approve only T0/T1.
+- `lore attest <claim> --verdict agree|disagree`: an independent review stored as a T2 claim, linked in
+  `attestation`, with separation of duties (no self-attestation).
+- `lore digest [--days 7]`: claims added, conflicts resolved, attestations and disagreements, machine
+  approvals, redactions, purges.
 - Team identity and policy: `lore identity issue/show`, HMAC tokens signed with `LORE_TEAM_SECRET`,
   OIDC email assertion from a trusted launcher, and `lore.policy.yml` enforced for approve, resolve,
   redact, purge, promote and MCP `memory_approve`. The principal is recorded in the commit author and
