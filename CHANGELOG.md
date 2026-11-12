@@ -7,6 +7,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 
 ### Added
 
+- `lore redact` replaces a claim object with `[redacted]`, keeps the id and records an audit row;
+  `lore purge --yes` removes the row and its evidence, leaving an audit entry. Redacted claims cannot
+  be resurrected by a later write or a merge.
 - Team sync without a git host: repository identity in `.lore/config.json`, `lore remote <dir>`,
   `lore fetch`/`push`, and `lore bundle export/import` for air-gapped sharing.
 - Freshness is now two axes: a claim observed on newer code than the checkout is reported as

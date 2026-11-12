@@ -101,6 +101,21 @@ CREATE TABLE IF NOT EXISTS file_hash (
   checked_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS redaction (
+  claim_id      TEXT PRIMARY KEY,
+  original_hash TEXT NOT NULL,
+  actor         TEXT NOT NULL,
+  reason        TEXT,
+  ts            TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS purge_audit (
+  claim_id TEXT PRIMARY KEY,
+  actor    TEXT NOT NULL,
+  reason   TEXT,
+  ts       TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS session (
   id           TEXT PRIMARY KEY,
   started_at   TEXT NOT NULL,

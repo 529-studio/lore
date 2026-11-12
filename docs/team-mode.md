@@ -92,7 +92,8 @@ Sampling plus a rollback button is the control; per-claim review does not scale.
 
 ## Redact and purge
 
-Nothing is hard-deleted today. Team mode needs three distinct operations:
+Three distinct operations exist; the first two are implemented, purge is implemented with a single
+confirmation and will require two approvals once auth lands:
 
 | Operation | Effect | Who |
 |---|---|---|

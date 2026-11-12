@@ -33,8 +33,9 @@ Five symptoms, in order of severity:
 ## 3. Invariants
 
 1. **Claims are immutable.** Editing means a new claim plus a commit. Content is never UPDATEd.
-2. **Nothing is hard-deleted.** Retract, supersede and GC change state; rows remain. Audit must answer
-   "what did the agent believe in September".
+2. **Nothing is hard-deleted by default.** Retract, supersede and GC change state; rows remain. Two
+   explicit exceptions exist for PII and leaked secrets: `redact` removes the object while keeping the
+   id and an audit row, and `purge` removes the row and its evidence while keeping an audit entry.
 3. **Every claim has evidence.** A claim without evidence may exist only as a `draft`, and drafts are
    retracted by GC.
 4. **Conflicts are never guessed.** Resolution follows a deterministic ladder (§7); when no rule
@@ -353,6 +354,7 @@ No LLM judge. Outcome metrics on real repositories:
 | R4 "unless the retract is stale" | approximated by the survivor's tier (> T2 blocks deletion) | no per-side stale flag at that step yet |
 | `tree_hash = (claim_id, state)` | `(claim_id, op)` | op is what the fold actually uses |
 | `verify` updates the hash | does not rewrite it | avoid blessing drift; `ingest` is the re-observation path |
+| purge exists as an audited exception | `lore purge --yes` deletes the row; `purge_audit` keeps id/actor/reason | PII and leaked secrets must be removable |
 | no team sync | `lore remote` + `fetch`/`push` over a shared directory, `bundle` for air gaps | internal and air-gapped repositories cannot depend on a git host |
 | `--as-of` reads the commit at that instant | folds the whole ancestry, skipping commits after the instant | a single commit chain hides facts on sibling branches before a merge |
 | hash cache keyed by content | keyed by size, mtime and ctime | mtime can be restored; ctime changes on any inode write |

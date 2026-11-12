@@ -423,4 +423,24 @@ expect_contains "$(lore blame file:src/ahead.ts)" "ahead-of-checkout"
 git checkout -q "$BRANCH_NAME"
 expect_contains "$(lore search entrypoint --files src/ahead.ts)" "file:src/ahead.ts"
 
-echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness"
+# --- redact and purge --------------------------------------------------------
+REDACT_ID="$(lore write --subject env:REDACT --predicate read_by --object README.md --kind file --ref README.md | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+lore redact "$REDACT_ID" --reason "smoke redaction" >/dev/null
+expect_contains "$(lore blame env:REDACT)" "redacted"
+expect_contains "$(lore blame env:REDACT)" "smoke redaction"
+expect_not_contains "$(lore search REDACT --files README.md --include-stale)" "env:REDACT"
+expect_not_contains "$(lore export --md)" "env:REDACT"
+# a later write of the same fact must not resurrect it
+LORE_SESSION=res lore write --subject env:REDACT --predicate read_by --object README.md --kind file --ref README.md >/dev/null
+expect_not_contains "$(LORE_SESSION=res lore search REDACT --files README.md --include-stale)" "env:REDACT"
+
+PURGE_ID="$(lore write --subject env:PURGE --predicate read_by --object README.md --kind file --ref README.md | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+set +e
+lore purge "$PURGE_ID" --reason "no confirmation" >/dev/null 2>&1
+PURGE_NO_CONFIRM=$?
+set -e
+[ "$PURGE_NO_CONFIRM" -ne 0 ] || fail "purge must require --yes"
+lore purge "$PURGE_ID" --reason "smoke purge" --yes >/dev/null
+expect_contains "$(lore blame env:PURGE)" "no claims"
+
+echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge"

@@ -201,6 +201,8 @@ lore guard [--staged]         scan for secrets before they enter a claim or a co
 lore remote <dir>             point fetch/push at a shared directory (no git host needed)
 lore fetch | push             exchange commits with that directory
 lore bundle export|import     air-gapped exchange of the missing commits
+lore redact <claim>           replace the object with [redacted], keep id and audit
+lore purge <claim> --yes      remove the row permanently, keep an audit entry
 lore gc [--ttl-sessions 3]     retract drafts nobody reviewed (rows are never deleted)
 lore export --md               deterministic projection; stale claims under Needs verification
 lore supersede <claim>         replace a claim, keeping the old version in history
