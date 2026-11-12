@@ -31,6 +31,11 @@ function migrate(db: DB): void {
   if (!hashCols.some((c) => c.name === 'ctime_ns')) {
     db.exec("ALTER TABLE file_hash ADD COLUMN ctime_ns TEXT NOT NULL DEFAULT ''");
   }
+
+  const evCols = db.prepare('PRAGMA table_info(evidence)').all() as Array<{ name: string }>;
+  if (!evCols.some((c) => c.name === 'commit_id')) {
+    db.exec('ALTER TABLE evidence ADD COLUMN commit_id TEXT');
+  }
 }
 
 export function openDb(root: string): DB {

@@ -3,6 +3,7 @@ import path from 'node:path';
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { hashCache } from '../hash-cache.js';
+import { gitHead } from '../util/git.js';
 import { inBranch, makeCommit, supersedeClaim, type EvidenceKind } from '../model.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
 
@@ -34,7 +35,7 @@ export function supersedeCommand(opts: SupersedeOptions): void {
       object: opts.object,
       confidence: opts.confidence ? Number(opts.confidence) : undefined,
       author: opts.author ?? 'human:cli',
-      evidence: [{ kind: opts.kind, ref: evidenceRef, hash }],
+      evidence: [{ kind: opts.kind, ref: evidenceRef, hash, commit: gitHead(root) }],
     });
 
     if (result.state === 'active' && !inBranch(db, ref, result.newId)) {

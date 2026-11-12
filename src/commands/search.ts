@@ -12,6 +12,7 @@ export interface SearchCommandOptions {
   includeStale?: boolean;
   asOf?: string;
   noCache?: boolean;
+  trustRemote?: boolean;
   json?: boolean;
 }
 
@@ -34,6 +35,7 @@ export function searchCommand(opts: SearchCommandOptions): void {
     budgetTokens: opts.budget ? Number(opts.budget) : undefined,
     includeStale: opts.includeStale,
     asOf: opts.asOf,
+    trustRemote: opts.trustRemote,
   });
 
   if (opts.json) {

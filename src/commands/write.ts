@@ -2,6 +2,7 @@ import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { inBranch, makeCommit, upsertClaim, type EvidenceKind } from '../model.js';
 import { hashCache } from '../hash-cache.js';
+import { gitHead } from '../util/git.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
 
 export interface WriteOptions {
@@ -41,7 +42,7 @@ export function writeCommand(opts: WriteOptions): void {
       confidence: opts.confidence ? Number(opts.confidence) : undefined,
       author: opts.author ?? 'human:cli',
       validFrom: opts.validFrom,
-      evidence: [{ kind: opts.kind, ref: evidenceRef, hash }],
+      evidence: [{ kind: opts.kind, ref: evidenceRef, hash, commit: gitHead(root) }],
     });
 
     // Drafts never enter the active set, so they are not committed at all.

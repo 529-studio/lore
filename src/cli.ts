@@ -7,6 +7,10 @@ import { blameCommand } from './commands/blame.js';
 import { diffCommand } from './commands/diff.js';
 import { gcCommand } from './commands/gc.js';
 import { guardCommand } from './commands/guard.js';
+import { bundleCommand } from './commands/bundle.js';
+import { fetchCommand } from './commands/fetch.js';
+import { pushCommand } from './commands/push.js';
+import { remoteCommand } from './commands/remote.js';
 import { exportCommand } from './commands/export.js';
 import { ingestCommand } from './commands/ingest.js';
 import { initCommand } from './commands/init.js';
@@ -171,6 +175,36 @@ program
   );
 
 program
+  .command('remote [path]')
+  .description('configure a shared directory for fetch/push (no git host required)')
+  .option('--show', 'print the current remote')
+  .action((path, opts) => remoteCommand({ path, show: opts.show }));
+
+program
+  .command('fetch')
+  .description('import commits from the shared directory')
+  .option('--path <dir>', 'override the configured remote')
+  .option('--author <id>')
+  .action((opts) => fetchCommand({ path: opts.path, author: opts.author }));
+
+program
+  .command('push')
+  .description('merge the remote first, then publish main to the shared directory')
+  .option('--path <dir>', 'override the configured remote')
+  .option('--author <id>')
+  .action((opts) => pushCommand({ path: opts.path, author: opts.author }));
+
+program
+  .command('bundle <action> [file]')
+  .description('export or import a signed-by-absence bundle for air-gapped sharing')
+  .option('--out <file>', 'output file for bundle export')
+  .option('--force', 'import a bundle from a different repository id')
+  .option('--author <id>')
+  .action((action, file, opts) =>
+    bundleCommand({ action, file: opts.out ?? file, force: opts.force, author: opts.author }),
+  );
+
+program
   .command('guard')
   .description('scan for secrets before they enter a claim or a commit')
   .option('--staged', 'scan the staged diff (used by the pre-commit hook)')
@@ -231,6 +265,7 @@ program
   .option('--include-stale', 'keep stale claims')
   .option('--as-of <iso>', 'read memory as it was known and valid at this instant')
   .option('--no-cache', 'bypass the hash cache')
+  .option('--trust-remote', 'include claims observed on newer code than this checkout')
   .option('--json', 'machine-readable JSON')
   .action((query, opts) =>
     searchCommand({
@@ -241,6 +276,7 @@ program
       includeStale: opts.includeStale,
       asOf: opts.asOf,
       noCache: opts.cache === false,
+      trustRemote: opts.trustRemote,
       json: opts.json,
     }),
   );
