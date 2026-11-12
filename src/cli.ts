@@ -11,6 +11,7 @@ import { identityCommand } from './commands/identity.js';
 import { uiCommand } from './commands/ui.js';
 import { attestCommand } from './commands/attest.js';
 import { rejectCommand } from './commands/reject.js';
+import { reviewCommand } from './commands/review.js';
 import { aliasCommand } from './commands/alias.js';
 import { renameCommand } from './commands/rename.js';
 import { digestCommand } from './commands/digest.js';
@@ -219,6 +220,14 @@ program
   .action((oldPath, newPath, opts) =>
     renameCommand({ old: oldPath, new: newPath, author: opts.author, session: opts.session }),
   );
+
+program
+  .command('review')
+  .description('review draft claims one by one: approve, reject, skip')
+  .option('--all', 'approve every draft after one confirmation')
+  .option('--session <id>')
+  .option('--limit <n>', 'maximum drafts to show', '100')
+  .action((opts) => reviewCommand({ all: opts.all, session: opts.session, limit: opts.limit }));
 
 program
   .command('reject <claim>')

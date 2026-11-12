@@ -552,4 +552,22 @@ lore reject "$REJECT_ID" --reason "not true" >/dev/null
 expect_contains "$(lore blame env:REJECT)" "retracted"
 expect_not_contains "$(lore search REJECT --files README.md --include-stale)" "env:REJECT"
 
-echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge, identity, policy, machine, attest, entities, alias, rename, reject"
+# --- review (readline) -------------------------------------------------------
+REVIEW_DIR="$(mktemp -d)"
+(
+  cd "$REVIEW_DIR"
+  git init -q
+  git config user.email review@smoke
+  git config user.name review
+  printf '{"name":"review-app"}\n' > package.json
+  node "$LORE_BIN" init >/dev/null
+  node "$LORE_BIN" ingest >/dev/null
+  node "$LORE_BIN" write --subject env:REVIEW_A --predicate read_by --object package.json --kind agent --author agent:review >/dev/null
+  node "$LORE_BIN" write --subject env:REVIEW_B --predicate read_by --object package.json --kind agent --author agent:review >/dev/null
+  printf '' | node "$LORE_BIN" review | grep -q "draft(s)" || fail "review with empty stdin must list drafts"
+  printf 'a\nr\nnot true\n' | node "$LORE_BIN" review >/dev/null
+  node "$LORE_BIN" blame env:REVIEW_A | grep -q "active" || fail "review must approve the first draft"
+  node "$LORE_BIN" blame env:REVIEW_B | grep -q "retracted" || fail "review must reject the second draft"
+)
+
+echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge, identity, policy, machine, attest, entities, alias, rename, reject, review"
