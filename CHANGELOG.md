@@ -3,13 +3,6 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
-## [Unreleased]
-
-### Added
-
-- Windows x64 installer: the Desktop workflow builds an NSIS `.exe` on `windows-latest` and attaches
-  it to the release. Unsigned; SmartScreen instructions in `docs/desktop.md`.
-
 ## [0.4.0] — 2026-11-12
 
 ### Added
@@ -17,6 +10,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 - `lore onboard`: detects the stack, copies a starter ontology (`code`, `product`, `content`,
   `support`), runs the first ingest and prints the agent-connection and dashboard commands.
 - `templates/` with four starter ontologies, shipped in the npm package.
+- Windows x64 installer: the Desktop workflow builds an NSIS `.exe` on `windows-2022` and attaches it
+  to the release (`Lore_0.4.0_x64-setup.exe`). Unsigned; SmartScreen instructions in
+  `docs/desktop.md`. Not yet launched on a real Windows machine.
 
 ## [0.3.0] — 2026-11-12
 

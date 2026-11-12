@@ -65,7 +65,8 @@ the app exits. Writes from the window go through the dashboard's CSRF token and 
 
 ## Windows
 
-CI builds an **x64 NSIS installer** on `windows-latest` and attaches it to the release. To build
+CI builds an **x64 NSIS installer** on `windows-2022` and attaches it to the release
+(`Lore_0.4.0_x64-setup.exe`, ~30 MB). To build
 locally on Windows you need Rust, the Visual Studio C++ build tools and WebView2 (present on Windows 11).
 
 ```powershell
