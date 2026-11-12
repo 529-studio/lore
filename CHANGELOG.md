@@ -7,6 +7,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 
 ### Added
 
+- macOS desktop app: Tauri v2 shell that bundles the Node runtime, the CLI and better-sqlite3, so the
+  `.dmg` installs offline with no Node dependency. Ad-hoc signed; Gatekeeper instructions in
+  `docs/desktop.md`. Built by `desktop/` and the `Desktop` workflow on tags.
 - Dashboard write UI: Review (approve/reject drafts, approve all), Undo (revert a commit with
   confirmation) and Settings (identity, policy, remote), with a CSRF token and Origin check on every
   write. All actions go through `src/actions.ts`.

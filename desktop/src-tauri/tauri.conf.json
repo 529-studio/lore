@@ -1,0 +1,32 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Lore",
+  "version": "0.3.0",
+  "identifier": "site.529studio.lore",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "icon": [
+      "icons/icon.icns"
+    ],
+    "resources": {
+      "../stage/node": "node",
+      "../stage/app": "app"
+    },
+    "macOS": {
+      "signingIdentity": "-"
+    }
+  }
+}

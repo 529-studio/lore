@@ -1,6 +1,6 @@
 # ADR-005: Desktop shell — Tauri with a Node sidecar, macOS first
 
-Status: accepted · 2026-11-12 · implements #21
+Status: accepted · 2026-11-12 · implemented in #66 (macOS)
 
 ## Context
 
