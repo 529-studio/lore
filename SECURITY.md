@@ -20,6 +20,22 @@ You will get an acknowledgement within 72 hours and a fix or a mitigation plan w
 - Leaking memory content to an unintended MCP client or process.
 - Authentication/authorization bypass in `approve`, `resolve`, or `promote` (once auth exists).
 
+## Secret firewall
+
+An agent that can read a secret can write it. Lore therefore treats every write as an exfiltration
+path:
+
+- `upsertClaim` scans the subject, predicate and object. A match is rejected and never stored; the CLI
+  and MCP return an error with the value masked.
+- `lore ingest` skips blocked candidates, reports them masked, and exits non-zero.
+- `lore guard [--staged] [--path <dir>]` scans files or the staged diff and exits 1 on a finding.
+- `lore guard --install` adds a pre-commit hook that runs `lore guard --staged`.
+- `.loresecretignore` holds regexes for justified false positives. It is a last resort, reviewed like
+  code.
+
+This is a gate, not a guarantee: provider patterns and entropy checks have false negatives. Assume a
+secret can leak, keep credentials short-lived and scoped, and rotate.
+
 ## Hardening already in place
 
 - `hashFile` resolves real paths, rejects anything outside the repository, rejects non-regular files,

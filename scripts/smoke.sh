@@ -345,4 +345,45 @@ ln -sf "$OUTSIDE" src/outside.ts
 expect_not_contains "$(lore ingest --dry-run)" "src/outside.ts"
 rm -f src/outside.ts
 
-echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2"
+# --- secret firewall ---------------------------------------------------------
+# Build the fake credentials at runtime so the public-safety scanner does not
+# flag this test file itself.
+FAKE_GH="ghp_$(printf 'abcdefghijklmnopqrstuvwxyz123456')"
+FAKE_AWS="AKIA$(printf 'ABCDEFGHIJKLMNOP')"
+
+set +e
+lore write --subject env:LEAK --predicate read_by --object "$FAKE_GH" --kind human >/dev/null 2>&1
+LEAK_CODE=$?
+set -e
+[ "$LEAK_CODE" -ne 0 ] || fail "a claim containing a token must be rejected"
+expect_contains "$(lore blame env:LEAK)" "no claims"
+
+printf 'const key = "%s";\n' "$FAKE_AWS" > leak.js
+git add leak.js
+set +e
+lore guard --staged >/dev/null 2>&1
+GUARD_BAD=$?
+set -e
+[ "$GUARD_BAD" -eq 1 ] || fail "guard must exit 1 on a staged secret"
+git rm --cached -q leak.js
+rm -f leak.js
+lore guard --staged >/dev/null 2>&1 || fail "guard must pass on a clean staged tree"
+
+cp package.json package.json.bak
+LEAKY="$FAKE_GH" python3 - <<'PYC'
+import json, os
+path = 'package.json'
+data = json.load(open(path))
+data.setdefault('dependencies', {})['leaky'] = os.environ['LEAKY']
+json.dump(data, open(path, 'w'), indent=2)
+PYC
+set +e
+lore ingest >/dev/null 2>&1
+INGEST_SECRET=$?
+set -e
+[ "$INGEST_SECRET" -ne 0 ] || fail "ingest must exit non-zero when a candidate contains a secret"
+expect_contains "$(lore blame pkg:leaky)" "no claims"
+cp package.json.bak package.json
+lore ingest >/dev/null
+
+echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall"

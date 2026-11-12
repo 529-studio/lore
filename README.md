@@ -197,6 +197,7 @@ lore resolve <subject> <pred>  record a human decision for one conflict
 lore promote                   merge the current branch into main
 lore revert <commit>           inverse commit, history preserved
 lore verify <claim> | --all    re-hash evidence; --accept stores a legitimate change
+lore guard [--staged]         scan for secrets before they enter a claim or a commit
 lore gc [--ttl-sessions 3]     retract drafts nobody reviewed (rows are never deleted)
 lore export --md               deterministic projection; stale claims under Needs verification
 lore supersede <claim>         replace a claim, keeping the old version in history
