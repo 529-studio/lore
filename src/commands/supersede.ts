@@ -35,6 +35,7 @@ export function supersedeCommand(opts: SupersedeOptions): void {
       object: opts.object,
       confidence: opts.confidence ? Number(opts.confidence) : undefined,
       author: opts.author ?? 'human:cli',
+      sessionId: session,
       evidence: [{ kind: opts.kind, ref: evidenceRef, hash, commit: gitHead(root) }],
     });
 

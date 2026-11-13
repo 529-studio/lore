@@ -90,7 +90,11 @@ authority:   0                      # 0..4, see §7
 confidence:  0.9
 author:      agent:codex/ses_01J...
 supersedes:  c_7a1b...
-state:       active                 # draft | active | retracted
+state:       active                 # draft | active | retracted (branch membership, Lore)
+trust:       canonical              # canonical | candidate | contested | stale | retracted (Canon)
+last_verified_at: 2026-11-10T03:11Z  # newest observation; TTL and decay read this
+written_by:  agent                  # agent | human | legacy (backfilled)
+session_id:  ses_01J...
 evidence:
   - kind: test
     ref:  tests/refund.test.ts#L42
@@ -140,13 +144,28 @@ CREATE TABLE claim (
   confidence  REAL NOT NULL,
   author      TEXT NOT NULL,
   supersedes  TEXT REFERENCES claim(id),
-  state       TEXT NOT NULL DEFAULT 'draft' CHECK (state IN ('draft','active','retracted'))
+  state       TEXT NOT NULL DEFAULT 'draft' CHECK (state IN ('draft','active','retracted')),
+
+  -- Canon trust axis, separate from branch membership.
+  trust          TEXT NOT NULL DEFAULT 'candidate'
+                 CHECK (trust IN ('canonical','candidate','contested','stale','retracted')),
+  ttl_days       INTEGER,
+  last_verified_at TEXT,
+  confirmations  INTEGER NOT NULL DEFAULT 0,
+  contradictions INTEGER NOT NULL DEFAULT 0,
+  invalidated_by_json TEXT,
+  written_by     TEXT NOT NULL DEFAULT 'legacy',
+  agent_id       TEXT,
+  session_id     TEXT,
+  run_id         TEXT,
+  tags_json      TEXT NOT NULL DEFAULT '[]'
 );
 CREATE INDEX claim_key ON claim(subject_id, predicate);
 
 CREATE TABLE evidence (
   claim_id TEXT NOT NULL REFERENCES claim(id),
   kind TEXT NOT NULL, ref TEXT NOT NULL, hash TEXT,
+  commit_id TEXT,
   verified_at TEXT, status TEXT NOT NULL DEFAULT 'valid',
   PRIMARY KEY (claim_id, kind, ref)
 );
@@ -365,6 +384,7 @@ No LLM judge. Outcome metrics on real repositories:
 | no machine approver | policy tiers without `*` gate promotion; `LORE_MACHINE=1` may approve T0/T1 only | automation needs a gate that is not a human |
 | no attestation | `lore attest` writes a T2 claim linked in `attestation`; no self-attestation | independent review must be attributable |
 | no identity | local OS user; team mode uses HMAC tokens or an asserted OIDC email, enforced by `lore.policy.yml` | actions that grant trust must be attributable |
+| one state axis | `state` stays branch membership; `trust` (canonical/candidate/contested/stale/retracted) is a second column, backfilled once by evidence hash or commit | shared memory needs a trust signal that is not branch-local |
 | no team sync | `lore remote` + `fetch`/`push` over a shared directory or Postgres, `bundle` for air gaps | internal and air-gapped repositories cannot depend on a git host |
 | `--as-of` reads the commit at that instant | folds the whole ancestry, skipping commits after the instant | a single commit chain hides facts on sibling branches before a merge |
 | hash cache keyed by content | keyed by size, mtime and ctime | mtime can be restored; ctime changes on any inode write |
@@ -377,6 +397,9 @@ No LLM judge. Outcome metrics on real repositories:
 - **Claim** — a sourced assertion: "refundOrder requires an idempotency key".
 - **Evidence** — the observation backing a claim, with a hash to detect drift.
 - **Authority tier** — source trust level, T0 (test) to T4 (inference).
+- **Trust** — Canon's independent axis: `canonical` may be injected, `candidate` waits for evidence
+  or approval, `contested` has a competing value, `stale` failed TTL or drift, `retracted` was
+  rejected. Branch membership (`state`) is set by Lore; trust is set by Canon.
 - **Stale** — the thing a claim points at changed since it was observed.
 - **Merge base** — lowest common ancestor, used for the 3-way merge.
 - **Fact key** — the unit merge compares: `(subject, predicate)` or the triple for many-valued predicates.

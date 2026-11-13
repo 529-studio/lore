@@ -32,14 +32,62 @@ function migrate(db: DB): void {
     db.exec("ALTER TABLE file_hash ADD COLUMN ctime_ns TEXT NOT NULL DEFAULT ''");
   }
 
-  const decisionCols = db.prepare('PRAGMA table_info(merge_decision)').all() as Array<{ name: string }>;
-  if (!decisionCols.some((c) => c.name === 'actor')) {
-    db.exec('ALTER TABLE merge_decision ADD COLUMN actor TEXT');
-  }
-
+  // Backfill reads evidence.commit_id, so the evidence column must exist first.
   const evCols = db.prepare('PRAGMA table_info(evidence)').all() as Array<{ name: string }>;
   if (!evCols.some((c) => c.name === 'commit_id')) {
     db.exec('ALTER TABLE evidence ADD COLUMN commit_id TEXT');
+  }
+
+  const claimCols = db.prepare('PRAGMA table_info(claim)').all() as Array<{ name: string }>;
+  const claimAdditions: Array<[string, string]> = [
+    ['trust', "TEXT NOT NULL DEFAULT 'candidate'"],
+    ['ttl_days', 'INTEGER'],
+    ['last_verified_at', 'TEXT'],
+    ['confirmations', 'INTEGER NOT NULL DEFAULT 0'],
+    ['contradictions', 'INTEGER NOT NULL DEFAULT 0'],
+    ['invalidated_by_json', 'TEXT'],
+    ['written_by', "TEXT NOT NULL DEFAULT 'legacy'"],
+    ['agent_id', 'TEXT'],
+    ['session_id', 'TEXT'],
+    ['run_id', 'TEXT'],
+    ['tags_json', "TEXT NOT NULL DEFAULT '[]'"],
+  ];
+  for (const [name, type] of claimAdditions) {
+    if (!claimCols.some((c) => c.name === name)) {
+      db.exec(`ALTER TABLE claim ADD COLUMN ${name} ${type}`);
+    }
+  }
+
+  const backfilled = db.prepare("SELECT value FROM meta WHERE key = 'canon_backfill_v1'").get();
+  if (!backfilled) {
+    db.exec(`
+      UPDATE claim SET trust = CASE
+        WHEN state = 'retracted' THEN 'retracted'
+        WHEN state = 'draft' THEN 'candidate'
+        WHEN EXISTS (
+          SELECT 1 FROM evidence e
+          WHERE e.claim_id = claim.id AND (e.hash IS NOT NULL OR e.commit_id IS NOT NULL)
+        ) THEN 'canonical'
+        ELSE 'candidate'
+      END;
+      UPDATE claim SET written_by = CASE
+        WHEN author LIKE 'agent:%' THEN 'agent'
+        WHEN author LIKE 'human:%' THEN 'human'
+        ELSE 'legacy'
+      END;
+      UPDATE claim SET last_verified_at = COALESCE(
+        (SELECT MAX(e.verified_at) FROM evidence e WHERE e.claim_id = claim.id),
+        tx_from
+      );
+    `);
+    db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES ('canon_backfill_v1', ?)").run(
+      new Date().toISOString(),
+    );
+  }
+
+  const decisionCols = db.prepare('PRAGMA table_info(merge_decision)').all() as Array<{ name: string }>;
+  if (!decisionCols.some((c) => c.name === 'actor')) {
+    db.exec('ALTER TABLE merge_decision ADD COLUMN actor TEXT');
   }
 }
 

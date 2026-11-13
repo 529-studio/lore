@@ -200,6 +200,9 @@ function toolWrite(args: WriteArgs): ToolResult {
         // Never writes to `main` — the commit always lands on agent/<session>.
         evidence: [{ kind, ref: evidenceRef, hash, commit: gitHead(ctx.root) }],
         forceDraft: gateTier(ctx.root, authorityOf(kind)),
+        writtenBy: 'agent',
+        agentId: 'mcp',
+        sessionId: ctx.session,
       });
 
       // Drafts never enter the active set; a claim missing from this branch still needs an entry.
@@ -392,8 +395,12 @@ function toolApprove(args: ApproveArgs): ToolResult {
     const principal = requireAction(ctx.root, 'approve', { tier: Math.max(...tiers) });
 
     ctx.db.transaction(() => {
-      const update = ctx.db.prepare("UPDATE claim SET state = 'active', authority = MIN(authority, 2) WHERE id = ?");
-      for (const t of targets) update.run(t.id);
+      const now = new Date().toISOString();
+      const update = ctx.db.prepare(
+        `UPDATE claim SET state = 'active', authority = MIN(authority, 2),
+                          trust = 'canonical', last_verified_at = ? WHERE id = ?`,
+      );
+      for (const t of targets) update.run(now, t.id);
       makeCommit(ctx.db, {
         ref: ctx.branch,
         entries: targets.map((t) => ({ claim_id: t.id, op: 'add' as const })),

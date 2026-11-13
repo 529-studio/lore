@@ -32,7 +32,10 @@ export function redactCommand(opts: RedactOptions): void {
   const now = new Date().toISOString();
 
   const apply = db.transaction(() => {
-    db.prepare("UPDATE claim SET object_json = ?, state = 'retracted' WHERE id = ?").run(REDACTED, opts.claim);
+    db.prepare("UPDATE claim SET object_json = ?, state = 'retracted', trust = 'retracted' WHERE id = ?").run(
+      REDACTED,
+      opts.claim,
+    );
     db.prepare(
       'INSERT INTO redaction(claim_id, original_hash, actor, reason, ts) VALUES (?, ?, ?, ?, ?)',
     ).run(opts.claim, originalHash, actor, opts.reason ?? null, now);

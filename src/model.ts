@@ -27,7 +27,14 @@ export interface WriteInput {
   forceActive?: boolean;
   /** Keep an otherwise auto-promoted claim as a draft (policy gate). */
   forceDraft?: boolean;
+  ttlDays?: number | null;
+  writtenBy?: 'agent' | 'human' | 'legacy';
+  agentId?: string | null;
+  sessionId?: string | null;
+  runId?: string | null;
 }
+
+export type Trust = 'canonical' | 'candidate' | 'contested' | 'stale' | 'retracted';
 
 export interface UpsertResult {
   id: string;
@@ -101,18 +108,28 @@ export function upsertClaim(db: DB, input: WriteInput): UpsertResult {
     | undefined;
 
   // A file/test claim without a hash was never actually observed; it must not
-  // enter retrieval (SPEC §6).
-  const verifiable = input.evidence.every((e) =>
-    e.kind === 'file' || e.kind === 'test' ? Boolean(e.hash) : true,
-  );
+  // enter retrieval (SPEC §6). A claim without any evidence is never canonical.
+  const verifiable =
+    input.evidence.length > 0 &&
+    input.evidence.every((e) => (e.kind === 'file' || e.kind === 'test' ? Boolean(e.hash) : true));
   const autoActive = authority <= 1 && verifiable;
   const state: ClaimState = input.forceActive || (autoActive && !input.forceDraft) ? 'active' : 'draft';
+
+  const author = input.author ?? 'human:cli';
+  const writtenBy =
+    input.writtenBy ?? (author.startsWith('agent:') ? 'agent' : author.startsWith('human:') ? 'human' : 'legacy');
+  const agentId =
+    input.agentId ?? (author.startsWith('agent:') ? author.slice('agent:'.length).split('/')[0] : null);
+  // Trust is orthogonal to branch membership: only an active, actually observed
+  // claim is canonical. A forced-active claim with unhashable evidence stays a candidate.
+  const trust: Trust = state === 'active' && verifiable ? 'canonical' : 'candidate';
 
   if (!existing) {
     db.prepare(
       `INSERT INTO claim(id, subject_id, predicate, object_json, valid_from, valid_to, tx_from,
-                         authority, confidence, author, supersedes, state)
-       VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
+                         authority, confidence, author, supersedes, state,
+                         trust, ttl_days, last_verified_at, written_by, agent_id, session_id, run_id)
+       VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
       input.subject,
@@ -122,16 +139,22 @@ export function upsertClaim(db: DB, input: WriteInput): UpsertResult {
       now,
       authority,
       input.confidence ?? (authority <= 1 ? 0.95 : 0.6),
-      input.author ?? 'human:cli',
+      author,
       input.supersedes ?? null,
       state,
+      trust,
+      input.ttlDays ?? null,
+      now,
+      writtenBy,
+      agentId,
+      input.sessionId ?? null,
+      input.runId ?? null,
     );
   } else if (existing.state === 'draft' && state === 'active') {
-    db.prepare(`UPDATE claim SET state = 'active', authority = ?, confidence = ? WHERE id = ?`).run(
-      authority,
-      input.confidence ?? 0.95,
-      id,
-    );
+    db.prepare(
+      `UPDATE claim SET state = 'active', authority = ?, confidence = ?, trust = ?,
+                        last_verified_at = ? WHERE id = ?`,
+    ).run(authority, input.confidence ?? 0.95, trust, now, id);
   }
 
   for (const ev of input.evidence) {
@@ -154,6 +177,11 @@ export interface SupersedeInput {
   evidence: EvidenceInput[];
   confidence?: number;
   author?: string;
+  ttlDays?: number | null;
+  writtenBy?: 'agent' | 'human' | 'legacy';
+  agentId?: string | null;
+  sessionId?: string | null;
+  runId?: string | null;
 }
 
 /**
@@ -176,6 +204,11 @@ export function supersedeClaim(
     confidence: input.confidence,
     author: input.author,
     supersedes: oldId,
+    ttlDays: input.ttlDays,
+    writtenBy: input.writtenBy,
+    agentId: input.agentId,
+    sessionId: input.sessionId,
+    runId: input.runId,
   });
 
   if (result.id === oldId) {
@@ -311,6 +344,17 @@ export interface ClaimRow {
   author: string;
   state: ClaimState;
   supersedes: string | null;
+  trust: Trust;
+  ttl_days: number | null;
+  last_verified_at: string | null;
+  confirmations: number;
+  contradictions: number;
+  written_by: string;
+  agent_id: string | null;
+  session_id: string | null;
+  run_id: string | null;
+  tags_json: string;
+  invalidated_by_json: string | null;
 }
 
 export function claimsFor(db: DB, subject: string): ClaimRow[] {

@@ -3,6 +3,18 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Canon trust axis (#85): `claim` gains `trust`, `ttl_days`, `last_verified_at`, `confirmations`,
+  `contradictions`, `invalidated_by_json`, `written_by`, `agent_id`, `session_id`, `run_id` and
+  `tags_json`. `trust` is separate from branch `state`. Existing stores are backfilled once:
+  retracted → retracted, drafts → candidate, active claims with hashed or commit evidence →
+  canonical. Writes record their provenance, and approve/reject/GC/redact keep the axis in sync.
+  Retrieval does not filter on trust yet (#86, #87). `npm run canon:smoke` proves the migration,
+  the backfill and its idempotence.
+
 ## [0.4.0] — 2026-11-12
 
 ### Added
