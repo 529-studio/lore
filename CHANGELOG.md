@@ -49,6 +49,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 - Claim text is escaped in `search`, `explain`, `blame`, `export` and MCP text output, so a newline in
   an object cannot forge a warning line.
 - MCP `memory_write` rejects a negative or non-finite `ttl_days`.
+- `lore export --md` keeps only canonical claims inline; candidate, contested, stale-trust and
+  retracted claims are listed under `Withheld by Canon` without their object, so the projection is
+  not a second injection path.
 - Version bumped to 0.5.0 for the Canon release.
 
 ## [0.4.0] — 2026-11-12

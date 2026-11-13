@@ -46,6 +46,8 @@ No embeddings and no model are in this path. Resolution is deliberate and lands 
 
 `lore search` and MCP `memory_search` return only claims that are `active AND canonical` in the
 caller's branch. `candidate`, `contested`, `stale` and `retracted` are never injected.
+`lore export --md` writes only canonical claims inline; the others are listed under
+`Withheld by Canon` without their object, so the projection cannot leak a contested value.
 
 A contested fact still produces one warning line, so an agent knows memory is incomplete without
 receiving either value:

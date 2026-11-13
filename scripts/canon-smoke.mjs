@@ -386,6 +386,14 @@ function conflictsFor(db, subject, predicate) {
   eq('search reports the contested fact', contestedSearch.contested.length, 1);
   eq('search lists both sides', contestedSearch.contested[0].claim_ids.length, 2);
 
+  const exported = runCli(root, ['export', '--md']);
+  check(
+    'export withholds contested values',
+    exported.includes('Withheld by Canon') &&
+      !exported.includes('- **package_manager**: npm') &&
+      !exported.includes('- **package_manager**: pnpm'),
+  );
+
   const canonicalSearch = JSON.parse(runCli(root, ['search', 'node_version', '--json']));
   eq('canonical claim is injected', canonicalSearch.hits.length, 1);
   eq('canonical claim has no warning', canonicalSearch.warnings.length, 0);

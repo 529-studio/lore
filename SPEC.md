@@ -367,7 +367,8 @@ memory_commit({message})
 
 `lore export --md` emits a deterministic file: sorted by subject, then predicate, then object; header
 without timestamps; evidence in an HTML comment. Deterministic output means it reviews like a
-document and diffs cleanly in git.
+document and diffs cleanly in git. Canon keeps only canonical claims inline; non-canonical claims are
+listed under `Withheld by Canon` without their object.
 
 ## 11. Eval
 
