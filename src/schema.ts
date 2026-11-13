@@ -198,6 +198,7 @@ CREATE TABLE IF NOT EXISTS resolution (
 export const ONTOLOGY_TEMPLATE = `# Lore ontology — decides which predicates may hold several values.
 # cardinality: one  → two agents claiming different values is a conflict (merge must resolve)
 # cardinality: many → both values coexist (no conflict)
+# ttl_days: N       → optional; decay after N days without re-verification. Absent means no TTL.
 predicates:
   declared_dependency:  { cardinality: one,  domain: pkg }
   defines_script:       { cardinality: many, domain: file }

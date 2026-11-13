@@ -1,8 +1,8 @@
 # Canon: the trust layer
 
 Lore stores memory and evidence. Canon decides what may be injected into an agent's context and why.
-This page covers the trust axis, tier-1 conflicts, the injection filter and `lore explain`. Decay
-arrives in #88.
+This page covers the trust axis, tier-1 conflicts, the injection filter, `lore explain`, decay and
+the outcome metrics.
 
 ## Two axes
 
@@ -71,6 +71,52 @@ lore canon status                     # counts per trust state + unresolved conf
 (`written_by`, agent, session, run), evidence with hashes and ages, confidence and authority,
 confirmations/contradictions, the supersede chain and every tier-1 conflict. `--json` returns the
 same structure. `lore canon status --json` is the machine-readable form for CI.
+
+## Decay
+
+`ttl_days` is null by default. Set it per predicate in `lore.ontology.yml` (`ttl_days: 30`), or
+override one write with `lore write --ttl-days N` / MCP `ttl_days`. `lore canon decay [--dry-run]`
+evaluates every live claim and persists `trust = stale`; it never deletes a row. Triggers:
+
+| Trigger | Meaning |
+|---|---|
+| `ttl` | no re-verification within `ttl_days` (measured from `last_verified_at`) |
+| `path-disappeared` | the file/test evidence path no longer exists |
+| `file-hash-changed` | the evidence content differs from the observation |
+
+The trigger and ref are stored in `invalidated_by_json`. The read path checks TTL and disappeared
+paths lazily, so a claim cannot be injected between sweeps. A commit that is no longer an ancestor
+stays `ahead-of-checkout`, not stale: an older checkout must not invalidate an observation made on
+newer code (SPEC §8).
+
+```bash
+lore canon decay                 # nightly sweep; rows are kept
+lore canon decay --dry-run       # report without writing
+lore canon confirm <claim>       # human re-assertion: clear decay and restore trust
+lore verify <claim> --accept     # re-observation: accept the new hash and restore trust
+```
+
+`confirm` adds a human evidence row, increments `confirmations`, refreshes `last_verified_at` and
+clears the invalidation reason. It restores `canonical`, or leaves the claim `contested` when a
+tier-1 conflict is still open. `--include-stale` shows persisted stale claims for audit.
+
+## Metrics
+
+```bash
+lore canon metrics                 # prints five numbers and writes canon-metrics.json
+lore canon metrics --json          # same, JSON on stdout
+lore canon metrics --out /tmp/m.json
+```
+
+| Metric | Definition |
+|---|---|
+| `stale_injection_rate` | stale hits from the default search / all injected hits |
+| `conflict_detection_precision` | sampled open pairs that are same-key, different-value, cardinality one / sampled pairs (50 max) |
+| `explain_coverage` | injected claims whose trust reason `explain` can state / sampled injected claims |
+| `candidate_to_canonical_median_hours` | median hours from `tx_from` to `last_verified_at` for canonical claims |
+| `first_try_failure_rate` | retracted claims plus purges / claims ever written |
+
+The metrics are measured through the real retrieval path. `canon-metrics.json` is git-ignored.
 
 ## Migration
 

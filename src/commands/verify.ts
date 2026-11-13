@@ -3,6 +3,7 @@ import { openDb, requireRoot } from '../db.js';
 import { activeAt, head, type ClaimRow } from '../model.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
 import { verifyClaim } from '../retrieval.js';
+import { restoreAfterReverify } from '../canon/decay.js';
 import { setHashCacheEnabled } from '../hash-cache.js';
 
 export interface VerifyOptions {
@@ -32,6 +33,7 @@ export function verifyCommand(opts: VerifyOptions): void {
       console.log(`${pc.dim('•')} ${claimId} ${pc.dim('no file/test evidence to rehash — valid')}`);
       return true;
     }
+    if (opts.accept && result.ok) restoreAfterReverify(db, claimId);
     const label = result.ok ? pc.green('valid') : pc.red('stale');
     console.log(`${result.ok ? pc.green('•') : pc.red('•')} ${claimId} ${label} ${pc.dim(`(${result.checked} evidence rehashed)`)}`);
     for (const ref of result.stale) console.log(pc.dim(`    ↳ mismatch: ${ref}`));
@@ -67,6 +69,7 @@ export function verifyCommand(opts: VerifyOptions): void {
   let checked = 0;
   for (const c of rows) {
     const result = verifyClaim(db, root, c.id, { accept: opts.accept });
+    if (opts.accept && result.ok) restoreAfterReverify(db, c.id);
     checked += result.checked;
     if (result.stale.length) {
       staleCount++;

@@ -2,6 +2,7 @@ import type { DB } from '../db.js';
 import { claimFreshness } from '../merge.js';
 import { inBranch, type ClaimRow, type Trust } from '../model.js';
 import { branchFor, currentSession } from '../session.js';
+import { evaluateDecay, type DecayResult } from './decay.js';
 
 export interface EvidenceExplanation {
   kind: string;
@@ -54,6 +55,8 @@ export interface ClaimExplanation {
   conflicts: ConflictExplanation[];
   open_conflicts: number;
   freshness: 'valid' | 'stale' | 'ahead';
+  /** Decay that already happened (trust stale) or is pending (read-path check). */
+  decay: DecayResult | null;
 }
 
 export interface ExplainResult {
@@ -104,6 +107,7 @@ function trustReason(
   claim: ClaimRow,
   conflicts: ConflictExplanation[],
   freshness: 'valid' | 'stale' | 'ahead',
+  decay: DecayResult | null,
 ): string {
   const open = conflicts.filter((c) => !c.resolved);
   if (claim.trust === 'retracted' || claim.state === 'retracted') {
@@ -118,17 +122,10 @@ function trustReason(
     return 'candidate: active but no hashed or commit evidence';
   }
   if (claim.trust === 'stale') {
-    let trigger = 'trust marked stale by decay';
-    if (claim.invalidated_by_json) {
-      try {
-        const parsed = JSON.parse(claim.invalidated_by_json) as { trigger?: string; ref?: string };
-        trigger = `stale: ${parsed.trigger ?? 'decay'}${parsed.ref ? ` (${parsed.ref})` : ''}`;
-      } catch {
-        // keep the fallback
-      }
-    }
-    return trigger;
+    if (decay) return `stale: ${decay.trigger} — ${decay.detail}`;
+    return 'stale: trust was decayed; run `lore canon decay` for the reason';
   }
+  if (decay) return `decayed: ${decay.trigger} — ${decay.detail} (run lore canon decay)`;
 
   if (freshness === 'stale') return 'canonical, but evidence hash no longer matches (not injected by default)';
   if (freshness === 'ahead') return 'canonical, but observed on newer code than this checkout (not injected without --trust-remote)';
@@ -171,6 +168,21 @@ function supersedeChain(db: DB, claim: ClaimRow): {
     }
   }
   return { previous, next };
+}
+
+function storedDecay(claim: ClaimRow): DecayResult | null {
+  if (!claim.invalidated_by_json) return null;
+  try {
+    const parsed = JSON.parse(claim.invalidated_by_json) as Partial<DecayResult>;
+    if (typeof parsed.trigger !== 'string') return null;
+    return {
+      trigger: parsed.trigger as DecayResult['trigger'],
+      ref: parsed.ref ?? '',
+      detail: parsed.detail ?? 'decayed',
+    };
+  } catch {
+    return null;
+  }
 }
 
 function explainClaim(db: DB, root: string, ref: string, claim: ClaimRow): ClaimExplanation {
@@ -218,6 +230,7 @@ function explainClaim(db: DB, root: string, ref: string, claim: ClaimRow): Claim
 
   const chain = supersedeChain(db, claim);
   const freshness = claimFreshness(db, root, claim.id);
+  const decay = claim.trust === 'stale' ? storedDecay(claim) : evaluateDecay(db, root, claim, { checkHash: true });
 
   return {
     id: claim.id,
@@ -226,7 +239,7 @@ function explainClaim(db: DB, root: string, ref: string, claim: ClaimRow): Claim
     object: objectOf(claim),
     state: claim.state,
     trust: claim.trust,
-    trust_reason: trustReason(claim, conflicts, freshness),
+    trust_reason: trustReason(claim, conflicts, freshness, decay),
     in_branch: inBranch(db, ref, claim.id),
     branch: ref,
     author: claim.author,
@@ -251,6 +264,7 @@ function explainClaim(db: DB, root: string, ref: string, claim: ClaimRow): Claim
     conflicts,
     open_conflicts: conflicts.filter((c) => !c.resolved).length,
     freshness,
+    decay,
   };
 }
 

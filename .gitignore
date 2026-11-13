@@ -4,6 +4,7 @@ dist/
 *.log
 .DS_Store
 eval-results.json
+canon-metrics.json
 *.tgz
 desktop/stage/
 desktop/src-tauri/target/

@@ -2,6 +2,7 @@ import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { authorityOf, inBranch, makeCommit, upsertClaim, type EvidenceKind } from '../model.js';
 import { hashCache } from '../hash-cache.js';
+import { loadOntology } from '../ontology.js';
 import { gitHead } from '../util/git.js';
 import { gateTier } from '../policy.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
@@ -17,6 +18,7 @@ export interface WriteOptions {
   author?: string;
   session?: string;
   validFrom?: string;
+  ttlDays?: string;
 }
 
 export function writeCommand(opts: WriteOptions): void {
@@ -27,6 +29,9 @@ export function writeCommand(opts: WriteOptions): void {
 
   if (opts.validFrom && !Number.isFinite(Date.parse(opts.validFrom))) {
     throw new Error(`--valid-from: not a valid ISO date: ${opts.validFrom}`);
+  }
+  if (opts.ttlDays !== undefined && (!Number.isFinite(Number(opts.ttlDays)) || Number(opts.ttlDays) < 0)) {
+    throw new Error(`--ttl-days: expected a non-negative number: ${opts.ttlDays}`);
   }
 
   const evidenceRef = opts.ref ?? opts.subject;
@@ -45,6 +50,7 @@ export function writeCommand(opts: WriteOptions): void {
       validFrom: opts.validFrom,
       forceDraft: gateTier(root, authorityOf(opts.kind)),
       sessionId: session,
+      ttlDays: opts.ttlDays !== undefined ? Number(opts.ttlDays) : loadOntology(root).ttlDays(opts.predicate),
       evidence: [{ kind: opts.kind, ref: evidenceRef, hash, commit: gitHead(root) }],
     });
 

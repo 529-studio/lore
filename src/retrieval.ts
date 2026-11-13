@@ -1,6 +1,6 @@
 import type { DB } from './db.js';
 import { hashCache } from './hash-cache.js';
-import { evidenceFor, activeAtAsOf, head, type ClaimRow } from './model.js';
+import { evidenceFor, activeAtAsOf, head, claimIsEligible, type ClaimRow } from './model.js';
 import { byKey, claimFreshness, isStale } from './merge.js';
 import { loadOntology } from './ontology.js';
 import { branchFor, currentSession } from './session.js';
@@ -74,6 +74,7 @@ function branchSnapshot(
   db: DB,
   root: string,
   asOf?: string,
+  allowStale = false,
 ): { claims: Map<string, ClaimRow>; activeIds: Set<string> } {
   const session = currentSession(root);
   const branch = branchFor(session);
@@ -85,7 +86,13 @@ function branchSnapshot(
   const stmt = db.prepare('SELECT * FROM claim WHERE id = ?');
   for (const id of ids) {
     const row = stmt.get(id) as ClaimRow | undefined;
-    if (row && row.state === 'active' && row.trust === 'canonical' && validAt(row, instant)) rows.push(row);
+    if (!row || row.state !== 'active' || !validAt(row, instant)) continue;
+    const trustOk = row.trust === 'canonical' || (allowStale && row.trust === 'stale');
+    if (!trustOk) continue;
+    // Lazy decay: a claim past its TTL or pointing at a deleted path is never
+    // injected, even before `lore canon decay` persists the stale trust.
+    if (row.trust !== 'stale' && !claimIsEligible(db, row)) continue;
+    rows.push(row);
   }
   return { claims: byKey(rows, loadOntology(root).cardinality), activeIds: new Set(ids) };
 }
@@ -369,7 +376,7 @@ export function contestedWarning(fact: ContestedFact): string {
  */
 export function searchMemory(db: DB, root: string, opts: SearchOptions = {}): SearchResult {
   const budget = opts.budgetTokens ?? BUDGET_DEFAULT;
-  const { claims: current, activeIds } = branchSnapshot(db, root, opts.asOf);
+  const { claims: current, activeIds } = branchSnapshot(db, root, opts.asOf, opts.includeStale);
 
   // Aliases let a human say "refund flow" and reach doc:...#refund-flow.
   const aliasTargets = new Set<string>();
@@ -413,7 +420,7 @@ export function searchMemory(db: DB, root: string, opts: SearchOptions = {}): Se
   let hits: SearchHit[] = [];
   for (const c of current.values()) {
     const freshness = claimFreshness(db, root, c.id);
-    const stale = freshness === 'stale';
+    const stale = freshness === 'stale' || c.trust === 'stale';
     const ahead = freshness === 'ahead';
     if (stale && !opts.includeStale) continue;
     if (ahead && !opts.trustRemote) continue;

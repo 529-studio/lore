@@ -28,6 +28,7 @@ import { contestedWarning, searchMemory } from '../retrieval.js';
 import { parseRange, resolveRevision } from '../revision.js';
 import { branchFor, currentSession, recordReads } from '../session.js';
 import { installCanon } from '../canon/index.js';
+import { loadOntology } from '../ontology.js';
 
 const SERVER_VERSION = '0.0.1';
 // Newest first. A client asking for an unknown version is negotiated down to the
@@ -169,6 +170,7 @@ interface WriteArgs {
   ref?: string;
   confidence?: number;
   valid_from?: string;
+  ttl_days?: number;
 }
 
 function toolWrite(args: WriteArgs): ToolResult {
@@ -210,6 +212,7 @@ function toolWrite(args: WriteArgs): ToolResult {
         writtenBy: 'agent',
         agentId: 'mcp',
         sessionId: ctx.session,
+        ttlDays: args.ttl_days ?? loadOntology(ctx.root).ttlDays(predicate),
       });
 
       // Drafts never enter the active set; a claim missing from this branch still needs an entry.
@@ -497,6 +500,7 @@ const TOOLS: ToolDef[] = [
         ref: { type: 'string', description: 'evidence source (default: subject)' },
         confidence: { type: 'number', minimum: 0, maximum: 1 },
         valid_from: { type: 'string', description: 'ISO date when the claim became true' },
+        ttl_days: { type: 'number', minimum: 0, description: 'decay after N days without re-verification (default: ontology)' },
       },
     },
     run: (args) => toolWrite(ARGS(args) as unknown as WriteArgs),

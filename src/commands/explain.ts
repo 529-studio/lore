@@ -68,6 +68,7 @@ function printClaim(c: ClaimExplanation): void {
     }
   }
   console.log(`  freshness  ${c.freshness}${c.open_conflicts ? pc.red(`  open conflicts ${c.open_conflicts}`) : ''}`);
+  if (c.decay) console.log(`  decay      ${pc.red(c.decay.trigger)} — ${c.decay.detail}`);
   if (c.supersedes.length) {
     console.log(`  supersedes ${c.supersedes.map((s) => `${s.id} (${s.object})`).join(' <- ')}`);
   } else {

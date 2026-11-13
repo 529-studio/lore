@@ -42,6 +42,8 @@ Lore fixes the **trust** problem, not the storage problem.
 *The CLI: initialise, derive claims, search with a score breakdown, edit a file, watch the claim go
 stale, then accept the new reality with `verify --accept`.*
 
+**Canon demo:** [memory stops being injected after npm → pnpm](scripts/demo/canon-pnpm.sh).
+
 **GUI:** `lore ui` serves a local dashboard — Health, Review, Undo, Settings — through the same policy
 layer as the CLI. A macOS desktop build bundles it with its own Node runtime; see
 [docs/desktop.md](docs/desktop.md).
@@ -195,7 +197,7 @@ lore ingest [--dry-run]        derive claims from deterministic extractors
 lore write                     write one claim (draft for agent/human evidence); --valid-from <iso>
 lore search "<query>"          score the active set; only active+canonical claims are injected
 lore explain <claim|key>       why a claim is injected: trust, provenance, evidence
-lore canon status              trust counts + unresolved tier-1 conflicts
+lore canon status|decay|confirm|metrics  trust, decay, re-confirm, outcome metrics
 lore blame <subject>           provenance: author, evidence, branch membership
 lore status [--strict]         health: active, draft, stale, conflicts, GC candidates
 lore diff <from>..<to>         claims added/removed between revisions
@@ -204,23 +206,23 @@ lore resolve <subject> <pred>  record a human decision for one conflict
 lore promote                   merge the current branch into main
 lore revert <commit>           inverse commit, history preserved
 lore verify <claim> | --all    re-hash evidence; --accept stores a legitimate change
-lore guard [--staged]         scan for secrets before they enter a claim or a commit
-lore identity [issue]         show the current identity, or issue a team token
+lore guard [--staged]         scan for secrets before they enter a claim
+lore identity [issue]         show identity or issue a team token
 lore alias add <name> <id>    name an entity ("refund flow" -> doc:...#refund-flow)
 lore rename <old> <new>       move entities and evidence after a file rename
-lore onboard                  first run: detect the stack, pick a template, ingest
+lore onboard                  detect the stack, pick a template, ingest
 lore review                   review drafts one by one (approve / reject / skip)
 lore reject <claim>           reject a draft: retract it, keep the row and reason
 lore attest <claim>           independent review: agree or disagree, linked to the claim
 lore digest                   what changed since the last review
 lore ui                       read-only dashboard on localhost (health, claims, commits)
-lore remote <dir>             point fetch/push at a shared directory (no git host needed)
+lore remote <dir>             point fetch/push at a shared directory
 lore fetch | push             exchange commits with that directory
-lore bundle export|import     air-gapped exchange of the missing commits
+lore bundle export|import     air-gapped exchange of commits
 lore redact <claim>           replace the object with [redacted], keep id and audit
 lore purge <claim> --yes      remove the row permanently, keep an audit entry
-lore gc [--ttl-sessions 3]     retract drafts nobody reviewed (rows are never deleted)
-lore export --md               deterministic projection; stale claims under Needs verification
+lore gc [--ttl-sessions 3]     retract unreviewed drafts (rows are kept)
+lore export --md               deterministic markdown projection
 lore supersede <claim>         replace a claim, keeping the old version in history
 lore mcp                       MCP server over stdio
 ```

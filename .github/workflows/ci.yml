@@ -44,6 +44,9 @@ jobs:
       - name: Canon trust axis (migration, backfill, idempotence)
         run: npm run canon:smoke
 
+      - name: Canon demo (npm -> pnpm decay)
+        run: bash scripts/demo/canon-pnpm.sh
+
       - name: Dashboard smoke
         run: npm run ui:smoke
 

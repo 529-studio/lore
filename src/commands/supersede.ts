@@ -16,6 +16,7 @@ export interface SupersedeOptions {
   confidence?: string;
   author?: string;
   session?: string;
+  ttlDays?: string;
 }
 
 export function supersedeCommand(opts: SupersedeOptions): void {
@@ -24,6 +25,10 @@ export function supersedeCommand(opts: SupersedeOptions): void {
   const session = ensureSession(db, root, opts.session);
   const ref = branchFor(session);
   const evidenceRef = opts.ref ?? opts.claim;
+
+  if (opts.ttlDays !== undefined && (!Number.isFinite(Number(opts.ttlDays)) || Number(opts.ttlDays) < 0)) {
+    throw new Error(`--ttl-days: expected a non-negative number: ${opts.ttlDays}`);
+  }
 
   let hash = opts.hash ?? null;
   if (!hash && (opts.kind === 'file' || opts.kind === 'test')) {
@@ -36,6 +41,7 @@ export function supersedeCommand(opts: SupersedeOptions): void {
       confidence: opts.confidence ? Number(opts.confidence) : undefined,
       author: opts.author ?? 'human:cli',
       sessionId: session,
+      ttlDays: opts.ttlDays !== undefined ? Number(opts.ttlDays) : undefined,
       evidence: [{ kind: opts.kind, ref: evidenceRef, hash, commit: gitHead(root) }],
     });
 

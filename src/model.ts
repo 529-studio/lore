@@ -51,6 +51,22 @@ export function runClaimWriteHooks(db: DB, claimId: string): void {
   for (const hook of claimWriteHooks) hook(db, claimId);
 }
 
+/**
+ * Read-path hook: a live claim must still be eligible to be injected (for
+ * example, its TTL may have expired before the next sweep). Returning false
+ * hides the claim without mutating the store.
+ */
+export type ClaimEligibilityHook = (db: DB, claim: ClaimRow) => boolean;
+const claimEligibilityHooks: ClaimEligibilityHook[] = [];
+
+export function registerClaimEligibilityHook(hook: ClaimEligibilityHook): void {
+  claimEligibilityHooks.push(hook);
+}
+
+export function claimIsEligible(db: DB, claim: ClaimRow): boolean {
+  return claimEligibilityHooks.every((hook) => hook(db, claim));
+}
+
 export interface UpsertResult {
   id: string;
   inserted: boolean;
@@ -222,7 +238,7 @@ export function supersedeClaim(
     confidence: input.confidence,
     author: input.author,
     supersedes: oldId,
-    ttlDays: input.ttlDays,
+    ttlDays: input.ttlDays ?? old.ttl_days,
     writtenBy: input.writtenBy,
     agentId: input.agentId,
     sessionId: input.sessionId,

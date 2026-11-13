@@ -16,6 +16,7 @@ It exposes 7 tools: `memory_search`, `memory_write`, `memory_approve`, `memory_c
 - **cwd matters.** The server resolves the Lore store from its working directory (`lore init` must have been run in the project). Launch the agent from the project root, or set `cwd` in the config.
 - **One branch per agent session.** Writes always go to `agent/<session>`, never `main`. Set a **different `LORE_SESSION` env var per agent** (e.g. `claude`, `codex`, `gemini-1`) so agents don't overwrite each other's drafts. Merge them with `lore merge agent/<session>` when a session proved itself.
 - `kind: agent|human` claims are written as **draft** and stay out of retrieval until `lore approve`.
+- `memory_write` accepts `ttl_days`; `lore.ontology.yml` can set it per predicate. A claim past its TTL or pointing at a deleted evidence path is not injected, and `lore canon decay` persists it as stale.
 
 ---
 

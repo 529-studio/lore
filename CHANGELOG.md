@@ -25,6 +25,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
   `structuredContent`. New `lore explain <claim-id | subject:predicate | entity>` shows trust and why,
   provenance, evidence hashes and ages, confidence, counters, supersede chain and conflicts, with
   `--json`. New `lore canon status [--json]` counts each trust state and unresolved tier-1 conflicts.
+- Canon decay (#88): `ttl_days` (null by default), lazy read-path checks for expired TTL and
+  disappeared evidence paths, and `lore canon decay [--dry-run]` to persist `trust = stale` with the
+  trigger in `invalidated_by_json`. `lore canon confirm <claim>` adds human evidence and restores
+  trust; `lore verify --accept` restores it after accepting a new hash. `--include-stale` shows the
+  persisted stale rows. A non-ancestor commit stays `ahead-of-checkout`, not stale.
+- Canon metrics and demo (#89): `lore canon metrics [--json] [--out <file>]` reports stale injection
+  rate, tier-1 conflict precision, explain coverage, candidate-to-canonical median time and
+  first-try failure rate, and writes `canon-metrics.json`. `scripts/demo/canon-pnpm.sh` runs the npm
+  to pnpm transition end to end: the old claim decays with `path-disappeared` and is no longer
+  injected.
 
 ## [0.4.0] — 2026-11-12
 

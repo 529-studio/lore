@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Canon #85 and #86: trust axis, backfill, write-path defaults and tier-1 conflicts.
+// Canon #85-#89: trust axis, backfill, conflicts, injection, decay and metrics.
 // Proves the migration is idempotent and that contradictory writes are contested.
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,8 +10,10 @@ import Database from 'better-sqlite3';
 
 import { createDb, openDb, dbPathFor } from '../dist/db.js';
 import { approveDrafts, rejectDraft } from '../dist/actions.js';
-import { supersedeClaim, upsertClaim } from '../dist/model.js';
+import { claimIsEligible, supersedeClaim, upsertClaim } from '../dist/model.js';
 import { installCanon } from '../dist/canon/index.js';
+import { evaluateDecay, restoreAfterReverify, sweepDecay } from '../dist/canon/decay.js';
+import { explainTarget } from '../dist/canon/explain.js';
 
 process.env.NO_COLOR = '1';
 delete process.env.LORE_TEAM_SECRET;
@@ -356,7 +358,7 @@ function conflictsFor(db, subject, predicate) {
   runCli(root, ['init']);
   runCli(root, [
     'write', '--subject', 'env:NODE', '--predicate', 'node_version', '--object', '22',
-    '--kind', 'file', '--ref', 'package.json', '--author', 'human:smoke',
+    '--kind', 'file', '--ref', 'package.json', '--author', 'human:smoke', '--ttl-days', '1',
   ]);
   runCli(root, [
     'write', '--subject', 'env:PM', '--predicate', 'package_manager', '--object', 'npm',
@@ -410,6 +412,139 @@ function conflictsFor(db, subject, predicate) {
   eq('canon status counts contested', canonStatus.trust.contested, 2);
   eq('canon status counts unresolved conflicts', canonStatus.unresolved_conflicts, 1);
   eq('canon status counts contested facts', canonStatus.contested_facts, 1);
+
+  // --- #88 decay and #89 metrics through the real CLI -------------------------
+  const nodeId = canonicalSearch.hits[0].id;
+  const rawDb = openDb(root);
+  eq(
+    'CLI records the TTL',
+    rawDb.prepare('SELECT ttl_days FROM claim WHERE id = ?').get(nodeId).ttl_days,
+    1,
+  );
+  rawDb
+    .prepare('UPDATE claim SET last_verified_at = ? WHERE id = ?')
+    .run(new Date(Date.now() - 3 * 86_400_000).toISOString(), nodeId);
+  rawDb.close();
+
+  eq(
+    'TTL is evaluated on read before the sweep',
+    JSON.parse(runCli(root, ['search', 'node_version', '--json'])).hits.length,
+    0,
+  );
+  const explainedTtl = JSON.parse(runCli(root, ['explain', nodeId, '--json']));
+  eq('explain reports pending TTL decay', explainedTtl.claims[0].decay?.trigger, 'ttl');
+
+  const decayed = JSON.parse(runCli(root, ['canon', 'decay', '--json']));
+  check(
+    'canon decay persists the TTL',
+    decayed.stale.some((h) => h.id === nodeId && h.decay.trigger === 'ttl'),
+  );
+  check(
+    'include-stale shows the decayed claim',
+    JSON.parse(runCli(root, ['search', 'node_version', '--include-stale', '--json'])).hits.some(
+      (h) => h.id === nodeId && h.stale,
+    ),
+  );
+
+  const confirmed = JSON.parse(runCli(root, ['canon', 'confirm', nodeId, '--json']));
+  eq('canon confirm restores canonical', confirmed.trust, 'canonical');
+  check(
+    'confirmed claim is injected again',
+    JSON.parse(runCli(root, ['search', 'node_version', '--json'])).hits.some((h) => h.id === nodeId),
+  );
+
+  const metricsFile = path.join(root, 'canon-metrics.json');
+  const metrics = JSON.parse(
+    runCli(root, ['canon', 'metrics', '--json', '--out', metricsFile]),
+  );
+  const metricKeys = [
+    'stale_injection_rate',
+    'conflict_detection_precision',
+    'explain_coverage',
+    'candidate_to_canonical_median_hours',
+    'first_try_failure_rate',
+  ];
+  check(
+    'metrics reports the five numbers',
+    metricKeys.every((key) => typeof metrics.metrics[key] === 'number'),
+  );
+  check('metrics writes its JSON file', existsSync(metricsFile));
+  eq('stale injection rate is zero', metrics.metrics.stale_injection_rate, 0);
+  eq('explain coverage is complete', metrics.metrics.explain_coverage, 1);
+  eq('conflict precision is one', metrics.metrics.conflict_detection_precision, 1);
+}
+
+// --- F. decay triggers at the store level (#88) ------------------------------
+{
+  const root = tempRoot();
+  writeFileSync(path.join(root, 'a.txt'), 'a\n');
+  writeFileSync(path.join(root, 'gone.txt'), 'gone\n');
+  writeFileSync(path.join(root, 'changed.txt'), 'v1\n');
+  const db = createDb(root);
+  installCanon();
+
+  const ttl = upsertClaim(db, {
+    subject: 'env:TTL',
+    predicate: 'flag',
+    object: 'on',
+    ttlDays: 1,
+    evidence: [{ kind: 'file', ref: 'a.txt', hash: 'sha256:not-the-real-hash' }],
+  });
+  db.prepare('UPDATE claim SET last_verified_at = ? WHERE id = ?').run(
+    new Date(Date.now() - 3 * 86_400_000).toISOString(),
+    ttl.id,
+  );
+  const ttlRow = db.prepare('SELECT * FROM claim WHERE id = ?').get(ttl.id);
+  check('TTL makes a claim ineligible before the sweep', claimIsEligible(db, ttlRow) === false);
+  eq('TTL decay trigger', evaluateDecay(db, root, ttlRow, { checkHash: true })?.trigger, 'ttl');
+
+  const sweep = sweepDecay(db, root);
+  check('sweep reports the TTL claim', sweep.stale.some((h) => h.id === ttl.id && h.decay.trigger === 'ttl'));
+  eq('decay keeps the row', db.prepare('SELECT COUNT(*) n FROM claim WHERE id = ?').get(ttl.id).n, 1);
+  eq('sweep persists stale', trustOf(db, ttl.id), 'stale');
+  eq('re-verify restores canonical', restoreAfterReverify(db, ttl.id, { confirm: true }), 'canonical');
+  eq(
+    're-verify clears the invalidation reason',
+    db.prepare('SELECT invalidated_by_json FROM claim WHERE id = ?').get(ttl.id).invalidated_by_json,
+    null,
+  );
+  eq(
+    're-verify counts the confirmation',
+    db.prepare('SELECT confirmations FROM claim WHERE id = ?').get(ttl.id).confirmations,
+    1,
+  );
+
+  const gone = upsertClaim(db, {
+    subject: 'env:GONE',
+    predicate: 'flag',
+    object: 'on',
+    evidence: [{ kind: 'file', ref: 'gone.txt', hash: 'sha256:not-the-real-hash' }],
+  });
+  rmSync(path.join(root, 'gone.txt'));
+  const goneSweep = sweepDecay(db, root);
+  check(
+    'a deleted evidence path decays',
+    goneSweep.stale.some((h) => h.id === gone.id && h.decay.trigger === 'path-disappeared'),
+  );
+  eq('missing path persists stale', trustOf(db, gone.id), 'stale');
+  check(
+    'explain names path-disappeared',
+    explainTarget(db, root, gone.id).claims[0].trust_reason.includes('path-disappeared'),
+  );
+
+  const changed = upsertClaim(db, {
+    subject: 'env:CHANGED',
+    predicate: 'flag',
+    object: 'on',
+    evidence: [{ kind: 'file', ref: 'changed.txt', hash: 'sha256:not-the-real-hash' }],
+  });
+  const changedSweep = sweepDecay(db, root);
+  check(
+    'a changed evidence hash decays',
+    changedSweep.stale.some((h) => h.id === changed.id && h.decay.trigger === 'file-hash-changed'),
+  );
+  eq('changed hash persists stale', trustOf(db, changed.id), 'stale');
+  db.close();
 }
 
 for (const dir of roots) rmSync(dir, { recursive: true, force: true });
@@ -418,4 +553,4 @@ if (failures) {
   console.error(`\nCANON SMOKE FAILED — ${failures} check(s)`);
   process.exit(1);
 }
-console.log('\nCANON SMOKE OK — migration, backfill, idempotence, write path, approve, reject, tier-1 conflicts, injection filter, explain, canon status');
+console.log('\nCANON SMOKE OK — migration, backfill, idempotence, write path, approve, reject, tier-1 conflicts, injection filter, explain, canon status, decay, confirm, metrics');

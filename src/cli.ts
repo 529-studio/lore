@@ -35,7 +35,7 @@ import { statusCommand } from './commands/status.js';
 import { supersedeCommand } from './commands/supersede.js';
 import { searchCommand } from './commands/search.js';
 import { explainCommand } from './commands/explain.js';
-import { canonStatusCommand } from './commands/canon.js';
+import { canonConfirmCommand, canonDecayCommand, canonMetricsCommand, canonStatusCommand } from './commands/canon.js';
 import { verifyCommand } from './commands/verify.js';
 import { writeCommand } from './commands/write.js';
 import type { EvidenceKind } from './model.js';
@@ -71,6 +71,7 @@ program
   .option('--author <id>', 'human:... or agent:...')
   .option('--session <id>', 'write to branch agent/<session>')
   .option('--valid-from <iso>', 'when the claim became true (default: immediately)')
+  .option('--ttl-days <n>', 'decay after N days without re-verification (default: ontology)')
   .action((opts) =>
     writeCommand({
       subject: opts.subject,
@@ -83,6 +84,7 @@ program
       author: opts.author,
       session: opts.session,
       validFrom: opts.validFrom,
+      ttlDays: opts.ttlDays,
     }),
   );
 
@@ -96,6 +98,7 @@ program
   .option('--confidence <n>')
   .option('--author <id>')
   .option('--session <id>')
+  .option('--ttl-days <n>', 'override the inherited TTL in days')
   .action((claim, opts) =>
     supersedeCommand({
       claim,
@@ -106,6 +109,7 @@ program
       confidence: opts.confidence,
       author: opts.author,
       session: opts.session,
+      ttlDays: opts.ttlDays,
     }),
   );
 
@@ -411,6 +415,26 @@ canon
   .description('counts per trust state plus unresolved conflicts')
   .option('--json', 'machine-readable JSON')
   .action((opts) => canonStatusCommand({ json: opts.json }));
+
+canon
+  .command('decay')
+  .description('evaluate TTL and evidence decay; mark claims stale without deleting them')
+  .option('--dry-run', 'show what would decay without writing')
+  .option('--json', 'machine-readable JSON')
+  .action((opts) => canonDecayCommand({ dryRun: opts.dryRun, json: opts.json }));
+
+canon
+  .command('confirm <claim>')
+  .description('human re-assertion: clear decay, refresh last_verified_at and confirmations')
+  .option('--json', 'machine-readable JSON')
+  .action((claim, opts) => canonConfirmCommand(claim, { json: opts.json }));
+
+canon
+  .command('metrics')
+  .description('five outcome numbers; writes JSON (default canon-metrics.json)')
+  .option('--json', 'print the JSON too')
+  .option('--out <file>', 'output file')
+  .action((opts) => canonMetricsCommand({ json: opts.json, out: opts.out }));
 
 program
   .command('verify [claim]')

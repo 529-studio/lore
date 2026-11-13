@@ -305,6 +305,14 @@ Consequences: retrieval excludes stale claims by default (`--include-stale` over
 reports stale and ahead separately; `export` marks them. Stale claims are kept, never deleted, and return to valid when
 re-observed.
 
+**Decay.** Canon adds two first-class triggers on top of the evidence hash: `ttl_days` (null by
+default, measured from `last_verified_at`) and `path-disappeared` (a file/test evidence path no
+longer exists). `lore canon decay` evaluates live claims and persists `trust = stale` with the
+trigger in `invalidated_by_json`; the read path checks TTL and disappeared paths lazily, so a claim
+cannot be injected between sweeps. A commit that is no longer an ancestor remains `ahead-of-checkout`,
+never stale. `lore canon confirm` and `lore verify --accept` clear the trigger, refresh
+`last_verified_at`, and restore `canonical` (or `contested` while a tier-1 conflict is open).
+
 ## 9. Retrieval
 
 Not vector search. Vector is a tiebreak at most.
@@ -332,7 +340,7 @@ score breakdown, so a human can audit why something ranked high. The budget is a
 
 ```
 lore init | ingest | write | search | blame | status
-lore explain | canon status
+lore explain | canon status | canon decay | canon confirm | canon metrics
 lore diff | merge | resolve | promote | revert
 lore verify | gc | export --md | mcp
 ```
@@ -420,6 +428,8 @@ No LLM judge. Outcome metrics on real repositories:
 | one state axis | `state` stays branch membership; `trust` (canonical/candidate/contested/stale/retracted) is a second column, backfilled once by evidence hash or commit | shared memory needs a trust signal that is not branch-local |
 | conflicts only surface at merge | a tier-1 conflict is recorded synchronously on write; both live claims become `contested` | shared memory must not serve two values silently |
 | retrieval filters drafts and stale evidence | retrieval also requires `trust = canonical`; contested facts produce a warning line, never content | trust is orthogonal to branch membership and freshness |
+| stale is derived on read | `canon decay` persists `trust = stale` with `invalidated_by_json`; the read path lazily checks TTL and disappeared paths | shared memory needs a durable stale answer and a reason |
+| evidence commit must be an ancestor | a non-ancestor stays `ahead-of-checkout`, not stale | an older checkout must not invalidate an observation made on newer code |
 | no team sync | `lore remote` + `fetch`/`push` over a shared directory or Postgres, `bundle` for air gaps | internal and air-gapped repositories cannot depend on a git host |
 | `--as-of` reads the commit at that instant | folds the whole ancestry, skipping commits after the instant | a single commit chain hides facts on sibling branches before a merge |
 | hash cache keyed by content | keyed by size, mtime and ctime | mtime can be restored; ctime changes on any inode write |
