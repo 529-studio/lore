@@ -14,6 +14,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
   canonical. Writes record their provenance, and approve/reject/GC/redact keep the axis in sync.
   Retrieval does not filter on trust yet (#86, #87). `npm run canon:smoke` proves the migration,
   the backfill and its idempotence.
+- Canon tier-1 conflicts (#86): an active write that contradicts another live claim on a
+  `cardinality: one` predicate marks both `contested`, increments `contradictions` and records one
+  deduplicated row in `claim_conflict`. Many-valued predicates coexist; drafts are checked on
+  approval; supersede is replacement, not conflict; re-writing the same value is idempotent. The
+  write path reaches Canon through a registered hook, so core never imports `src/canon/`.
 
 ## [0.4.0] — 2026-11-12
 

@@ -1,5 +1,5 @@
 import type { DB } from './db.js';
-import { activeAt, head, inBranch, makeCommit, upsertClaim, type ClaimRow } from './model.js';
+import { activeAt, head, inBranch, makeCommit, runClaimWriteHooks, upsertClaim, type ClaimRow } from './model.js';
 import { requireAction } from './policy.js';
 import type { Principal } from './identity.js';
 import { resolveRevision } from './revision.js';
@@ -52,6 +52,8 @@ export function approveDrafts(db: DB, root: string, ref: string, ids: string[]):
     );
     const now = new Date().toISOString();
     for (const row of rows) update.run(now, row.id);
+    // Human confirmation can create the same tier-1 conflict as any other active write.
+    for (const row of rows) runClaimWriteHooks(db, row.id);
     commitId = makeCommit(db, {
       ref,
       entries: rows.map((row) => ({ claim_id: row.id, op: 'add' as const })),

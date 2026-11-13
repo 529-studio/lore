@@ -36,6 +36,21 @@ export interface WriteInput {
 
 export type Trust = 'canonical' | 'candidate' | 'contested' | 'stale' | 'retracted';
 
+/**
+ * Canon attaches to the write path through this hook. Core never imports the
+ * canon module; it only calls whatever hooks were registered at startup.
+ */
+export type ClaimWriteHook = (db: DB, claimId: string) => void;
+const claimWriteHooks: ClaimWriteHook[] = [];
+
+export function registerClaimWriteHook(hook: ClaimWriteHook): void {
+  claimWriteHooks.push(hook);
+}
+
+export function runClaimWriteHooks(db: DB, claimId: string): void {
+  for (const hook of claimWriteHooks) hook(db, claimId);
+}
+
 export interface UpsertResult {
   id: string;
   inserted: boolean;
@@ -168,6 +183,9 @@ export function upsertClaim(db: DB, input: WriteInput): UpsertResult {
          status = 'valid'`,
     ).run(id, ev.kind, ev.ref, ev.hash ?? null, ev.commit ?? null, now);
   }
+
+  // Drafts are not injected, so only an active write can contest live memory.
+  if (state === 'active') runClaimWriteHooks(db, id);
 
   return { id, inserted: !existing, state, authority };
 }

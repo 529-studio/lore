@@ -5,6 +5,13 @@ import { SCHEMA } from './schema.js';
 
 export type DB = Database.Database;
 
+/** The repository root a connection belongs to, for modules that receive only the DB. */
+const stateRoots = new WeakMap<Database.Database, string>();
+
+export function stateRootFor(db: DB): string | null {
+  return stateRoots.get(db) ?? null;
+}
+
 /** Walk up until we find a .lore directory. */
 export function findStateRoot(start = process.cwd()): string | null {
   let dir = path.resolve(start);
@@ -102,6 +109,7 @@ export function openDb(root: string): DB {
   db.pragma('busy_timeout = 5000');
   db.exec(SCHEMA);
   migrate(db);
+  stateRoots.set(db, root);
   return db;
 }
 
@@ -113,6 +121,7 @@ export function createDb(root: string): DB {
   db.pragma('busy_timeout = 5000');
   db.exec(SCHEMA);
   migrate(db);
+  stateRoots.set(db, root);
   return db;
 }
 

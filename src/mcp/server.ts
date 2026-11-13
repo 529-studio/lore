@@ -17,6 +17,7 @@ import {
   head,
   inBranch,
   makeCommit,
+  runClaimWriteHooks,
   upsertClaim,
   type ClaimRow,
   type EvidenceKind,
@@ -26,6 +27,7 @@ import { claimFreshness, isStale } from '../merge.js';
 import { searchClaims } from '../retrieval.js';
 import { parseRange, resolveRevision } from '../revision.js';
 import { branchFor, currentSession, recordReads } from '../session.js';
+import { installCanon } from '../canon/index.js';
 
 const SERVER_VERSION = '0.0.1';
 // Newest first. A client asking for an unknown version is negotiated down to the
@@ -401,6 +403,7 @@ function toolApprove(args: ApproveArgs): ToolResult {
                           trust = 'canonical', last_verified_at = ? WHERE id = ?`,
       );
       for (const t of targets) update.run(now, t.id);
+      for (const t of targets) runClaimWriteHooks(ctx.db, t.id);
       makeCommit(ctx.db, {
         ref: ctx.branch,
         entries: targets.map((t) => ({ claim_id: t.id, op: 'add' as const })),
@@ -780,6 +783,7 @@ function handleLine(line: string): void {
 }
 
 export function runMcpServer(): void {
+  installCanon();
   log(`lore mcp v${SERVER_VERSION} — ${TOOLS.length} tools — protocol on stdout, logs on stderr`);
   const rl = createInterface({ input: process.stdin, terminal: false });
   rl.on('line', (line) => handleLine(line));
