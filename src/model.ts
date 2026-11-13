@@ -67,6 +67,21 @@ export function claimIsEligible(db: DB, claim: ClaimRow): boolean {
   return claimEligibilityHooks.every((hook) => hook(db, claim));
 }
 
+/**
+ * Retraction hook: a claim leaving the live set can close the conflicts it
+ * participated in and restore the other side. Canon owns that decision.
+ */
+export type ClaimRetractHook = (db: DB, claimId: string, actor: string) => void;
+const claimRetractHooks: ClaimRetractHook[] = [];
+
+export function registerClaimRetractHook(hook: ClaimRetractHook): void {
+  claimRetractHooks.push(hook);
+}
+
+export function runClaimRetractHooks(db: DB, claimId: string, actor: string): void {
+  for (const hook of claimRetractHooks) hook(db, claimId, actor);
+}
+
 export interface UpsertResult {
   id: string;
   inserted: boolean;

@@ -1,6 +1,7 @@
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { explainTarget, type ClaimExplanation } from '../canon/explain.js';
+import { oneLine } from '../util/text.js';
 
 export interface ExplainOptions {
   json?: boolean;
@@ -35,14 +36,14 @@ function printClaim(c: ClaimExplanation): void {
         : pc.yellow(c.trust);
 
   console.log(pc.bold(c.id));
-  console.log(`  subject    ${pc.cyan(c.subject)}`);
-  console.log(`  predicate  ${pc.bold(c.predicate)}`);
-  console.log(`  object     ${c.object}`);
+  console.log(`  subject    ${pc.cyan(oneLine(c.subject))}`);
+  console.log(`  predicate  ${pc.bold(oneLine(c.predicate))}`);
+  console.log(`  object     ${oneLine(c.object)}`);
   console.log(`  state      ${state}  ${pc.dim(c.in_branch ? `in ${c.branch}` : `not in ${c.branch}`)}`);
   console.log(`  trust      ${trust}`);
-  console.log(`  why        ${c.trust_reason}`);
+  console.log(`  why        ${oneLine(c.trust_reason)}`);
   console.log(
-    `  written by ${c.written_by} via ${c.author}  ${pc.dim(
+    `  written by ${c.written_by} via ${oneLine(c.author)}  ${pc.dim(
       `agent ${c.agent_id ?? '-'}  session ${c.session_id ?? '-'}  run ${c.run_id ?? '-'}`,
     )}`,
   );
@@ -61,7 +62,7 @@ function printClaim(c: ClaimExplanation): void {
     for (const e of c.evidence) {
       console.log(
         pc.dim(
-          `    ${e.kind}:${e.ref}  ${shortHash(e.hash)}  commit ${e.commit_id ?? '-'}  ` +
+          `    ${oneLine(e.kind)}:${oneLine(e.ref)}  ${shortHash(e.hash)}  commit ${e.commit_id ?? '-'}  ` +
             `verified ${age(e.age_days)}  ${e.status}`,
         ),
       );
@@ -70,7 +71,7 @@ function printClaim(c: ClaimExplanation): void {
   console.log(`  freshness  ${c.freshness}${c.open_conflicts ? pc.red(`  open conflicts ${c.open_conflicts}`) : ''}`);
   if (c.decay) console.log(`  decay      ${pc.red(c.decay.trigger)} — ${c.decay.detail}`);
   if (c.supersedes.length) {
-    console.log(`  supersedes ${c.supersedes.map((s) => `${s.id} (${s.object})`).join(' <- ')}`);
+    console.log(`  supersedes ${c.supersedes.map((s) => `${s.id} (${oneLine(s.object)})`).join(' <- ')}`);
   } else {
     console.log(pc.dim('  supersedes none'));
   }
@@ -79,7 +80,7 @@ function printClaim(c: ClaimExplanation): void {
     const status = conflict.resolved ? pc.dim('resolved') : pc.red('open');
     console.log(
       `  conflict   #${conflict.id} tier ${conflict.tier} ${status} with ${conflict.with}` +
-        pc.dim(`  ${conflict.reason}`),
+        pc.dim(`  ${oneLine(conflict.reason)}`),
     );
   }
 }

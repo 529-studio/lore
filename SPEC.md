@@ -340,7 +340,7 @@ score breakdown, so a human can audit why something ranked high. The budget is a
 
 ```
 lore init | ingest | write | search | blame | status
-lore explain | canon status | canon decay | canon confirm | canon metrics
+lore explain | canon status | canon decay | canon confirm | canon resolve | canon metrics
 lore diff | merge | resolve | promote | revert
 lore verify | gc | export --md | mcp
 ```
@@ -430,6 +430,8 @@ No LLM judge. Outcome metrics on real repositories:
 | retrieval filters drafts and stale evidence | retrieval also requires `trust = canonical`; contested facts produce a warning line, never content | trust is orthogonal to branch membership and freshness |
 | stale is derived on read | `canon decay` persists `trust = stale` with `invalidated_by_json`; the read path lazily checks TTL and disappeared paths | shared memory needs a durable stale answer and a reason |
 | evidence commit must be an ancestor | a non-ancestor stays `ahead-of-checkout`, not stale | an older checkout must not invalidate an observation made on newer code |
+| sync carries commits only | bundle import also merges per-claim trust: retracted wins, then newer verification, then the more restrictive trust; conflict resolution flags propagate | a fetch must not resurrect a contested value |
+| canonical trust changes only through evidence | `canon resolve` keeps one live value and retracts the rest; redact/purge/GC close the pair and restore the survivor | contested memory needs a deliberate, auditable exit |
 | no team sync | `lore remote` + `fetch`/`push` over a shared directory or Postgres, `bundle` for air gaps | internal and air-gapped repositories cannot depend on a git host |
 | `--as-of` reads the commit at that instant | folds the whole ancestry, skipping commits after the instant | a single commit chain hides facts on sibling branches before a merge |
 | hash cache keyed by content | keyed by size, mtime and ctime | mtime can be restored; ctime changes on any inode write |

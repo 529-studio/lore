@@ -29,13 +29,25 @@ export function canonStatus(db: DB): CanonStatus {
   }
 
   const unresolved = (
-    db.prepare('SELECT COUNT(*) n FROM claim_conflict WHERE resolved = 0').get() as { n: number }
+    db
+      .prepare(
+        `SELECT COUNT(*) n FROM claim_conflict cc
+         JOIN claim l ON l.id = cc.left_claim
+         JOIN claim r ON r.id = cc.right_claim
+         WHERE cc.resolved = 0 AND l.state = 'active' AND r.state = 'active'
+           AND l.trust = 'contested' AND r.trust = 'contested'`,
+      )
+      .get() as { n: number }
   ).n;
   const facts = (
     db
       .prepare(
         `SELECT COUNT(*) n FROM (
-           SELECT DISTINCT subject_id, predicate FROM claim_conflict WHERE resolved = 0
+           SELECT DISTINCT cc.subject_id, cc.predicate FROM claim_conflict cc
+           JOIN claim l ON l.id = cc.left_claim
+           JOIN claim r ON r.id = cc.right_claim
+           WHERE cc.resolved = 0 AND l.state = 'active' AND r.state = 'active'
+             AND l.trust = 'contested' AND r.trust = 'contested'
          )`,
       )
       .get() as { n: number }

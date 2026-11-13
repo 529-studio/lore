@@ -35,7 +35,7 @@ import { statusCommand } from './commands/status.js';
 import { supersedeCommand } from './commands/supersede.js';
 import { searchCommand } from './commands/search.js';
 import { explainCommand } from './commands/explain.js';
-import { canonConfirmCommand, canonDecayCommand, canonMetricsCommand, canonStatusCommand } from './commands/canon.js';
+import { canonConfirmCommand, canonDecayCommand, canonMetricsCommand, canonResolveCommand, canonStatusCommand } from './commands/canon.js';
 import { verifyCommand } from './commands/verify.js';
 import { writeCommand } from './commands/write.js';
 import type { EvidenceKind } from './model.js';
@@ -428,6 +428,16 @@ canon
   .description('human re-assertion: clear decay, refresh last_verified_at and confirmations')
   .option('--json', 'machine-readable JSON')
   .action((claim, opts) => canonConfirmCommand(claim, { json: opts.json }));
+
+canon
+  .command('resolve <subject:predicate>')
+  .description('keep one claim, retract its competitors and close the tier-1 conflict')
+  .requiredOption('--keep <claim-id>', 'claim id that should win')
+  .option('--reason <text>', 'why this value wins')
+  .option('--json', 'machine-readable JSON')
+  .action((target, opts) =>
+    canonResolveCommand(target, { keep: opts.keep, reason: opts.reason, json: opts.json }),
+  );
 
 canon
   .command('metrics')

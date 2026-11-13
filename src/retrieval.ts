@@ -4,6 +4,7 @@ import { evidenceFor, activeAtAsOf, head, claimIsEligible, type ClaimRow } from 
 import { byKey, claimFreshness, isStale } from './merge.js';
 import { loadOntology } from './ontology.js';
 import { branchFor, currentSession } from './session.js';
+import { oneLine } from './util/text.js';
 
 export interface SearchOptions {
   query?: string;
@@ -366,7 +367,7 @@ function contestedFacts(db: DB, ctx: ScopeContext, activeIds: Set<string>): Cont
 
 /** The one warning line every reader prints for a contested fact. */
 export function contestedWarning(fact: ContestedFact): string {
-  return `memory contested: ${fact.subject}:${fact.predicate} — see lore explain`;
+  return `memory contested: ${oneLine(fact.subject)}:${oneLine(fact.predicate)} — see lore explain`;
 }
 
 /**

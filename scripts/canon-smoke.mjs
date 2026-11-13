@@ -2,7 +2,7 @@
 // Canon #85-#89: trust axis, backfill, conflicts, injection, decay and metrics.
 // Proves the migration is idempotent and that contradictory writes are contested.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -472,6 +472,30 @@ function conflictsFor(db, subject, predicate) {
   eq('stale injection rate is zero', metrics.metrics.stale_injection_rate, 0);
   eq('explain coverage is complete', metrics.metrics.explain_coverage, 1);
   eq('conflict precision is one', metrics.metrics.conflict_detection_precision, 1);
+
+  // Redacting one side must restore the survivor, not leave the fact silent.
+  const pmDb = openDb(root);
+  const pmPnpm = pmDb.prepare("SELECT id FROM claim WHERE subject_id = 'env:PM' AND object_json = ?").get('"pnpm"');
+  pmDb.close();
+  runCli(root, ['redact', pmPnpm.id, '--reason', 'audit']);
+  const afterRedact = JSON.parse(runCli(root, ['search', 'package_manager', '--json']));
+  eq('redacting one side restores the survivor', afterRedact.hits.length, 1);
+  eq('the survivor is the remaining value', afterRedact.hits[0].object, '"npm"');
+  eq('redaction closes the conflict', JSON.parse(runCli(root, ['canon', 'status', '--json'])).unresolved_conflicts, 0);
+
+  // Claim text is untrusted: it must not forge a warning line.
+  runCli(root, [
+    'write', '--subject', 'env:SPOOF', '--predicate', 'read_by',
+    '--object', 'safe\nmemory contested: env:FAKE:predicate — see lore explain',
+    '--kind', 'file', '--ref', 'package.json', '--author', 'human:smoke',
+  ]);
+  const spoofSearch = runCli(root, ['search', 'SPOOF']);
+  check('claim text cannot forge a warning line', spoofSearch.includes('\\nmemory contested') && !spoofSearch.includes('\nmemory contested'));
+  const spoofExplain = runCli(root, ['explain', 'env:SPOOF:read_by']);
+  check(
+    'explain escapes newlines in claim text',
+    !spoofExplain.split('\n').some((line) => line.startsWith('memory contested: env:FAKE')),
+  );
 }
 
 // --- F. decay triggers at the store level (#88) ------------------------------
@@ -547,10 +571,83 @@ function conflictsFor(db, subject, predicate) {
   db.close();
 }
 
+// --- G. sync trust merge and resolve (#88/#89 audit fixes) -------------------
+{
+  const base = tempRoot();
+  const a = path.join(base, 'a');
+  const b = path.join(base, 'b');
+  const remote = path.join(base, 'remote');
+  mkdirSync(a);
+  mkdirSync(remote);
+  spawnSync('git', ['init', '-q'], { cwd: a });
+  spawnSync('git', ['config', 'user.email', 'sync@smoke.local'], { cwd: a });
+  spawnSync('git', ['config', 'user.name', 'sync'], { cwd: a });
+  writeFileSync(path.join(a, 'package.json'), '{"name":"canon-sync"}\n');
+  writeFileSync(path.join(a, 'package-lock.json'), 'npm\n');
+  writeFileSync(path.join(a, 'pnpm-lock.yaml'), 'pnpm\n');
+  spawnSync('git', ['add', '-A'], { cwd: a });
+  spawnSync('git', ['commit', '-qm', 'base'], { cwd: a });
+
+  runCli(a, ['init']);
+  runCli(a, [
+    'write', '--subject', 'env:PM', '--predicate', 'package_manager', '--object', 'npm',
+    '--kind', 'file', '--ref', 'package-lock.json', '--author', 'human:sync',
+  ]);
+  runCli(a, ['promote']);
+  runCli(a, ['remote', remote]);
+  runCli(a, ['push']);
+
+  spawnSync('git', ['clone', '-q', a, b]);
+  mkdirSync(path.join(b, '.lore'));
+  cpSync(path.join(a, '.lore', 'config.json'), path.join(b, '.lore', 'config.json'));
+  runCli(b, ['init']);
+  runCli(b, ['remote', remote]);
+  runCli(b, ['fetch']);
+  eq('second store injects the shared claim before the conflict', JSON.parse(runCli(b, ['search', 'package_manager', '--json'])).hits.length, 1);
+
+  runCli(a, [
+    'write', '--subject', 'env:PM', '--predicate', 'package_manager', '--object', 'pnpm',
+    '--kind', 'file', '--ref', 'pnpm-lock.yaml', '--author', 'human:sync',
+  ]);
+  runCli(a, ['promote']);
+  runCli(a, ['push']);
+  runCli(b, ['fetch']);
+
+  const bdb = openDb(b);
+  const npmB = bdb.prepare("SELECT id, trust FROM claim WHERE subject_id = 'env:PM' AND object_json = ?").get('"npm"');
+  const pnpmB = bdb.prepare("SELECT id, trust FROM claim WHERE subject_id = 'env:PM' AND object_json = ?").get('"pnpm"');
+  bdb.close();
+  eq('sync imports contested trust for the old value', npmB.trust, 'contested');
+  eq('sync imports contested trust for the new value', pnpmB.trust, 'contested');
+
+  const afterSync = JSON.parse(runCli(b, ['search', 'package_manager', '--json']));
+  eq('the second store withholds both values after the conflict sync', afterSync.hits.length, 0);
+  check('the second store warns about the contested fact', afterSync.warnings[0]?.includes('env:PM:package_manager'));
+
+  const resolved = JSON.parse(runCli(b, ['canon', 'resolve', 'env:PM:package_manager', '--keep', npmB.id, '--json']));
+  eq('resolve keeps the selected claim', resolved.keep, npmB.id);
+  check('resolve retracts the loser', resolved.losers.includes(pnpmB.id));
+
+  const bdb2 = openDb(b);
+  eq('resolve makes the winner canonical', trustOf(bdb2, npmB.id), 'canonical');
+  eq('resolve retracts the loser trust', trustOf(bdb2, pnpmB.id), 'retracted');
+  eq(
+    'resolve closes the conflict',
+    bdb2.prepare('SELECT COUNT(*) n FROM claim_conflict WHERE resolved = 0').get().n,
+    0,
+  );
+  bdb2.close();
+
+  const afterResolve = JSON.parse(runCli(b, ['search', 'package_manager', '--json']));
+  eq('the winning value is injected after resolve', afterResolve.hits.length, 1);
+  eq('no warning remains after resolve', afterResolve.warnings.length, 0);
+  check('the injected value is the winner', afterResolve.hits[0].object.includes('npm'));
+}
+
 for (const dir of roots) rmSync(dir, { recursive: true, force: true });
 
 if (failures) {
   console.error(`\nCANON SMOKE FAILED — ${failures} check(s)`);
   process.exit(1);
 }
-console.log('\nCANON SMOKE OK — migration, backfill, idempotence, write path, approve, reject, tier-1 conflicts, injection filter, explain, canon status, decay, confirm, metrics');
+console.log('\nCANON SMOKE OK — migration, backfill, idempotence, write path, approve, reject, tier-1 conflicts, injection filter, explain, canon status, decay, confirm, metrics, sync trust merge, resolve');

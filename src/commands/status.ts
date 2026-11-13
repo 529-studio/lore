@@ -7,6 +7,7 @@ import { claimFreshness } from '../merge.js';
 import { readConfig } from '../config.js';
 import { isAncestor } from '../sync.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
+import { canonStatus } from '../canon/status.js';
 
 interface CountRow {
   state: string;
@@ -73,10 +74,17 @@ export function statusCommand(opts: StatusOptions = {}): void {
   const branchActive = activeAt(db, head(db, ref) ?? head(db, 'main')).size;
 
   const conflicts = (db.prepare('SELECT COUNT(*) n FROM merge_conflict WHERE resolved = 0').get() as { n: number }).n;
+  const canon = canonStatus(db);
   const gcEligible = gcCandidates(db, { ttlSessions: 3 }).length;
 
   console.log(pc.bold('lore status'));
   console.log(`  claims     ${pc.bold(String(total))} total  ${pc.green(`${byState.get('active') ?? 0} active`)}  ${pc.yellow(`${byState.get('draft') ?? 0} draft`)}  ${pc.red(`${byState.get('retracted') ?? 0} retracted`)}`);
+  console.log(
+    `  trust      ${pc.green(`${canon.trust.canonical} canonical`)}  ${pc.yellow(`${canon.trust.candidate} candidate`)}  ` +
+      `${canon.trust.contested ? pc.red(`${canon.trust.contested} contested`) : pc.dim('0 contested')}  ` +
+      `${canon.trust.stale ? pc.red(`${canon.trust.stale} stale`) : pc.dim('0 stale')}  ` +
+      `${canon.trust.retracted ? pc.red(`${canon.trust.retracted} retracted`) : pc.dim('0 retracted')}`,
+  );
   console.log(`  branch     ${ref}  ${pc.dim(`${branchActive} claims in the active set`)}`);
   console.log(`  commits    ${commits}   branches ${branches}`);
 
@@ -101,7 +109,7 @@ export function statusCommand(opts: StatusOptions = {}): void {
   }
   console.log(`  stale      ${stale.length ? pc.red(String(stale.length)) : pc.green('0')} ${pc.dim('(evidence hash no longer matches)')}`);
   console.log(`  ahead      ${ahead.length ? pc.yellow(String(ahead.length)) : pc.green('0')} ${pc.dim('(claim observed on newer code than this checkout)')}`);
-  console.log(`  conflicts  ${conflicts ? pc.red(String(conflicts)) : pc.green('0')} ${pc.dim('(unresolved merges)')}`);
+  console.log(`  conflicts  ${conflicts ? pc.red(String(conflicts)) : pc.green('0')} ${pc.dim('(unresolved merges)')}  ${canon.unresolved_conflicts ? pc.red(String(canon.unresolved_conflicts)) : pc.green('0')} ${pc.dim('(tier-1 facts)')}`);
   console.log(`  gc         ${gcEligible ? pc.yellow(String(gcEligible)) : pc.green('0')} ${pc.dim('drafts unreviewed for 3 sessions — run lore gc')}`);
 
   if (opts.stats) {

@@ -1,10 +1,12 @@
 import { stateRootFor } from '../db.js';
-import { registerClaimEligibilityHook, registerClaimWriteHook } from '../model.js';
+import { registerClaimEligibilityHook, registerClaimRetractHook, registerClaimWriteHook } from '../model.js';
 import { detectTier1Conflicts } from './conflicts.js';
 import { evaluateDecay } from './decay.js';
+import { closeConflictsForClaim } from './resolve.js';
 
 export { detectTier1Conflicts, type Tier1Conflict } from './conflicts.js';
 export { evaluateDecay, markDecay, restoreAfterReverify, sweepDecay, type DecayResult, type DecayTrigger } from './decay.js';
+export { closeConflictsForClaim, resolveFact, type ResolveResult } from './resolve.js';
 
 let installed = false;
 
@@ -25,4 +27,5 @@ export function installCanon(): void {
     if (!root) return true;
     return evaluateDecay(db, root, claim, { checkHash: false }) === null;
   });
+  registerClaimRetractHook((db, claimId, actor) => closeConflictsForClaim(db, claimId, actor));
 }

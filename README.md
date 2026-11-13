@@ -195,19 +195,19 @@ Agents never write to `main`; you decide what gets promoted. Full details: [docs
 lore init                      initialise .lore/ and the ontology
 lore ingest [--dry-run]        derive claims from deterministic extractors
 lore write                     write one claim (draft for agent/human evidence); --valid-from <iso>
-lore search "<query>"          score the active set; only active+canonical claims are injected
+lore search "<query>"          score active+canonical claims; --as-of reads history
 lore explain <claim|key>       why a claim is injected: trust, provenance, evidence
-lore canon status|decay|confirm|metrics  trust, decay, re-confirm, outcome metrics
+lore canon status|decay|confirm|resolve|metrics  trust, decay, re-confirm, resolve, metrics
 lore blame <subject>           provenance: author, evidence, branch membership
 lore status [--strict]         health: active, draft, stale, conflicts, GC candidates
 lore diff <from>..<to>         claims added/removed between revisions
-lore merge <branch>           3-way merge; aborts with exit 2 on real conflicts
+lore merge <branch>           3-way merge; exit 2 on real conflicts
 lore resolve <subject> <pred>  record a human decision for one conflict
-lore promote                   merge the current branch into main
+lore promote                   merge current branch into main
 lore revert <commit>           inverse commit, history preserved
 lore verify <claim> | --all    re-hash evidence; --accept stores a legitimate change
 lore guard [--staged]         scan for secrets before they enter a claim
-lore identity [issue]         show identity or issue a team token
+lore identity [issue]         show identity or issue a token
 lore alias add <name> <id>    name an entity ("refund flow" -> doc:...#refund-flow)
 lore rename <old> <new>       move entities and evidence after a file rename
 lore onboard                  detect the stack, pick a template, ingest

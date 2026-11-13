@@ -4,8 +4,10 @@ import path from 'node:path';
 import { openDb, requireRoot } from '../db.js';
 import { canonStatus, TRUST_ORDER } from '../canon/status.js';
 import { restoreAfterReverify, sweepDecay } from '../canon/decay.js';
+import { resolveFact } from '../canon/resolve.js';
 import { canonMetrics } from '../canon/metrics.js';
 import { requireAction } from '../policy.js';
+import { branchFor, ensureSession } from '../session.js';
 import { gitHead } from '../util/git.js';
 
 export interface CanonStatusOptions {
@@ -24,6 +26,12 @@ export interface CanonConfirmOptions {
 export interface CanonMetricsOptions {
   json?: boolean;
   out?: string;
+}
+
+export interface CanonResolveOptions {
+  keep: string;
+  reason?: string;
+  json?: boolean;
 }
 
 /** lore canon status — trust counts and unresolved tier-1 conflicts. */
@@ -126,6 +134,32 @@ export function canonConfirmCommand(claimId: string, opts: CanonConfirmOptions =
   console.log(`${pc.green('•')} ${pc.bold(claimId)} ${pc.green(row.trust)} ${pc.dim(`confirmed by ${principal.id}`)}`);
   console.log(pc.dim(`  last verified ${row.last_verified_at}  confirmations ${row.confirmations}`));
   if (trust === 'contested') console.log(pc.yellow('  still contested: resolve the open tier-1 conflict first'));
+}
+
+/** lore canon resolve — keep one value, retract its competitors, close the conflict. */
+export function canonResolveCommand(target: string, opts: CanonResolveOptions): void {
+  const root = requireRoot();
+  const db = openDb(root);
+  const idx = target.lastIndexOf(':');
+  if (idx <= 0 || idx === target.length - 1) {
+    throw new Error(`expected subject:predicate, got: ${target}`);
+  }
+  const subject = target.slice(0, idx);
+  const predicate = target.slice(idx + 1);
+
+  const principal = requireAction(root, 'resolve', { subject });
+  const session = ensureSession(db, root);
+  const ref = branchFor(session);
+  const result = resolveFact(db, root, ref, subject, predicate, opts.keep, principal, opts.reason);
+  db.close();
+
+  if (opts.json) {
+    console.log(JSON.stringify({ schema: 1, principal: principal.id, ...result }, null, 2));
+    return;
+  }
+  console.log(`${pc.green('•')} kept ${pc.bold(result.keep)} for ${pc.cyan(subject)} ${pc.dim('—')} ${pc.bold(predicate)}`);
+  console.log(pc.dim(`  winner trust ${result.winner_trust}; retracted ${result.losers.join(', ')}`));
+  console.log(pc.dim(`  closed ${result.resolved_conflicts} conflict(s)${result.commit ? `; commit ${result.commit}` : ''}`));
 }
 
 /** lore canon metrics — five outcome numbers, printed and written as JSON. */

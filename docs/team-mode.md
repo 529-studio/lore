@@ -44,6 +44,9 @@ read the local store.
   Azure DevOps, GitLab self-host, a bare directory and a public GitHub repo all work the same way.
 - **Sync is the commit DAG, not a new protocol.** `lore fetch` pulls missing commits and merges them
   with the existing ladder. `lore push` sends local commits. There is no CRDT and no realtime channel.
+- **Trust travels with the claims.** Import merges per-claim trust: retracted wins, then the newer
+  `last_verified_at`, then the more restrictive state. A conflict or a resolution cannot be silently
+  undone by `fetch`.
 - **Offline is a queue.** Writes always land locally; push happens when a remote is configured and
   reachable. Nothing blocks on the network.
 - **Air-gapped sharing uses bundles.** `lore bundle export` writes the missing commits, signed and

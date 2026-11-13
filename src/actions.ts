@@ -1,5 +1,5 @@
 import type { DB } from './db.js';
-import { activeAt, head, inBranch, makeCommit, runClaimWriteHooks, upsertClaim, type ClaimRow } from './model.js';
+import { activeAt, head, inBranch, makeCommit, runClaimRetractHooks, runClaimWriteHooks, upsertClaim, type ClaimRow } from './model.js';
 import { requireAction } from './policy.js';
 import type { Principal } from './identity.js';
 import { resolveRevision } from './revision.js';
@@ -82,6 +82,7 @@ export function rejectDraft(db: DB, root: string, ref: string, id: string, reaso
 
   db.transaction(() => {
     db.prepare("UPDATE claim SET state = 'retracted', trust = 'retracted' WHERE id = ?").run(id);
+    runClaimRetractHooks(db, id, `human:${principal.id}`);
     if (inBranch(db, ref, id)) {
       commitId = makeCommit(db, {
         ref,

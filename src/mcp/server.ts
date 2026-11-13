@@ -29,6 +29,7 @@ import { parseRange, resolveRevision } from '../revision.js';
 import { branchFor, currentSession, recordReads } from '../session.js';
 import { installCanon } from '../canon/index.js';
 import { loadOntology } from '../ontology.js';
+import { oneLine } from '../util/text.js';
 
 const SERVER_VERSION = '0.0.1';
 // Newest first. A client asking for an unknown version is negotiated down to the
@@ -145,9 +146,9 @@ function toolSearch(args: SearchArgs): ToolResult {
         ? `${hits.length} hit(s):\n${structured
             .map(
               (h) =>
-                `[${h.score}] ${h.subject} — ${h.predicate}: ${h.object}${h.stale ? ' (STALE)' : ''}\n` +
-                `  ${h.id} T${h.authority} ${h.author}\n` +
-                h.evidence.map((e) => `  evidence: ${e.kind}:${e.ref} (${e.status})`).join('\n'),
+                `[${h.score}] ${oneLine(h.subject)} — ${oneLine(h.predicate)}: ${oneLine(h.object)}${h.stale ? ' (STALE)' : ''}\n` +
+                `  ${h.id} T${h.authority} ${oneLine(h.author)}\n` +
+                h.evidence.map((e) => `  evidence: ${oneLine(e.kind)}:${oneLine(e.ref)} (${e.status})`).join('\n'),
             )
             .join('\n')}`
         : 'no hits — run `lore ingest` or widen the scope',
@@ -185,6 +186,12 @@ function toolWrite(args: WriteArgs): ToolResult {
     (typeof args.confidence !== 'number' || args.confidence < 0 || args.confidence > 1)
   ) {
     throw new Error('confidence must be a number in [0, 1]');
+  }
+  if (
+    args.ttl_days !== undefined &&
+    (typeof args.ttl_days !== 'number' || !Number.isFinite(args.ttl_days) || args.ttl_days < 0)
+  ) {
+    throw new Error('ttl_days must be a finite, non-negative number');
   }
 
   const ctx = context();
@@ -231,8 +238,8 @@ function toolWrite(args: WriteArgs): ToolResult {
 
     const text =
       `wrote ${result.id} (${result.state}) to ${ctx.branch}\n` +
-      `  ${subject} — ${predicate}: ${object}\n` +
-      `  evidence: ${kind}:${evidenceRef}` +
+      `  ${oneLine(subject)} — ${oneLine(predicate)}: ${oneLine(object)}\n` +
+      `  evidence: ${oneLine(kind)}:${oneLine(evidenceRef)}` +
       (hash ? ` @ ${hash.slice(0, 15)}…` : '') +
       (result.state === 'draft' ? '\n  draft — not in retrieval until approved (lore approve)' : '');
 
@@ -283,7 +290,7 @@ function toolBlame(args: BlameArgs): ToolResult {
     const text = structured
       .map(
         (c) =>
-          `${c.subject} — ${c.predicate}: ${c.object}\n` +
+          `${oneLine(c.subject)} — ${oneLine(c.predicate)}: ${oneLine(c.object)}\n` +
           `  ${c.id} ${c.state}${c.in_branch ? '' : ' (out-of-branch)'} T${c.authority} conf ${c.confidence.toFixed(2)} ${c.author}\n` +
           c.evidence.map((e) => `  ↳ ${e.kind}:${e.ref} ${e.status}`).join('\n'),
       )
@@ -368,9 +375,9 @@ function toolDiff(args: DiffArgs): ToolResult {
     const removed = side([...a.keys()].filter((id) => !b.has(id)));
     const text =
       `${from.label} .. ${to.label}\n` +
-      added.map((c) => `+ ${c.subject} — ${c.predicate}: ${c.object}`).join('\n') +
+      added.map((c) => `+ ${oneLine(c.subject)} — ${oneLine(c.predicate)}: ${oneLine(c.object)}`).join('\n') +
       (added.length && removed.length ? '\n' : '') +
-      removed.map((c) => `- ${c.subject} — ${c.predicate}: ${c.object}`).join('\n') +
+      removed.map((c) => `- ${oneLine(c.subject)} — ${oneLine(c.predicate)}: ${oneLine(c.object)}`).join('\n') +
       (added.length || removed.length ? '' : 'no claim changes');
     return {
       content: [{ type: 'text', text }],

@@ -5,6 +5,7 @@ import { openDb, requireRoot } from '../db.js';
 import { activeAt, head, type ClaimRow } from '../model.js';
 import { isStale } from '../merge.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
+import { oneLine } from '../util/text.js';
 
 export interface ExportOptions {
   md?: boolean;
@@ -71,7 +72,7 @@ export function exportCommand(opts: ExportOptions): void {
       objectForSort: objectOf(row),
       stale: isStale(db, root, row.id),
       evidence: evidence
-        .map((e) => `<!-- evidence: ${e.kind}:${e.ref}${evidenceDate(e) ? ` @ ${evidenceDate(e)}` : ''} -->`)
+        .map((e) => `<!-- evidence: ${oneLine(e.kind)}:${oneLine(e.ref)}${evidenceDate(e) ? ` @ ${evidenceDate(e)}` : ''} -->`)
         .join('\n'),
     });
     bySubject.set(row.subject_id, list);
@@ -93,16 +94,16 @@ export function exportCommand(opts: ExportOptions): void {
     const inline = claims.filter((c) => !c.stale || opts.includeStale);
     const stale = claims.filter((c) => c.stale && !opts.includeStale);
     if (inline.length) {
-      lines.push('', `## ${subjectName(subject)} (${subject})`);
+      lines.push('', `## ${oneLine(subjectName(subject))} (${oneLine(subject)})`);
       for (const c of inline) {
         claimCount++;
-        lines.push(`- **${c.predicate}**: ${c.object}`);
+        lines.push(`- **${oneLine(c.predicate)}**: ${oneLine(c.object)}`);
         if (c.evidence) lines.push(...c.evidence.split('\n').map((e) => `  ${e}`));
       }
     }
     for (const c of stale) {
       staleCount++;
-      staleLines.push(`- **${subject} — ${c.predicate}**: ${c.object}`);
+      staleLines.push(`- **${oneLine(subject)} — ${oneLine(c.predicate)}**: ${oneLine(c.object)}`);
       staleLines.push('  <!-- stale: evidence changed since observation; run `lore verify` -->');
     }
   }

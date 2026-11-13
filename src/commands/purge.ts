@@ -1,5 +1,6 @@
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
+import { runClaimRetractHooks } from '../model.js';
 import { requireAction } from '../policy.js';
 
 export interface PurgeOptions {
@@ -27,6 +28,7 @@ export function purgeCommand(opts: PurgeOptions): void {
   const now = new Date().toISOString();
 
   const apply = db.transaction(() => {
+    runClaimRetractHooks(db, opts.claim, actor);
     db.prepare('DELETE FROM commit_entry WHERE claim_id = ?').run(opts.claim);
     db.prepare('DELETE FROM evidence WHERE claim_id = ?').run(opts.claim);
     db.prepare('UPDATE claim SET supersedes = NULL WHERE supersedes = ?').run(opts.claim);

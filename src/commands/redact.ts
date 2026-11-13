@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
-import { inBranch, makeCommit, type ClaimRow } from '../model.js';
+import { inBranch, makeCommit, runClaimRetractHooks, type ClaimRow } from '../model.js';
 import { branchFor, ensureSession } from '../session.js';
 import { requireAction } from '../policy.js';
 
@@ -39,6 +39,7 @@ export function redactCommand(opts: RedactOptions): void {
     db.prepare(
       'INSERT INTO redaction(claim_id, original_hash, actor, reason, ts) VALUES (?, ?, ?, ?, ?)',
     ).run(opts.claim, originalHash, actor, opts.reason ?? null, now);
+    runClaimRetractHooks(db, opts.claim, actor);
 
     if (inBranch(db, ref, opts.claim)) {
       makeCommit(db, {

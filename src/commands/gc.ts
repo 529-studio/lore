@@ -1,6 +1,7 @@
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { gcCandidates } from '../gc.js';
+import { runClaimRetractHooks } from '../model.js';
 import { ensureSession } from '../session.js';
 import { pruneHashCache } from '../hash-cache.js';
 
@@ -38,7 +39,10 @@ export function gcCommand(opts: GcOptions): void {
 
   const update = db.prepare("UPDATE claim SET state = 'retracted', trust = 'retracted' WHERE id = ?");
   db.transaction(() => {
-    for (const c of candidates) update.run(c.id);
+    for (const c of candidates) {
+      update.run(c.id);
+      runClaimRetractHooks(db, c.id, 'lore:gc');
+    }
   })();
 
   const pruned = pruneHashCache(db);

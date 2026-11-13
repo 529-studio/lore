@@ -3,6 +3,7 @@ import { openDb, requireRoot } from '../db.js';
 import { contestedWarning, searchMemory } from '../retrieval.js';
 import { setHashCacheEnabled } from '../hash-cache.js';
 import { evidenceFor } from '../model.js';
+import { oneLine } from '../util/text.js';
 
 export interface SearchCommandOptions {
   query?: string;
@@ -85,11 +86,11 @@ export function searchCommand(opts: SearchCommandOptions): void {
     }
     const badge = h.stale ? pc.red(' STALE') : '';
     console.log(
-      `  [${i + 1}] ${pc.bold(pc.green(h.score.toFixed(1)))}  ${pc.cyan(c.subject_id)} ${pc.dim('—')} ${pc.bold(
-        c.predicate,
-      )} ${pc.dim('—')} ${object}${badge}`,
+      `  [${i + 1}] ${pc.bold(pc.green(h.score.toFixed(1)))}  ${pc.cyan(oneLine(c.subject_id))} ${pc.dim('—')} ${pc.bold(
+        oneLine(c.predicate),
+      )} ${pc.dim('—')} ${oneLine(object)}${badge}`,
     );
-    console.log(pc.dim(`      ${c.id}  T${c.authority}  ${c.author}`));
-    console.log(pc.dim(`      ${h.reasons.join('  ')}`));
+    console.log(pc.dim(`      ${c.id}  T${c.authority}  ${oneLine(c.author)}`));
+    console.log(pc.dim(`      ${oneLine(h.reasons.join('  '))}`));
   });
 }

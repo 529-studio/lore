@@ -15,7 +15,8 @@ npm version 0.1.1 --no-git-tag-version
 # edit CHANGELOG.md: move Unreleased items under the new version
 
 # 2. verify locally
-npm run build && npm run typecheck && npm run smoke && npm run mcp:smoke
+npm run build && npm run typecheck && npm run smoke && npm run mcp:smoke && npm run canon:smoke
+bash scripts/demo/canon-pnpm.sh
 npm pack --dry-run
 
 # 3. commit and tag
@@ -34,8 +35,8 @@ The `Release` workflow then:
 
 ## What ships
 
-Only `dist/`, `README.md`, `LICENSE` and `package.json` (the `files` field). No sources, no
-`.lore` store, no eval artifacts. `npm pack --dry-run` is the check.
+Only `dist/`, `README.md`, `LICENSE`, `package.json` and `templates/` (the `files` field). No sources,
+no `.lore` store, no eval artifacts. `npm pack --dry-run` is the check.
 
 ## Rollback
 

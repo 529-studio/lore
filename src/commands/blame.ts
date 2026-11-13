@@ -3,6 +3,7 @@ import { openDb, requireRoot } from '../db.js';
 import { activeAt, claimsFor, evidenceFor, head } from '../model.js';
 import { claimFreshness } from '../merge.js';
 import { branchFor, ensureSession, recordReads } from '../session.js';
+import { oneLine } from '../util/text.js';
 
 export function blameCommand(opts: { subject: string; predicate?: string }): void {
   const root = requireRoot();
@@ -46,7 +47,7 @@ export function blameCommand(opts: { subject: string; predicate?: string }): voi
   }
 
   for (const [subject, list] of bySubject) {
-    console.log(pc.bold(pc.cyan(subject)));
+    console.log(pc.bold(pc.cyan(oneLine(subject))));
     for (const c of list) {
       const freshness = claimFreshness(db, root, c.id);
       const redaction = db.prepare('SELECT reason FROM redaction WHERE claim_id = ?').get(c.id) as
@@ -70,16 +71,16 @@ export function blameCommand(opts: { subject: string; predicate?: string }): voi
           return c.object_json;
         }
       })();
-      console.log(`  ${pc.dim('•')} ${pc.bold(c.predicate)}: ${obj}`);
+      console.log(`  ${pc.dim('•')} ${pc.bold(oneLine(c.predicate))}: ${oneLine(obj)}`);
       console.log(
         pc.dim(
-          `    ${c.id}  ${state}  T${c.authority}  conf ${c.confidence.toFixed(2)}  ${c.author}  ${c.tx_from.replace('T', ' ').slice(0, 16)}${c.valid_from ? `  valid_from ${c.valid_from.slice(0, 10)}` : ''}${c.valid_to ? `  -> valid_to ${c.valid_to.slice(0, 10)}` : ''}`,
+          `    ${c.id}  ${state}  T${c.authority}  conf ${c.confidence.toFixed(2)}  ${oneLine(c.author)}  ${c.tx_from.replace('T', ' ').slice(0, 16)}${c.valid_from ? `  valid_from ${c.valid_from.slice(0, 10)}` : ''}${c.valid_to ? `  -> valid_to ${c.valid_to.slice(0, 10)}` : ''}`,
         ),
       );
-      if (redaction) console.log(pc.dim(`    ↳ redacted${redaction.reason ? `: ${redaction.reason}` : ''}`));
+      if (redaction) console.log(pc.dim(`    ↳ redacted${redaction.reason ? `: ${oneLine(redaction.reason)}` : ''}`));
       for (const ev of evidenceFor(db, c.id)) {
         const badge = ev.status === 'valid' ? pc.green('valid') : pc.red(ev.status);
-        console.log(pc.dim(`    ↳ ${ev.kind}:${ev.ref} `) + badge + pc.dim(ev.hash ? ` ${ev.hash.slice(0, 15)}…` : ''));
+        console.log(pc.dim(`    ↳ ${oneLine(ev.kind)}:${oneLine(ev.ref)} `) + badge + pc.dim(ev.hash ? ` ${ev.hash.slice(0, 15)}…` : ''));
       }
     }
     console.log();

@@ -103,7 +103,8 @@ Performs a real handshake (`initialize` → `notifications/initialized` → `too
 ## Deliberate omissions
 
 Redaction and purge are CLI-only. An agent must never be able to erase the evidence of what it learned,
-so there is no `memory_redact` or `memory_purge` tool.
+so there is no `memory_redact` or `memory_purge` tool. Conflict resolution (`lore canon resolve`) is
+CLI-only for the same reason: an agent must not pick the winner of a contested fact.
 
 ## Protocol negotiation and result schemas
 

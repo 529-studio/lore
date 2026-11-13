@@ -165,6 +165,18 @@ try {
   if (write.result?.isError) fail(`memory_write returned isError: ${JSON.stringify(write.result)}`);
   expectContains(write.result?.structuredContent?.state, 'draft', 'memory_write kind agent → draft');
 
+  const badTtl = await rpc('tools/call', {
+    name: 'memory_write',
+    arguments: {
+      subject: 'concept:bad-ttl',
+      predicate: 'verified_by',
+      object: 'should be rejected',
+      kind: 'agent',
+      ttl_days: -1,
+    },
+  });
+  if (badTtl.result?.isError !== true) fail('memory_write should reject a negative ttl_days');
+
   // the server session matches `.lore/session`, so the write landed on its branch
   const session = readFileSync(path.join(work, '.lore', 'session'), 'utf8').trim();
   const branch = `agent/${session}`;

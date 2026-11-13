@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
 import path from 'node:path';
 import type { DB } from './db.js';
-import { head, makeCommit } from './model.js';
+import { head, makeCommit, type ClaimRow, type Trust } from './model.js';
 import { planMerge } from './merge.js';
 import { loadOntology } from './ontology.js';
 import { readConfig } from './config.js';
@@ -24,6 +24,36 @@ export interface Bundle {
 
 export function bundleFile(remoteDir: string, repoId: string): string {
   return path.join(remoteDir, `${repoId}.lorebundle`);
+}
+
+const TRUST_RANK: Record<Trust, number> = {
+  candidate: 1,
+  canonical: 2,
+  stale: 3,
+  contested: 4,
+  retracted: 5,
+};
+
+function laterIso(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  return a > b ? a : b;
+}
+
+/**
+ * Two stores can legitimately disagree about trust. Retraction wins; otherwise
+ * the newer verification wins; on a tie the more restrictive trust wins. This
+ * keeps a conflict or a retraction from being silently undone by an import.
+ */
+function mergeTrust(
+  local: { trust: Trust; last_verified_at: string | null; tx_from: string },
+  remote: { trust: Trust; last_verified_at: string | null; tx_from: string },
+): Trust {
+  if (local.trust === 'retracted' || remote.trust === 'retracted') return 'retracted';
+  const lt = Date.parse(local.last_verified_at ?? local.tx_from);
+  const rt = Date.parse(remote.last_verified_at ?? remote.tx_from);
+  if (Number.isFinite(lt) && Number.isFinite(rt) && lt !== rt) return lt > rt ? local.trust : remote.trust;
+  return TRUST_RANK[remote.trust] > TRUST_RANK[local.trust] ? remote.trust : local.trust;
 }
 
 /** A bundle carries whole history; the store is text and small. */
@@ -250,14 +280,43 @@ export function importBundle(
       return author.startsWith('agent:') ? author.slice('agent:'.length).split('/')[0] : null;
     };
 
+    const getClaim = db.prepare('SELECT * FROM claim WHERE id = ?');
+    const updateClaim = db.prepare(
+      `UPDATE claim SET trust = ?, last_verified_at = ?, invalidated_by_json = ?,
+                        confirmations = MAX(confirmations, ?), contradictions = MAX(contradictions, ?)
+       WHERE id = ?`,
+    );
+
     for (const row of bundle.claims) {
-      insertClaim.run(
-        row.id, row.subject_id, row.predicate, row.object_json, row.valid_from, row.valid_to,
-        row.tx_from, row.authority, row.confidence, row.author, row.supersedes, row.state,
-        trustOf(row), row.ttl_days ?? null, row.last_verified_at ?? verifiedAt.get(String(row.id)) ?? row.tx_from,
-        row.confirmations ?? 0, row.contradictions ?? 0, row.invalidated_by_json ?? null,
-        writtenBy(row), agentId(row), row.session_id ?? null, row.run_id ?? null, row.tags_json ?? '[]',
-      );
+      const id = String(row.id);
+      const remoteTrust = trustOf(row) as Trust;
+      const remoteVerified =
+        (typeof row.last_verified_at === 'string' ? row.last_verified_at : null) ??
+        verifiedAt.get(id) ??
+        String(row.tx_from);
+      const remoteInvalidated = typeof row.invalidated_by_json === 'string' ? row.invalidated_by_json : null;
+
+      const existing = getClaim.get(id) as ClaimRow | undefined;
+      if (!existing) {
+        insertClaim.run(
+          row.id, row.subject_id, row.predicate, row.object_json, row.valid_from, row.valid_to,
+          row.tx_from, row.authority, row.confidence, row.author, row.supersedes, row.state,
+          remoteTrust, row.ttl_days ?? null, remoteVerified,
+          row.confirmations ?? 0, row.contradictions ?? 0, remoteInvalidated,
+          writtenBy(row), agentId(row), row.session_id ?? null, row.run_id ?? null, row.tags_json ?? '[]',
+        );
+      } else {
+        const merged = mergeTrust(existing, { trust: remoteTrust, last_verified_at: remoteVerified, tx_from: String(row.tx_from) });
+        const invalidated = merged === remoteTrust ? remoteInvalidated : existing.invalidated_by_json;
+        updateClaim.run(
+          merged,
+          laterIso(existing.last_verified_at, remoteVerified),
+          invalidated,
+          row.confirmations ?? 0,
+          row.contradictions ?? 0,
+          id,
+        );
+      }
       counts.claims += 1;
     }
 
@@ -270,9 +329,14 @@ export function importBundle(
     }
 
     const insertConflict = db.prepare(
-      `INSERT OR IGNORE INTO claim_conflict
+      `INSERT INTO claim_conflict
          (subject_id, predicate, left_claim, right_claim, tier, reason, detected_at, resolved, resolved_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(left_claim, right_claim) DO UPDATE SET
+         resolved = MAX(claim_conflict.resolved, excluded.resolved),
+         resolved_by = CASE WHEN excluded.resolved = 1 THEN excluded.resolved_by ELSE claim_conflict.resolved_by END,
+         detected_at = CASE WHEN excluded.detected_at > claim_conflict.detected_at
+                            THEN excluded.detected_at ELSE claim_conflict.detected_at END`,
     );
     for (const row of bundle.conflicts ?? []) {
       insertConflict.run(

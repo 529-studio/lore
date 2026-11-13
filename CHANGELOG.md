@@ -5,6 +5,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-11-13
+
 ### Added
 
 - Canon trust axis (#85): `claim` gains `trust`, `ttl_days`, `last_verified_at`, `confirmations`,
@@ -12,8 +14,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
   `tags_json`. `trust` is separate from branch `state`. Existing stores are backfilled once:
   retracted → retracted, drafts → candidate, active claims with hashed or commit evidence →
   canonical. Writes record their provenance, and approve/reject/GC/redact keep the axis in sync.
-  Retrieval does not filter on trust yet (#86, #87). `npm run canon:smoke` proves the migration,
-  the backfill and its idempotence.
+  `npm run canon:smoke` proves the migration, the backfill and its idempotence.
 - Canon tier-1 conflicts (#86): an active write that contradicts another live claim on a
   `cardinality: one` predicate marks both `contested`, increments `contradictions` and records one
   deduplicated row in `claim_conflict`. Many-valued predicates coexist; drafts are checked on
@@ -35,6 +36,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
   first-try failure rate, and writes `canon-metrics.json`. `scripts/demo/canon-pnpm.sh` runs the npm
   to pnpm transition end to end: the old claim decays with `path-disappeared` and is no longer
   injected.
+- Canon conflict resolution: `lore canon resolve <subject:predicate> --keep <claim-id>` keeps one
+  value, retracts its competitors, closes the conflict and records a human evidence row. Retracting,
+  redacting or purging one side also closes its open conflicts and restores the survivor when no
+  other conflict remains.
+
+### Fixed
+
+- Sync merges trust for claims that already exist in the receiving store instead of ignoring the
+  incoming row. A conflict or retraction can no longer be silently undone by `fetch`/`push`; conflict
+  resolution flags propagate as well.
+- Claim text is escaped in `search`, `explain`, `blame`, `export` and MCP text output, so a newline in
+  an object cannot forge a warning line.
+- MCP `memory_write` rejects a negative or non-finite `ttl_days`.
+- Version bumped to 0.5.0 for the Canon release.
 
 ## [0.4.0] — 2026-11-12
 

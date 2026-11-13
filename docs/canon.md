@@ -1,8 +1,8 @@
 # Canon: the trust layer
 
 Lore stores memory and evidence. Canon decides what may be injected into an agent's context and why.
-This page covers the trust axis, tier-1 conflicts, the injection filter, `lore explain`, decay and
-the outcome metrics.
+This page covers the trust axis, tier-1 conflicts, the injection filter, `lore explain`, conflict
+resolution, decay and the outcome metrics.
 
 ## Two axes
 
@@ -71,6 +71,24 @@ lore canon status                     # counts per trust state + unresolved conf
 (`written_by`, agent, session, run), evidence with hashes and ages, confidence and authority,
 confirmations/contradictions, the supersede chain and every tier-1 conflict. `--json` returns the
 same structure. `lore canon status --json` is the machine-readable form for CI.
+
+## Resolving a contested fact
+
+A human with the `resolve` policy role picks the surviving value:
+
+```bash
+lore canon resolve env:PM:package_manager --keep c_f8364aef... --reason "pnpm is the lockfile"
+```
+
+The winner becomes canonical with a human evidence row; competitors are retracted
+(`trust = retracted`, `state = retracted`) and every open conflict on that fact key is closed. The
+commit records the losing entries on the current branch. Retracting, redacting or purging one side
+also closes its open conflicts and restores the survivor when no other conflict remains.
+
+Two stores can disagree after a `fetch`. Import keeps `retracted`; otherwise the row with the newer
+`last_verified_at` wins; on a tie the more restrictive trust wins (`contested` > `stale` >
+`canonical` > `candidate`). A conflict or a retraction therefore cannot be silently undone by sync,
+and the resolution flag propagates with the bundle.
 
 ## Decay
 
