@@ -37,6 +37,7 @@ import { searchCommand } from './commands/search.js';
 import { verifyCommand } from './commands/verify.js';
 import { writeCommand } from './commands/write.js';
 import type { EvidenceKind } from './model.js';
+import { installCanon } from './canon/index.js';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json') as { version: string };
@@ -423,6 +424,7 @@ program
   .action(() => mcpCommand());
 
 try {
+  installCanon();
   await program.parseAsync();
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);

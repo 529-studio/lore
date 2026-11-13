@@ -107,6 +107,22 @@ CREATE TABLE IF NOT EXISTS merge_conflict (
   resolved     INTEGER NOT NULL DEFAULT 0
 );
 
+-- Tier-1 Canon conflict: two live claims assert different values for one fact.
+CREATE TABLE IF NOT EXISTS claim_conflict (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  subject_id  TEXT NOT NULL,
+  predicate   TEXT NOT NULL,
+  left_claim  TEXT NOT NULL REFERENCES claim(id) ON DELETE CASCADE,
+  right_claim TEXT NOT NULL REFERENCES claim(id) ON DELETE CASCADE,
+  tier        INTEGER NOT NULL DEFAULT 1,
+  reason      TEXT NOT NULL,
+  detected_at TEXT NOT NULL,
+  resolved    INTEGER NOT NULL DEFAULT 0,
+  resolved_by TEXT,
+  UNIQUE (left_claim, right_claim)
+);
+CREATE INDEX IF NOT EXISTS claim_conflict_open ON claim_conflict(resolved, subject_id, predicate);
+
 CREATE TABLE IF NOT EXISTS file_hash (
   path       TEXT PRIMARY KEY,
   size       INTEGER NOT NULL,

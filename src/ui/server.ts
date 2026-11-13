@@ -1,7 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { randomBytes } from 'node:crypto';
-import Database from 'better-sqlite3';
-import { dbPathFor } from '../db.js';
+import { openDb } from '../db.js';
 import { claimFreshness } from '../merge.js';
 import { head } from '../model.js';
 import { branchFor, currentSession } from '../session.js';
@@ -9,6 +8,7 @@ import { readConfig } from '../config.js';
 import { ActionError, approveDrafts, attestClaim, rejectDraft, revertCommit } from '../actions.js';
 import { resolvePrincipal, teamMode } from '../identity.js';
 import { describePolicy } from '../policy.js';
+import { installCanon } from '../canon/index.js';
 
 export interface UiOptions {
   port?: number;
@@ -323,7 +323,8 @@ function sendActionError(res: ServerResponse, error: unknown): void {
 }
 
 export function startUi(root: string, opts: UiOptions = {}): Promise<UiHandle> {
-  const db = new Database(dbPathFor(root));
+  installCanon();
+  const db = openDb(root);
   db.pragma('journal_mode = WAL');
   const csrf = randomBytes(24).toString('base64url');
   const host = opts.host ?? '127.0.0.1';

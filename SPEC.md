@@ -191,6 +191,26 @@ CREATE TABLE ref (name TEXT PRIMARY KEY, commit_id TEXT NOT NULL REFERENCES memo
 The table is `memory_commit` because `commit` is a SQLite keyword. `tree_hash` hashes sorted
 `claim_id:op` pairs, so a draft snapshot and an active snapshot cannot collide.
 
+A tier-1 Canon conflict is recorded in `claim_conflict`:
+
+```sql
+CREATE TABLE claim_conflict (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  subject_id TEXT NOT NULL,
+  predicate TEXT NOT NULL,
+  left_claim TEXT NOT NULL REFERENCES claim(id) ON DELETE CASCADE,
+  right_claim TEXT NOT NULL REFERENCES claim(id) ON DELETE CASCADE,
+  tier INTEGER NOT NULL DEFAULT 1,
+  reason TEXT NOT NULL,
+  detected_at TEXT NOT NULL,
+  resolved INTEGER NOT NULL DEFAULT 0,
+  resolved_by TEXT,
+  UNIQUE (left_claim, right_claim)
+);
+```
+
+The pair is stored with sorted claim ids, so a later re-observation cannot duplicate it.
+
 ### 5.3 Active set
 
 `active(commit)` folds `commit_entry` over the DAG in topological order (parents before children,
@@ -216,6 +236,12 @@ override for stores without session history.
 
 **Injection rule:** content read from an untrusted source (issue comment, web page, another agent's
 output) may never carry authority ≥ 2 until verified.
+
+**Tier-1 conflict on write:** when an active claim is written for a `cardinality: one` predicate and
+another live, non-superseded claim asserts a different object, both become `contested` and one row
+lands in `claim_conflict` (tier 1). `contradictions` increments on each new pair. `cardinality: many`
+never conflicts, drafts wait for approval, and an explicit `supersede` is replacement, not conflict.
+Re-writing the same value is a no-op.
 
 ## 7. Merge
 
@@ -385,6 +411,7 @@ No LLM judge. Outcome metrics on real repositories:
 | no attestation | `lore attest` writes a T2 claim linked in `attestation`; no self-attestation | independent review must be attributable |
 | no identity | local OS user; team mode uses HMAC tokens or an asserted OIDC email, enforced by `lore.policy.yml` | actions that grant trust must be attributable |
 | one state axis | `state` stays branch membership; `trust` (canonical/candidate/contested/stale/retracted) is a second column, backfilled once by evidence hash or commit | shared memory needs a trust signal that is not branch-local |
+| conflicts only surface at merge | a tier-1 conflict is recorded synchronously on write; both live claims become `contested` | shared memory must not serve two values silently |
 | no team sync | `lore remote` + `fetch`/`push` over a shared directory or Postgres, `bundle` for air gaps | internal and air-gapped repositories cannot depend on a git host |
 | `--as-of` reads the commit at that instant | folds the whole ancestry, skipping commits after the instant | a single commit chain hides facts on sibling branches before a merge |
 | hash cache keyed by content | keyed by size, mtime and ctime | mtime can be restored; ctime changes on any inode write |
@@ -402,4 +429,6 @@ No LLM judge. Outcome metrics on real repositories:
   rejected. Branch membership (`state`) is set by Lore; trust is set by Canon.
 - **Stale** — the thing a claim points at changed since it was observed.
 - **Merge base** — lowest common ancestor, used for the 3-way merge.
+- **Tier-1 conflict** — two live claims assert different values for a `cardinality: one` predicate;
+  both become `contested` and a `claim_conflict` row is recorded. No model decides the winner.
 - **Fact key** — the unit merge compares: `(subject, predicate)` or the triple for many-valued predicates.
