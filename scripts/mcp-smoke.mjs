@@ -207,6 +207,50 @@ try {
   const checkpoint = await rpc('tools/call', { name: 'memory_commit', arguments: { message: 'mcp smoke checkpoint' } });
   if (!checkpoint.result?.structuredContent?.commit) fail('memory_commit did not return a commit id');
 
+  // --- contested facts are withheld and warned about ---------------------------
+  const pmNpm = await rpc('tools/call', {
+    name: 'memory_write',
+    arguments: {
+      subject: 'env:MCP_PM',
+      predicate: 'package_manager',
+      object: 'npm',
+      kind: 'file',
+      ref: 'package.json',
+    },
+  });
+  if (pmNpm.result?.isError) fail(`memory_write npm returned isError: ${JSON.stringify(pmNpm.result)}`);
+  const pmPnpm = await rpc('tools/call', {
+    name: 'memory_write',
+    arguments: {
+      subject: 'env:MCP_PM',
+      predicate: 'package_manager',
+      object: 'pnpm',
+      kind: 'file',
+      ref: 'src/cli.ts',
+    },
+  });
+  if (pmPnpm.result?.isError) fail(`memory_write pnpm returned isError: ${JSON.stringify(pmPnpm.result)}`);
+
+  const contested = await rpc('tools/call', {
+    name: 'memory_search',
+    arguments: { query: 'package_manager', budget_tokens: 4000 },
+  });
+  const contestedHits = contested.result?.structuredContent?.hits ?? [];
+  if (contestedHits.some((h) => h.subject === 'env:MCP_PM')) fail('contested claim leaked into memory_search');
+  expectContains(
+    contested.result?.content?.[0]?.text,
+    'memory contested: env:MCP_PM:package_manager — see lore explain',
+    'memory_search contested warning',
+  );
+  const warnings = contested.result?.structuredContent?.warnings ?? [];
+  if (!warnings.some((w) => w.includes('env:MCP_PM:package_manager'))) {
+    fail(`memory_search structuredContent.warnings missing the contested fact: ${JSON.stringify(warnings)}`);
+  }
+  const contestedFacts = contested.result?.structuredContent?.contested ?? [];
+  if (!contestedFacts.some((f) => f.subject === 'env:MCP_PM' && f.claim_ids.length === 2)) {
+    fail(`memory_search structuredContent.contested missing both sides: ${JSON.stringify(contestedFacts)}`);
+  }
+
   // --- protocol robustness ---------------------------------------------------------
   const badMethod = await rpc('bogus/method');
   if (badMethod.error?.code !== -32601) fail(`unknown method should be -32601, got ${JSON.stringify(badMethod.error)}`);
@@ -231,4 +275,4 @@ if (failures > 0) {
   console.error(`MCP SMOKE FAILED — ${failures} failure(s)`);
   process.exit(1);
 }
-console.log('MCP SMOKE OK — initialize, tools/list, search, draft gating, approve, commit, error handling');
+console.log('MCP SMOKE OK — initialize, tools/list, search, draft gating, approve, commit, contested warning, error handling');

@@ -407,6 +407,9 @@ cp .lore/config.json "$SYNC_B/.lore/config.json"
 )
 expect_contains "$(cd "$SYNC_B" && node "$LORE_BIN" search DEMO_TOKEN --files src/cli.js)" "env:DEMO_TOKEN"
 expect_contains "$(cd "$SYNC_B" && node "$LORE_BIN" status)" "in sync"
+SYNC_CANON="$(cd "$SYNC_B" && node "$LORE_BIN" canon status --json)"
+SYNC_CANON_OK="$(node -e 'const s=JSON.parse(require("fs").readFileSync(0,"utf8")); console.log(s.trust.contested > 0 && s.unresolved_conflicts > 0 ? "yes" : "no")' <<<"$SYNC_CANON")"
+[ "$SYNC_CANON_OK" = "yes" ] || fail "sync did not carry contested claims and conflicts"
 
 # --- freshness: a claim observed on newer code is not stale -------------------
 printf 'export const ahead = 1;\n' > src/ahead.ts

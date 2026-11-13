@@ -34,6 +34,8 @@ import { revertCommand } from './commands/revert.js';
 import { statusCommand } from './commands/status.js';
 import { supersedeCommand } from './commands/supersede.js';
 import { searchCommand } from './commands/search.js';
+import { explainCommand } from './commands/explain.js';
+import { canonStatusCommand } from './commands/canon.js';
 import { verifyCommand } from './commands/verify.js';
 import { writeCommand } from './commands/write.js';
 import type { EvidenceKind } from './model.js';
@@ -393,6 +395,22 @@ program
       json: opts.json,
     }),
   );
+
+program
+  .command('explain <target>')
+  .description('why a claim is injected: trust, provenance, evidence and conflicts')
+  .option('--json', 'machine-readable JSON')
+  .action((target, opts) => explainCommand(target, { json: opts.json }));
+
+const canon = program
+  .command('canon')
+  .description('Canon trust layer: status and unresolved tier-1 conflicts');
+
+canon
+  .command('status')
+  .description('counts per trust state plus unresolved conflicts')
+  .option('--json', 'machine-readable JSON')
+  .action((opts) => canonStatusCommand({ json: opts.json }));
 
 program
   .command('verify [claim]')

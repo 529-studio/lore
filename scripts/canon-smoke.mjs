@@ -343,7 +343,7 @@ function conflictsFor(db, subject, predicate) {
   db.close();
 }
 
-// --- E. CLI wiring: `lore write` must reach Canon ----------------------------
+// --- E. CLI wiring and injection filter (#86, #87) ---------------------------
 {
   const root = tempRoot();
   spawnSync('git', ['init', '-q'], { cwd: root });
@@ -351,8 +351,13 @@ function conflictsFor(db, subject, predicate) {
   spawnSync('git', ['config', 'user.name', 'canon'], { cwd: root });
   writeFileSync(path.join(root, 'package-lock.json'), 'npm\n');
   writeFileSync(path.join(root, 'pnpm-lock.yaml'), 'pnpm\n');
+  writeFileSync(path.join(root, 'package.json'), '{"name":"canon-smoke"}\n');
 
   runCli(root, ['init']);
+  runCli(root, [
+    'write', '--subject', 'env:NODE', '--predicate', 'node_version', '--object', '22',
+    '--kind', 'file', '--ref', 'package.json', '--author', 'human:smoke',
+  ]);
   runCli(root, [
     'write', '--subject', 'env:PM', '--predicate', 'package_manager', '--object', 'npm',
     '--kind', 'file', '--ref', 'package-lock.json', '--author', 'human:smoke',
@@ -363,11 +368,48 @@ function conflictsFor(db, subject, predicate) {
   ]);
 
   const db = openDb(root);
-  const rows = db.prepare('SELECT trust FROM claim ORDER BY object_json').all();
+  const rows = db.prepare('SELECT trust FROM claim WHERE subject_id = ? ORDER BY object_json').all('env:PM');
   eq('CLI write contests the first value', rows[0]?.trust, 'contested');
   eq('CLI write contests the second value', rows[1]?.trust, 'contested');
   eq('CLI write records the conflict', conflictsFor(db, 'env:PM', 'package_manager').length, 1);
   db.close();
+
+  const contestedSearch = JSON.parse(runCli(root, ['search', 'package_manager', '--json']));
+  eq('contested claim is not injected', contestedSearch.hits.length, 0);
+  eq(
+    'search warns about the contested fact',
+    contestedSearch.warnings[0],
+    'memory contested: env:PM:package_manager — see lore explain',
+  );
+  eq('search reports the contested fact', contestedSearch.contested.length, 1);
+  eq('search lists both sides', contestedSearch.contested[0].claim_ids.length, 2);
+
+  const canonicalSearch = JSON.parse(runCli(root, ['search', 'node_version', '--json']));
+  eq('canonical claim is injected', canonicalSearch.hits.length, 1);
+  eq('canonical claim has no warning', canonicalSearch.warnings.length, 0);
+
+  const explained = JSON.parse(runCli(root, ['explain', 'env:PM:package_manager', '--json']));
+  eq('explain returns both contested claims', explained.claims.length, 2);
+  check(
+    'explain says why the claim is withheld',
+    explained.claims.every((c) => c.trust === 'contested' && c.trust_reason.includes('unresolved tier-1')),
+  );
+  check(
+    'explain shows provenance and evidence',
+    explained.claims.every(
+      (c) => c.written_by === 'human' && c.session_id && c.evidence.length === 1 && c.open_conflicts === 1,
+    ),
+  );
+
+  const explainedId = JSON.parse(runCli(root, ['explain', explained.claims[0].id, '--json']));
+  eq('explain accepts a claim id', explainedId.claims.length, 1);
+  eq('explain accepts an entity id', JSON.parse(runCli(root, ['explain', 'env:PM', '--json'])).claims.length, 2);
+
+  const canonStatus = JSON.parse(runCli(root, ['canon', 'status', '--json']));
+  eq('canon status counts canonical', canonStatus.trust.canonical, 1);
+  eq('canon status counts contested', canonStatus.trust.contested, 2);
+  eq('canon status counts unresolved conflicts', canonStatus.unresolved_conflicts, 1);
+  eq('canon status counts contested facts', canonStatus.contested_facts, 1);
 }
 
 for (const dir of roots) rmSync(dir, { recursive: true, force: true });
@@ -376,4 +418,4 @@ if (failures) {
   console.error(`\nCANON SMOKE FAILED — ${failures} check(s)`);
   process.exit(1);
 }
-console.log('\nCANON SMOKE OK — migration, backfill, idempotence, write path, approve, reject, tier-1 conflicts');
+console.log('\nCANON SMOKE OK — migration, backfill, idempotence, write path, approve, reject, tier-1 conflicts, injection filter, explain, canon status');

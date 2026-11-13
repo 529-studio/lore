@@ -1,7 +1,11 @@
 # Wiring Lore into coding agents — MCP config
 
 Lore ships an MCP server over **stdio**: `lore mcp` (JSON-RPC 2.0, protocol on stdout, logs on stderr).
-It exposes 5 tools: `memory_search`, `memory_write`, `memory_blame`, `memory_status`, `memory_diff`.
+It exposes 7 tools: `memory_search`, `memory_write`, `memory_approve`, `memory_commit`,
+`memory_blame`, `memory_status`, `memory_diff`.
+
+> Canon: `memory_search` injects only `active AND canonical` claims. A contested fact is withheld and
+> returned as a `warnings` line plus a `contested` entry in `structuredContent`.
 
 > Build first: `npm run build` in your Lore checkout → `dist/cli.js`.
 > Everywhere below, replace `/ABS/PATH/TO/lore` with the absolute path of **your** Lore checkout.
