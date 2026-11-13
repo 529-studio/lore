@@ -19,6 +19,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
   deduplicated row in `claim_conflict`. Many-valued predicates coexist; drafts are checked on
   approval; supersede is replacement, not conflict; re-writing the same value is idempotent. The
   write path reaches Canon through a registered hook, so core never imports `src/canon/`.
+- Canon injection filter (#87): `lore search` and MCP `memory_search` inject only `active AND
+  canonical` claims. A contested fact is withheld and reported as a warning line
+  (`memory contested: subject:predicate — see lore explain`) in text, JSON and MCP
+  `structuredContent`. New `lore explain <claim-id | subject:predicate | entity>` shows trust and why,
+  provenance, evidence hashes and ages, confidence, counters, supersede chain and conflicts, with
+  `--json`. New `lore canon status [--json]` counts each trust state and unresolved tier-1 conflicts.
 
 ## [0.4.0] — 2026-11-12
 

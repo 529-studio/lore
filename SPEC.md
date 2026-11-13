@@ -309,6 +309,10 @@ re-observed.
 
 Not vector search. Vector is a tiebreak at most.
 
+**Injection requires `active AND canonical`.** `candidate`, `contested`, `stale` (trust) and
+`retracted` claims are never returned. A contested fact contributes one warning line per
+`subject:predicate` and no content; the caller can run `lore explain` for both sides.
+
 ```
 score = 3.0 * anchor        # evidence/subject path is in scope
       + 2.0 * proximity     # 1-2 hops through imports / same directory
@@ -328,6 +332,7 @@ score breakdown, so a human can audit why something ranked high. The budget is a
 
 ```
 lore init | ingest | write | search | blame | status
+lore explain | canon status
 lore diff | merge | resolve | promote | revert
 lore verify | gc | export --md | mcp
 ```
@@ -347,6 +352,8 @@ memory_commit({message})
 ```
 
 `memory_write` never writes to `main`; it always lands on `agent/<session>`.
+`memory_search` returns only `active AND canonical` claims; contested facts add `warnings` and a
+`contested` array to `structuredContent`, and never contribute content.
 
 ### 10.3 Markdown projection
 
@@ -412,6 +419,7 @@ No LLM judge. Outcome metrics on real repositories:
 | no identity | local OS user; team mode uses HMAC tokens or an asserted OIDC email, enforced by `lore.policy.yml` | actions that grant trust must be attributable |
 | one state axis | `state` stays branch membership; `trust` (canonical/candidate/contested/stale/retracted) is a second column, backfilled once by evidence hash or commit | shared memory needs a trust signal that is not branch-local |
 | conflicts only surface at merge | a tier-1 conflict is recorded synchronously on write; both live claims become `contested` | shared memory must not serve two values silently |
+| retrieval filters drafts and stale evidence | retrieval also requires `trust = canonical`; contested facts produce a warning line, never content | trust is orthogonal to branch membership and freshness |
 | no team sync | `lore remote` + `fetch`/`push` over a shared directory or Postgres, `bundle` for air gaps | internal and air-gapped repositories cannot depend on a git host |
 | `--as-of` reads the commit at that instant | folds the whole ancestry, skipping commits after the instant | a single commit chain hides facts on sibling branches before a merge |
 | hash cache keyed by content | keyed by size, mtime and ctime | mtime can be restored; ctime changes on any inode write |

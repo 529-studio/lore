@@ -1,6 +1,6 @@
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
-import { searchClaims } from '../retrieval.js';
+import { contestedWarning, searchMemory } from '../retrieval.js';
 import { setHashCacheEnabled } from '../hash-cache.js';
 import { evidenceFor } from '../model.js';
 
@@ -28,7 +28,7 @@ export function searchCommand(opts: SearchCommandOptions): void {
   const db = openDb(root);
   if (opts.noCache) setHashCacheEnabled(db, root, false);
 
-  const hits = searchClaims(db, root, {
+  const { hits, contested } = searchMemory(db, root, {
     query: opts.query,
     files: list(opts.files),
     symbols: list(opts.symbols),
@@ -37,6 +37,7 @@ export function searchCommand(opts: SearchCommandOptions): void {
     asOf: opts.asOf,
     trustRemote: opts.trustRemote,
   });
+  const warnings = contested.map(contestedWarning);
 
   if (opts.json) {
     console.log(
@@ -55,6 +56,8 @@ export function searchCommand(opts: SearchCommandOptions): void {
             stale: h.stale,
             evidence: evidenceFor(db, h.claim.id),
           })),
+          warnings,
+          contested,
         },
         null,
         2,
@@ -65,6 +68,7 @@ export function searchCommand(opts: SearchCommandOptions): void {
   }
   db.close();
 
+  for (const warning of warnings) console.log(pc.yellow(warning));
   if (!hits.length) {
     console.log(pc.yellow('no hits — run `lore ingest` or widen the scope'));
     return;

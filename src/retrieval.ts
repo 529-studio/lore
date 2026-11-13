@@ -26,6 +26,19 @@ export interface SearchHit {
   ahead: boolean;
 }
 
+/** A fact key with at least one open tier-1 conflict in the caller's branch. */
+export interface ContestedFact {
+  subject: string;
+  predicate: string;
+  claim_ids: string[];
+  open: number;
+}
+
+export interface SearchResult {
+  hits: SearchHit[];
+  contested: ContestedFact[];
+}
+
 const BUDGET_DEFAULT = 2000;
 
 // Weights — SPEC §9. Not configurable: keep the contract stable for M4.
@@ -53,8 +66,15 @@ function validAt(claim: ClaimRow, instant: number): boolean {
   return from <= instant && instant < to;
 }
 
-/** All claims of the caller's branch active set (drafts excluded, many-values preserved). */
-function branchClaims(db: DB, root: string, asOf?: string): Map<string, ClaimRow> {
+/**
+ * All canonical claims of the caller's branch active set (drafts, candidates,
+ * contested, stale and retracted excluded; many-values preserved).
+ */
+function branchSnapshot(
+  db: DB,
+  root: string,
+  asOf?: string,
+): { claims: Map<string, ClaimRow>; activeIds: Set<string> } {
   const session = currentSession(root);
   const branch = branchFor(session);
   const headTip = head(db, branch) ?? head(db, 'main');
@@ -65,9 +85,9 @@ function branchClaims(db: DB, root: string, asOf?: string): Map<string, ClaimRow
   const stmt = db.prepare('SELECT * FROM claim WHERE id = ?');
   for (const id of ids) {
     const row = stmt.get(id) as ClaimRow | undefined;
-    if (row && row.state === 'active' && validAt(row, instant)) rows.push(row);
+    if (row && row.state === 'active' && row.trust === 'canonical' && validAt(row, instant)) rows.push(row);
   }
-  return byKey(rows, loadOntology(root).cardinality);
+  return { claims: byKey(rows, loadOntology(root).cardinality), activeIds: new Set(ids) };
 }
 
 /** Entity ids that carry a path as their canonical part (file/doc/test/sym). */
@@ -264,14 +284,92 @@ function approxTokens(hit: SearchHit): number {
 }
 
 /**
- * Score the nearest memory for a task. Retrieval is over the active set of the
- * caller's branch (never global claim.state), staleness is computed live with
- * the same hash logic as `isStale` in merge.ts, and the returned list is
- * truncated to the token budget in score order (SPEC §9).
+ * Contested fact keys still live in this branch. A pair only warns while both
+ * sides remain active and contested; a retracted side stops the warning.
  */
-export function searchClaims(db: DB, root: string, opts: SearchOptions = {}): SearchHit[] {
+function contestedFacts(db: DB, ctx: ScopeContext, activeIds: Set<string>): ContestedFact[] {
+  const rows = db
+    .prepare(
+      `SELECT id, subject_id, predicate, left_claim, right_claim
+       FROM claim_conflict
+       WHERE resolved = 0
+       ORDER BY subject_id, predicate, id`,
+    )
+    .all() as Array<{
+    id: number;
+    subject_id: string;
+    predicate: string;
+    left_claim: string;
+    right_claim: string;
+  }>;
+  if (!rows.length) return [];
+
+  const claimStmt = db.prepare('SELECT id, object_json, state, trust FROM claim WHERE id = ?');
+  const evidenceStmt = db.prepare('SELECT ref FROM evidence WHERE claim_id = ?');
+  const facts = new Map<string, ContestedFact>();
+  const scoped = Boolean(ctx.queryTokens || ctx.files.length || ctx.symbols.size);
+
+  for (const row of rows) {
+    if (!activeIds.has(row.left_claim) && !activeIds.has(row.right_claim)) continue;
+    const left = claimStmt.get(row.left_claim) as
+      | { id: string; object_json: string; state: string; trust: string }
+      | undefined;
+    const right = claimStmt.get(row.right_claim) as
+      | { id: string; object_json: string; state: string; trust: string }
+      | undefined;
+    if (!left || !right) continue;
+    if (left.state !== 'active' || left.trust !== 'contested') continue;
+    if (right.state !== 'active' || right.trust !== 'contested') continue;
+
+    if (scoped) {
+      const tokens = tokenize(`${row.subject_id} ${row.predicate} ${left.object_json} ${right.object_json}`);
+      const queryHit = ctx.queryTokens ? [...ctx.queryTokens].some((t) => tokens.has(t)) : false;
+      const subjectPath = pathFromEntity(row.subject_id);
+      const pathHit = Boolean(subjectPath && ctx.files.includes(subjectPath));
+      const symbolHit =
+        ctx.symbols.has(row.subject_id) ||
+        [...ctx.symbols].some((symbol) => row.subject_id.startsWith(`${symbol}#`));
+      const evidenceHit = [left.id, right.id].some((id) =>
+        (evidenceStmt.all(id) as Array<{ ref: string }>).some((e) => ctx.files.includes(e.ref)),
+      );
+      if (!queryHit && !pathHit && !symbolHit && !evidenceHit) continue;
+    }
+
+    const key = `${row.subject_id}\u0000${row.predicate}`;
+    const fact = facts.get(key);
+    if (fact) {
+      fact.open += 1;
+      for (const id of [left.id, right.id]) {
+        if (!fact.claim_ids.includes(id)) fact.claim_ids.push(id);
+      }
+    } else {
+      facts.set(key, {
+        subject: row.subject_id,
+        predicate: row.predicate,
+        claim_ids: [left.id, right.id],
+        open: 1,
+      });
+    }
+  }
+
+  return [...facts.values()].sort((a, b) =>
+    `${a.subject}\u0000${a.predicate}`.localeCompare(`${b.subject}\u0000${b.predicate}`),
+  );
+}
+
+/** The one warning line every reader prints for a contested fact. */
+export function contestedWarning(fact: ContestedFact): string {
+  return `memory contested: ${fact.subject}:${fact.predicate} — see lore explain`;
+}
+
+/**
+ * Score the nearest memory for a task, and report contested facts that were
+ * withheld. Injection requires `active AND canonical`; candidates, contested
+ * claims, stale trust and retracted claims never enter the returned hits.
+ */
+export function searchMemory(db: DB, root: string, opts: SearchOptions = {}): SearchResult {
   const budget = opts.budgetTokens ?? BUDGET_DEFAULT;
-  const current = branchClaims(db, root, opts.asOf);
+  const { claims: current, activeIds } = branchSnapshot(db, root, opts.asOf);
 
   // Aliases let a human say "refund flow" and reach doc:...#refund-flow.
   const aliasTargets = new Set<string>();
@@ -333,7 +431,6 @@ export function searchClaims(db: DB, root: string, opts: SearchOptions = {}): Se
     return key(a).localeCompare(key(b));
   });
 
-
   const out: SearchHit[] = [];
   let used = 0;
   for (const hit of hits) {
@@ -342,7 +439,13 @@ export function searchClaims(db: DB, root: string, opts: SearchOptions = {}): Se
     out.push(hit);
     used += cost;
   }
-  return out;
+
+  return { hits: out, contested: contestedFacts(db, ctx, activeIds) };
+}
+
+/** Hits only, for callers that do not surface contested warnings. */
+export function searchClaims(db: DB, root: string, opts: SearchOptions = {}): SearchHit[] {
+  return searchMemory(db, root, opts).hits;
 }
 
 export interface VerifyResult {

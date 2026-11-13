@@ -24,7 +24,7 @@ import {
 } from '../model.js';
 import { claimsFor } from '../model.js';
 import { claimFreshness, isStale } from '../merge.js';
-import { searchClaims } from '../retrieval.js';
+import { contestedWarning, searchMemory } from '../retrieval.js';
 import { parseRange, resolveRevision } from '../revision.js';
 import { branchFor, currentSession, recordReads } from '../session.js';
 import { installCanon } from '../canon/index.js';
@@ -112,7 +112,7 @@ interface SearchArgs {
 function toolSearch(args: SearchArgs): ToolResult {
   const ctx = context();
   try {
-    const hits = searchClaims(ctx.db, ctx.root, {
+    const { hits, contested } = searchMemory(ctx.db, ctx.root, {
       query: args.query,
       files: args.files,
       symbols: args.symbols,
@@ -121,6 +121,7 @@ function toolSearch(args: SearchArgs): ToolResult {
       asOf: args.as_of,
       trustRemote: args.trust_remote,
     });
+    const warnings = contested.map(contestedWarning);
 
     const structured = hits.map((h) => ({
       id: h.claim.id,
@@ -130,26 +131,30 @@ function toolSearch(args: SearchArgs): ToolResult {
       score: Number(h.score.toFixed(3)),
       stale: h.stale,
       ahead: h.ahead,
+      trust: h.claim.trust,
       authority: h.claim.authority,
       author: h.claim.author,
       reasons: h.reasons,
       evidence: evidenceFor(ctx.db, h.claim.id),
     }));
 
-    const text = hits.length
-      ? `${hits.length} hit(s):\n${structured
-          .map(
-            (h) =>
-              `[${h.score}] ${h.subject} — ${h.predicate}: ${h.object}${h.stale ? ' (STALE)' : ''}\n` +
-              `  ${h.id} T${h.authority} ${h.author}\n` +
-              h.evidence.map((e) => `  evidence: ${e.kind}:${e.ref} (${e.status})`).join('\n'),
-          )
-          .join('\n')}`
-      : 'no hits — run `lore ingest` or widen the scope';
+    const text = [
+      ...warnings,
+      hits.length
+        ? `${hits.length} hit(s):\n${structured
+            .map(
+              (h) =>
+                `[${h.score}] ${h.subject} — ${h.predicate}: ${h.object}${h.stale ? ' (STALE)' : ''}\n` +
+                `  ${h.id} T${h.authority} ${h.author}\n` +
+                h.evidence.map((e) => `  evidence: ${e.kind}:${e.ref} (${e.status})`).join('\n'),
+            )
+            .join('\n')}`
+        : 'no hits — run `lore ingest` or widen the scope',
+    ].join('\n');
 
     return {
       content: [{ type: 'text', text }],
-      structuredContent: { hits: structured, count: structured.length },
+      structuredContent: { hits: structured, count: structured.length, warnings, contested },
     };
   } finally {
     ctx.db.close();
@@ -462,7 +467,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'memory_search',
     description:
-      'Score the active set of your Lore memory branch against the task scope (SPEC §9). Stale claims are excluded by default.',
+      'Score the active set of your Lore memory branch against the task scope (SPEC §9). Only active+canonical claims are injected; contested facts are withheld and returned as warnings. Stale claims are excluded by default.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -585,6 +590,10 @@ const OUTPUT_SCHEMAS: Record<string, Record<string, unknown>> = {
             score: { type: 'number' },
             stale: { type: 'boolean' },
             ahead: { type: 'boolean' },
+            trust: {
+              type: 'string',
+              enum: ['canonical', 'candidate', 'contested', 'stale', 'retracted'],
+            },
             authority: { type: 'integer', minimum: 0, maximum: 4 },
             author: { type: 'string' },
             reasons: { type: 'array', items: { type: 'string' } },
@@ -604,6 +613,20 @@ const OUTPUT_SCHEMAS: Record<string, Record<string, unknown>> = {
         },
       },
       count: { type: 'integer', minimum: 0 },
+      warnings: { type: 'array', items: { type: 'string' } },
+      contested: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['subject', 'predicate', 'claim_ids', 'open'],
+          properties: {
+            subject: { type: 'string' },
+            predicate: { type: 'string' },
+            claim_ids: { type: 'array', items: { type: 'string' } },
+            open: { type: 'integer', minimum: 0 },
+          },
+        },
+      },
     },
   },
   memory_write: {

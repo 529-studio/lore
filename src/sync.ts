@@ -18,6 +18,8 @@ export interface Bundle {
   evidence: Array<Record<string, unknown>>;
   commits: Array<Record<string, unknown>>;
   entries: Array<Record<string, unknown>>;
+  /** Tier-1 conflicts. Optional so bundles written before Canon still import. */
+  conflicts?: Array<Record<string, unknown>>;
 }
 
 export function bundleFile(remoteDir: string, repoId: string): string {
@@ -41,6 +43,9 @@ export function buildBundle(db: DB, repoId: string, refNames = ['main']): Bundle
     evidence: db.prepare('SELECT * FROM evidence').all() as Array<Record<string, unknown>>,
     commits: db.prepare('SELECT * FROM memory_commit ORDER BY ts ASC').all() as Array<Record<string, unknown>>,
     entries: db.prepare('SELECT * FROM commit_entry').all() as Array<Record<string, unknown>>,
+    conflicts: db.prepare('SELECT * FROM claim_conflict ORDER BY id ASC').all() as Array<
+      Record<string, unknown>
+    >,
   };
 }
 
@@ -211,13 +216,47 @@ export function importBundle(
 
     const insertClaim = db.prepare(
       `INSERT OR IGNORE INTO claim(id, subject_id, predicate, object_json, valid_from, valid_to, tx_from,
-        authority, confidence, author, supersedes, state)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        authority, confidence, author, supersedes, state,
+        trust, ttl_days, last_verified_at, confirmations, contradictions, invalidated_by_json,
+        written_by, agent_id, session_id, run_id, tags_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
+
+    // Bundles from before Canon have no trust column. Rebuild the same decision
+    // the one-time backfill makes: observed evidence is canonical, drafts wait.
+    const observed = new Map<string, boolean>();
+    const verifiedAt = new Map<string, string>();
+    for (const ev of bundle.evidence) {
+      if (ev.hash != null || ev.commit_id != null) observed.set(String(ev.claim_id), true);
+      if (typeof ev.verified_at === 'string') {
+        const current = verifiedAt.get(String(ev.claim_id));
+        if (!current || ev.verified_at > current) verifiedAt.set(String(ev.claim_id), ev.verified_at);
+      }
+    }
+    const trustOf = (row: Record<string, unknown>): string => {
+      if (typeof row.trust === 'string') return row.trust;
+      if (row.state === 'retracted') return 'retracted';
+      if (row.state === 'draft') return 'candidate';
+      return observed.get(String(row.id)) ? 'canonical' : 'candidate';
+    };
+    const writtenBy = (row: Record<string, unknown>): string => {
+      if (typeof row.written_by === 'string') return row.written_by;
+      const author = String(row.author ?? '');
+      return author.startsWith('agent:') ? 'agent' : author.startsWith('human:') ? 'human' : 'legacy';
+    };
+    const agentId = (row: Record<string, unknown>): string | null => {
+      if (typeof row.agent_id === 'string') return row.agent_id;
+      const author = String(row.author ?? '');
+      return author.startsWith('agent:') ? author.slice('agent:'.length).split('/')[0] : null;
+    };
+
     for (const row of bundle.claims) {
       insertClaim.run(
         row.id, row.subject_id, row.predicate, row.object_json, row.valid_from, row.valid_to,
         row.tx_from, row.authority, row.confidence, row.author, row.supersedes, row.state,
+        trustOf(row), row.ttl_days ?? null, row.last_verified_at ?? verifiedAt.get(String(row.id)) ?? row.tx_from,
+        row.confirmations ?? 0, row.contradictions ?? 0, row.invalidated_by_json ?? null,
+        writtenBy(row), agentId(row), row.session_id ?? null, row.run_id ?? null, row.tags_json ?? '[]',
       );
       counts.claims += 1;
     }
@@ -228,6 +267,19 @@ export function importBundle(
     );
     for (const row of bundle.evidence) {
       insertEvidence.run(row.claim_id, row.kind, row.ref, row.hash, row.commit_id, row.verified_at, row.status);
+    }
+
+    const insertConflict = db.prepare(
+      `INSERT OR IGNORE INTO claim_conflict
+         (subject_id, predicate, left_claim, right_claim, tier, reason, detected_at, resolved, resolved_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    for (const row of bundle.conflicts ?? []) {
+      insertConflict.run(
+        row.subject_id, row.predicate, row.left_claim, row.right_claim, row.tier ?? 1,
+        row.reason ?? 'tier-1 conflict', row.detected_at ?? new Date().toISOString(),
+        row.resolved ?? 0, row.resolved_by ?? null,
+      );
     }
 
     const insertCommit = db.prepare(

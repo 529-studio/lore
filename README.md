@@ -31,6 +31,7 @@ Lore fixes the **trust** problem, not the storage problem.
 |---|---|
 | **Provenance** | Every claim carries evidence with a content hash and an authority tier (T0 test → T4 inference) |
 | **Staleness** | On read, evidence is re-hashed; a claim whose file changed is marked stale and drops out of retrieval |
+| **Trust** | Only `active` + `canonical` claims are injected; contested facts are withheld with a warning |
 | **Merge** | 3-way merge on `(subject, predicate)` with a deterministic ladder; unresolvable conflicts abort instead of guessing |
 | **Undo** | `lore revert` writes an inverse commit. History is never rewritten, so `blame` still works |
 
@@ -41,10 +42,9 @@ Lore fixes the **trust** problem, not the storage problem.
 *The CLI: initialise, derive claims, search with a score breakdown, edit a file, watch the claim go
 stale, then accept the new reality with `verify --accept`.*
 
-**GUI:** `lore ui` serves a local dashboard with four tabs — Health, Review (approve/reject drafts),
-Undo (revert a commit) and Settings. Writes go through the same policy layer as the CLI. A macOS
-desktop build that bundles the same UI (and its own Node runtime, so nothing to install) is built from
-`desktop/`; see [docs/desktop.md](docs/desktop.md).
+**GUI:** `lore ui` serves a local dashboard — Health, Review, Undo, Settings — through the same policy
+layer as the CLI. A macOS desktop build bundles it with its own Node runtime; see
+[docs/desktop.md](docs/desktop.md).
 
 ![Lore dashboard](docs/assets/dashboard.png)
 
@@ -193,7 +193,9 @@ Agents never write to `main`; you decide what gets promoted. Full details: [docs
 lore init                      initialise .lore/ and the ontology
 lore ingest [--dry-run]        derive claims from deterministic extractors
 lore write                     write one claim (draft for agent/human evidence); --valid-from <iso>
-lore search "<query>"          score the active set; stale excluded; --as-of <iso> reads history
+lore search "<query>"          score the active set; only active+canonical claims are injected
+lore explain <claim|key>       why a claim is injected: trust, provenance, evidence
+lore canon status              trust counts + unresolved tier-1 conflicts
 lore blame <subject>           provenance: author, evidence, branch membership
 lore status [--strict]         health: active, draft, stale, conflicts, GC candidates
 lore diff <from>..<to>         claims added/removed between revisions
