@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { Buffer } from 'node:buffer';
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -32,6 +33,9 @@ const HTML = String.raw`<!doctype html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Lore — Memory & Knowledge Hub</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="alternate icon" type="image/png" href="/favicon.png" />
+<link rel="shortcut icon" href="/favicon.ico" />
 <style>
   :root {
     color-scheme: dark;
@@ -42,7 +46,9 @@ const HTML = String.raw`<!doctype html>
   * { box-sizing: border-box; }
   body { margin:0; font: 14px/1.5 ui-monospace, Menlo, monospace; background:var(--bg); color:var(--ink); }
   header { padding:14px 24px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px; background:var(--panel); }
-  .brand { display:flex; align-items:baseline; gap:12px; }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .brand-logo { color:var(--accent); display:flex; align-items:center; }
+  .brand-logo svg { width:22px; height:22px; }
   h1 { font-size:16px; margin:0; letter-spacing:.03em; font-weight:700; color:var(--ink); }
   .brand-sub { font-size:12px; color:var(--muted); }
   nav { display:flex; gap:6px; }
@@ -134,6 +140,14 @@ const HTML = String.raw`<!doctype html>
 <body>
 <header>
   <div class="brand">
+    <span class="brand-logo" aria-hidden="true">
+      <svg viewBox="0 0 512 512" fill="none" role="img">
+        <rect x="88" y="88" width="64" height="336" rx="32" fill="currentColor"/>
+        <rect x="184" y="88" width="240" height="64" rx="32" fill="currentColor"/>
+        <rect x="184" y="224" width="184" height="64" rx="32" fill="currentColor" opacity="0.78"/>
+        <rect x="184" y="360" width="128" height="64" rx="32" fill="currentColor" opacity="0.52"/>
+      </svg>
+    </span>
     <h1>Lore</h1>
     <span class="brand-sub">Memory for AI Coding Agents</span>
   </div>
@@ -946,6 +960,19 @@ function sendActionError(res: ServerResponse, error: unknown): void {
   json(res, { error: error instanceof Error ? error.message : String(error) }, 500);
 }
 
+const LORE_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none" role="img" aria-label="Lore">
+  <rect width="512" height="512" rx="96" fill="#0d1117"/>
+  <rect x="88" y="88" width="64" height="336" rx="32" fill="#e6edf3"/>
+  <rect x="184" y="88" width="240" height="64" rx="32" fill="#e6edf3"/>
+  <rect x="184" y="224" width="184" height="64" rx="32" fill="#e6edf3" opacity="0.78"/>
+  <rect x="184" y="360" width="128" height="64" rx="32" fill="#e6edf3" opacity="0.52"/>
+</svg>`;
+
+const FAVICON_PNG = Buffer.from(
+  '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',
+  'base64'
+);
+
 export function startUi(root: string, opts: UiOptions = {}): Promise<UiHandle> {
   installCanon();
   const db = openDb(root);
@@ -1070,6 +1097,21 @@ export function startUi(root: string, opts: UiOptions = {}): Promise<UiHandle> {
       if (url.pathname === '/') {
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
         res.end(HTML.replace('__CSRF__', csrf));
+        return;
+      }
+
+      if (url.pathname === '/favicon.svg') {
+        res.writeHead(200, { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=86400' });
+        res.end(LORE_FAVICON_SVG);
+        return;
+      }
+
+      if (url.pathname === '/favicon.png' || url.pathname === '/favicon.ico') {
+        res.writeHead(200, {
+          'content-type': url.pathname === '/favicon.png' ? 'image/png' : 'image/x-icon',
+          'cache-control': 'public, max-age=86400',
+        });
+        res.end(FAVICON_PNG);
         return;
       }
 
