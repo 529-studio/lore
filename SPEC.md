@@ -440,6 +440,7 @@ No LLM judge. Outcome metrics on real repositories:
 | `conflict_rate` over 20 sessions | aborts among merges expected to succeed; deliberate conflicts reported separately | measuring a designed conflict against a production threshold is a category error |
 | MCP has five tools | seven (`memory_approve`, `memory_commit` added) | without approve, MCP-only memory is permanently invisible |
 | CLI has static config | `lore setup` auto-wires MCP for agents (agy, claude, cursor, codex, gemini) and `lore config` manages settings | manual JSON/TOML editing was error-prone and missed session branch isolation |
+| UI has flat triple table only | Knowledge Hub categorizes by domain (Architecture, Env, Routes, Deps) with Graph Explorer, Ontology view, and claim authoring | raw triples dump failed to communicate what agents actually know |
 
 ## Glossary
 
