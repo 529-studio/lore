@@ -9,6 +9,7 @@ import { ActionError, approveDrafts, attestClaim, rejectDraft, revertCommit } fr
 import { resolvePrincipal, teamMode } from '../identity.js';
 import { describePolicy } from '../policy.js';
 import { installCanon } from '../canon/index.js';
+import { gitHead } from '../util/git.js';
 
 export interface UiOptions {
   port?: number;
@@ -394,9 +395,11 @@ export function startUi(root: string, opts: UiOptions = {}): Promise<UiHandle> {
         const byState = new Map(counts.map((r) => [r.state, r.n]));
         let stale = 0;
         let ahead = 0;
+        const currentGitHead = gitHead(root);
+        const freshnessOpts = { head: currentGitHead };
         const ids = db.prepare("SELECT DISTINCT claim_id FROM evidence WHERE kind IN ('file','test')").all() as Array<{ claim_id: string }>;
         for (const row of ids) {
-          const freshness = claimFreshness(db, root, row.claim_id);
+          const freshness = claimFreshness(db, root, row.claim_id, freshnessOpts);
           if (freshness === 'stale') stale += 1;
           if (freshness === 'ahead') ahead += 1;
         }
@@ -434,10 +437,12 @@ export function startUi(root: string, opts: UiOptions = {}): Promise<UiHandle> {
           .prepare(`SELECT * FROM claim ${where} ORDER BY tx_from DESC, rowid DESC LIMIT ?`)
           .all(...params, limit) as Array<Record<string, unknown>>;
 
+        const currentGitHead = gitHead(root);
+        const freshnessOpts = { head: currentGitHead };
         const out = rows
           .map((row) => {
             const id = String(row.id);
-            const freshness = claimFreshness(db, root, id);
+            const freshness = claimFreshness(db, root, id, freshnessOpts);
             const evidence = db
               .prepare('SELECT kind, ref, status FROM evidence WHERE claim_id = ? ORDER BY kind, ref')
               .all(id) as Array<{ kind: string; ref: string; status: string }>;
