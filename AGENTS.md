@@ -26,6 +26,7 @@ metrics measure the product through its real CLI, not a private shortcut.
 - PR description starts with `Close #<issue-number>`.
 - Conventional commits: `feat(merge): …`, `fix(cli): …`, `docs: …`.
 - One concern per PR.
+- Always create a merge commit (`gh pr merge --merge`). Never squash merge (`--squash`) or rebase merge.
 
 ## 5. English, no emoji
 
