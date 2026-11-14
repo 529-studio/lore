@@ -41,6 +41,7 @@ Run all of them before opening a PR. If `eval` is slow on your machine, `--fixtu
 2. Keep the change focused; unrelated refactors belong in their own PR.
 3. PR description starts with `Close #<issue-number>` and states how you verified it.
 4. Expect a review that asks for evidence, not for more features.
+5. Merging: always create a merge commit (`gh pr merge --merge`). Never squash or rebase merge.
 
 ## Releasing
 
