@@ -104,7 +104,15 @@ try {
   const details = await (await fetch(`${handle.url}/api/claim-details?id=${supersededJson.newId}`)).json();
   if (!details.id || !details.human_summary) throw new Error('claim-details endpoint missing summary');
 
-  console.log('[OK] ui: read endpoints, CSRF, origin check, approve, reject, revert, claim, supersede, ontology, claim-details');
+  // Test favicon endpoints
+  const favSvg = await fetch(`${handle.url}/favicon.svg`);
+  if (!favSvg.ok || favSvg.headers.get('content-type') !== 'image/svg+xml') throw new Error('favicon.svg failed');
+  const favIco = await fetch(`${handle.url}/favicon.ico`);
+  if (!favIco.ok) throw new Error('favicon.ico failed');
+  const favPng = await fetch(`${handle.url}/favicon.png`);
+  if (!favPng.ok || favPng.headers.get('content-type') !== 'image/png') throw new Error('favicon.png failed');
+
+  console.log('[OK] ui: read endpoints, CSRF, origin check, approve, reject, revert, claim, supersede, ontology, claim-details, favicons');
 } finally {
   await handle.close();
 }

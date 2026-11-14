@@ -33,6 +33,8 @@ the same model and action policies as the CLI.
 | Path | Returns |
 |---|---|
 | `GET /` | the page |
+| `GET /favicon.svg` | Lore brand icon SVG |
+| `GET /favicon.ico` | brand favicon icon |
 | `GET /api/health` | counters, branch, remote label |
 | `GET /api/claims?q=&status=&fresh=&limit=` | claim rows with freshness |
 | `GET /api/claim-details?id=` | full claim explanation, live code snippet, human summary |
