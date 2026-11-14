@@ -5,13 +5,14 @@ import path from 'node:path';
 import { parse } from 'yaml';
 import { openDb } from '../db.js';
 import { claimFreshness } from '../merge.js';
-import { head, inBranch, makeCommit, supersedeClaim, upsertClaim } from '../model.js';
+import { head, inBranch, makeCommit, supersedeClaim, upsertClaim, type ClaimRow } from '../model.js';
 import { branchFor, currentSession } from '../session.js';
 import { readConfig } from '../config.js';
 import { ActionError, approveDrafts, attestClaim, rejectDraft, revertCommit } from '../actions.js';
 import { resolvePrincipal, teamMode } from '../identity.js';
 import { describePolicy } from '../policy.js';
 import { installCanon } from '../canon/index.js';
+import { explainClaim } from '../canon/explain.js';
 import { gitHead } from '../util/git.js';
 
 export interface UiOptions {
@@ -83,8 +84,8 @@ const HTML = String.raw`<!doctype html>
   
   /* Knowledge Cards View */
   .grid-view { display:grid; grid-template-columns:repeat(auto-fill, minmax(360px, 1fr)); gap:14px; padding:16px; }
-  .k-card { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:14px; display:flex; flex-direction:column; gap:8px; transition:border-color .15s; }
-  .k-card:hover { border-color:var(--muted); }
+  .k-card { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:14px; display:flex; flex-direction:column; gap:8px; transition:border-color .15s, background .15s; cursor:pointer; }
+  .k-card:hover { border-color:var(--accent); background:var(--card-hover); }
   .k-hdr { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
   .k-subj { font-weight:600; color:var(--accent); word-break:break-all; font-size:13px; }
   .k-pred { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--purple); }
@@ -202,7 +203,7 @@ const HTML = String.raw`<!doctype html>
               <th>State</th>
               <th>Freshness</th>
               <th>Authority</th>
-              <th>Action</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody id="claims-raw"></tbody>
@@ -277,10 +278,84 @@ const HTML = String.raw`<!doctype html>
   </section>
 </main>
 
+<!-- Detailed Claim & Provenance Inspector Modal -->
+<div class="modal-overlay" id="inspector-modal">
+  <div class="modal" style="max-width:760px; max-height:88vh; overflow-y:auto; gap:14px">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start">
+      <div>
+        <div style="font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted)" id="insp-type">Memory Inspector</div>
+        <h3 id="insp-subject" style="margin:4px 0 0; font-size:16px; color:var(--accent); word-break:break-all"></h3>
+      </div>
+      <button class="act" id="insp-close-btn" style="padding:3px 9px">✕</button>
+    </div>
+
+    <!-- Human-Readable Translation -->
+    <div style="background:#131d2a; border:1px solid #1f364d; border-radius:6px; padding:12px 14px">
+      <div style="font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--accent); font-weight:600; margin-bottom:4px">
+        What Lore Remembers (Plain Language)
+      </div>
+      <div id="insp-summary" style="font-size:14px; line-height:1.5"></div>
+    </div>
+
+    <!-- Stored Object Value -->
+    <div style="background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:10px 14px">
+      <div style="font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:600; margin-bottom:4px">
+        Stored Value (Object)
+      </div>
+      <div id="insp-object-val" style="font-size:13px; color:var(--ink); word-break:break-word; max-height:100px; overflow-y:auto"></div>
+    </div>
+
+    <!-- Source Evidence & Code Snippet Box -->
+    <div style="background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:12px 14px; display:grid; gap:8px">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap">
+        <div style="font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:600">
+          Source Evidence & Code Context
+        </div>
+        <div id="insp-evidence-badge"></div>
+      </div>
+      <div id="insp-evidence-ref" class="muted" style="font-size:12px; word-break:break-all"></div>
+      <div id="insp-drift-warning" style="display:none; padding:8px 12px; background:rgba(248,81,73,0.1); border:1px solid var(--err); border-radius:4px; color:var(--err); font-size:12px">
+        <strong>Stale Drift Detected:</strong> The file on disk was modified after this claim was recorded. The current file hash differs from commit evidence.
+      </div>
+      <div id="insp-code-container" style="background:#090d13; border:1px solid #21262d; border-radius:4px; padding:8px; font-size:12px; overflow-x:auto; max-height:240px">
+        <pre id="insp-code" style="margin:0; font-family:ui-monospace,Menlo,monospace; line-height:1.5"></pre>
+      </div>
+    </div>
+
+    <!-- Trust, Authority & Provenance Breakdown -->
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
+      <div style="background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:10px 12px">
+        <div style="font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:600; margin-bottom:6px">Trust & Policy</div>
+        <div style="font-size:12px; display:grid; gap:4px">
+          <div>Trust: <span id="insp-trust" class="tag"></span></div>
+          <div>Freshness: <span id="insp-freshness" class="tag"></span></div>
+          <div class="muted" id="insp-trust-reason" style="font-size:11px; margin-top:2px"></div>
+        </div>
+      </div>
+      <div style="background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:10px 12px">
+        <div style="font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:600; margin-bottom:6px">Provenance & History</div>
+        <div style="font-size:12px; display:grid; gap:4px">
+          <div>Authority: <span id="insp-authority" style="font-weight:600"></span></div>
+          <div>Author: <code id="insp-author"></code></div>
+          <div class="muted" id="insp-timestamp" style="font-size:11px"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-actions" style="margin-top:4px">
+      <button class="act" id="insp-edit-btn">Edit Fact</button>
+      <button class="act primary" id="insp-close-action">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- New / Edit Fact Modal -->
 <div class="modal-overlay" id="claim-modal">
   <div class="modal">
     <h3 id="modal-title">Record New Fact</h3>
+    <div id="modal-audit-note" style="display:none; padding:8px 10px; background:rgba(88,166,255,0.08); border:1px solid rgba(88,166,255,0.3); border-radius:6px; font-size:12px; color:var(--accent)">
+      Lore maintains an immutable commit history. Submitting will record an inverse supersede commit with audit provenance.
+    </div>
     <div class="form-group">
       <label>Subject</label>
       <input id="modal-subj" placeholder="e.g. doc:architecture.md, env:DATABASE_URL, rule:auth" />
@@ -332,7 +407,7 @@ let currentTab = 'knowledge';
 let currentView = 'cards';
 let currentCategory = 'all';
 let allClaims = [];
-let editingClaimId = null;
+let editingClaim = null;
 
 function banner(message, kind) {
   const b = $('banner');
@@ -411,6 +486,71 @@ function filterClaimsList() {
   });
 }
 
+async function inspectClaim(claimId) {
+  try {
+    const data = await (await fetch('/api/claim-details?id=' + encodeURIComponent(claimId))).json();
+    if (data.error) throw new Error(data.error);
+
+    $('insp-subject').textContent = data.subject + ' : ' + (PREDICATE_LABELS[data.predicate] || data.predicate);
+    $('insp-summary').textContent = data.human_summary;
+    $('insp-object-val').textContent = data.object;
+
+    $('insp-trust').textContent = data.trust;
+    $('insp-trust').className = 'tag ' + data.trust;
+    $('insp-freshness').textContent = data.freshness;
+    $('insp-freshness').className = 'tag ' + data.freshness;
+    $('insp-trust-reason').textContent = data.trust_reason || '';
+
+    $('insp-authority').textContent = 'T' + data.authority + ' (' + (data.authority === 0 ? 'Test' : data.authority === 1 ? 'AST/Tool' : data.authority === 2 ? 'Human Verified' : data.authority === 3 ? 'Chat' : 'Agent Inference') + ')';
+    $('insp-author').textContent = data.author;
+    $('insp-timestamp').textContent = 'Observed: ' + (data.tx_from ? data.tx_from.replace('T', ' ').slice(0, 19) : '—');
+
+    const ev = (data.evidence && data.evidence[0]) || null;
+    if (ev) {
+      $('insp-evidence-ref').textContent = ev.kind + ':' + ev.ref + (ev.commit_id ? ' @ ' + ev.commit_id.slice(0, 8) : '');
+      $('insp-evidence-badge').replaceChildren(el('span', ev.status, 'tag ' + ev.status));
+    } else {
+      $('insp-evidence-ref').textContent = 'No evidence attached';
+      $('insp-evidence-badge').replaceChildren();
+    }
+
+    $('insp-drift-warning').style.display = data.freshness === 'stale' ? 'block' : 'none';
+
+    const pre = $('insp-code');
+    pre.replaceChildren();
+    if (data.snippet && data.snippet.code && data.snippet.code.length) {
+      $('insp-code-container').style.display = 'block';
+      for (const line of data.snippet.code) {
+        const lineEl = el('div', line.line + ' | ' + line.text);
+        if (line.line === data.snippet.targetLine) {
+          lineEl.style.background = 'rgba(88,166,255,0.18)';
+          lineEl.style.color = '#fff';
+          lineEl.style.fontWeight = '600';
+        }
+        pre.append(lineEl);
+      }
+    } else {
+      $('insp-code-container').style.display = 'none';
+    }
+
+    $('insp-edit-btn').onclick = () => {
+      closeInspectModal();
+      openEditModal({ id: data.id, subject: data.subject, predicate: data.predicate, object: data.object });
+    };
+
+    $('inspector-modal').style.display = 'flex';
+  } catch (err) {
+    banner('Could not load claim details: ' + err.message, 'err');
+  }
+}
+
+function closeInspectModal() {
+  $('inspector-modal').style.display = 'none';
+}
+
+$('insp-close-btn').onclick = closeInspectModal;
+$('insp-close-action').onclick = closeInspectModal;
+
 function renderCardsView(claims) {
   const box = $('cards-view');
   box.replaceChildren();
@@ -420,6 +560,11 @@ function renderCardsView(claims) {
   }
   for (const c of claims) {
     const card = el('div', undefined, 'k-card');
+    card.onclick = (e) => {
+      if (e.target.tagName.toLowerCase() === 'button') return;
+      inspectClaim(c.id);
+    };
+
     const hdr = el('div', undefined, 'k-hdr');
     hdr.append(el('div', c.subject, 'k-subj'));
     const predLabel = PREDICATE_LABELS[c.predicate] || c.predicate;
@@ -436,9 +581,15 @@ function renderCardsView(claims) {
     tags.append(el('span', 'T' + c.authority, 'tag muted'));
     foot.append(tags);
 
+    const acts = el('div', undefined, 'k-tags');
+    const inspBtn = el('button', 'Inspect', 'act');
+    inspBtn.onclick = (e) => { e.stopPropagation(); inspectClaim(c.id); };
+    acts.append(inspBtn);
+
     const editBtn = el('button', 'Edit', 'act');
-    editBtn.onclick = () => openEditModal(c);
-    foot.append(editBtn);
+    editBtn.onclick = (e) => { e.stopPropagation(); openEditModal(c); };
+    acts.append(editBtn);
+    foot.append(acts);
 
     card.append(foot);
     box.append(card);
@@ -455,13 +606,22 @@ function renderRawView(claims) {
   }
   for (const c of claims) {
     const tr = el('tr');
+    tr.style.cursor = 'pointer';
+    tr.onclick = (e) => {
+      if (e.target.tagName.toLowerCase() === 'button') return;
+      inspectClaim(c.id);
+    };
     tr.append(el('td', c.subject), el('td', c.predicate), el('td', c.object));
     const s = el('td'); s.append(el('span', c.state, 'tag ' + c.state)); tr.append(s);
     const f = el('td'); f.append(el('span', c.freshness, 'tag ' + c.freshness)); tr.append(f);
     tr.append(el('td', 'T' + c.authority));
     const tdAct = el('td');
+    const insp = el('button', 'Inspect', 'act');
+    insp.style.marginRight = '4px';
+    insp.onclick = (e) => { e.stopPropagation(); inspectClaim(c.id); };
+    tdAct.append(insp);
     const edit = el('button', 'Edit', 'act');
-    edit.onclick = () => openEditModal(c);
+    edit.onclick = (e) => { e.stopPropagation(); openEditModal(c); };
     tdAct.append(edit);
     tr.append(tdAct);
     body.append(tr);
@@ -652,8 +812,9 @@ async function loadSettings() {
 }
 
 function openNewModal() {
-  editingClaimId = null;
+  editingClaim = null;
   $('modal-title').textContent = 'Record New Fact';
+  $('modal-audit-note').style.display = 'none';
   $('modal-subj').value = '';
   $('modal-subj').disabled = false;
   $('modal-pred').value = '';
@@ -663,8 +824,9 @@ function openNewModal() {
 }
 
 function openEditModal(claim) {
-  editingClaimId = claim.id;
+  editingClaim = claim;
   $('modal-title').textContent = 'Edit / Supersede Fact';
+  $('modal-audit-note').style.display = 'block';
   $('modal-subj').value = claim.subject;
   $('modal-subj').disabled = true;
   $('modal-pred').value = claim.predicate;
@@ -675,7 +837,7 @@ function openEditModal(claim) {
 
 function closeModal() {
   $('claim-modal').style.display = 'none';
-  editingClaimId = null;
+  editingClaim = null;
 }
 
 $('btn-new-claim').onclick = openNewModal;
@@ -687,9 +849,9 @@ $('modal-save').onclick = async () => {
   if (!obj) { banner('Object value cannot be empty', 'err'); return; }
 
   try {
-    if (editingClaimId) {
-      await api('/api/supersede', { claim: editingClaimId, object: obj });
-      banner('Superseded fact ' + editingClaimId, 'ok');
+    if (editingClaim) {
+      await api('/api/supersede', { claim: editingClaim.id, object: obj });
+      banner('Superseded fact ' + editingClaim.id, 'ok');
     } else {
       if (!subj || !pred) { banner('Subject and Predicate are required', 'err'); return; }
       await api('/api/claim', { subject: subj, predicate: pred, object: obj });
@@ -923,6 +1085,76 @@ export function startUi(root: string, opts: UiOptions = {}): Promise<UiHandle> {
           }
         }
         json(res, { exists, file, ontology: parsed });
+        return;
+      }
+
+      if (url.pathname === '/api/claim-details') {
+        const id = url.searchParams.get('id');
+        if (!id) {
+          json(res, { error: 'id parameter is required' }, 400);
+          return;
+        }
+        const claim = db.prepare('SELECT * FROM claim WHERE id = ?').get(id) as ClaimRow | undefined;
+        if (!claim) {
+          json(res, { error: 'claim not found' }, 404);
+          return;
+        }
+        const explained = explainClaim(db, root, ref, claim);
+
+        // Find code/evidence snippet
+        let snippet = null;
+        for (const ev of explained.evidence) {
+          if (ev.kind === 'file' || ev.kind === 'test') {
+            const cleanRef = ev.ref.split('#')[0].replace(/^file:/, '').replace(/^doc:/, '');
+            const absPath = path.resolve(root, cleanRef);
+            if (existsSync(absPath)) {
+              try {
+                const lines = readFileSync(absPath, 'utf8').split('\n');
+                const targetKey = claim.subject_id.replace(/^(env|file|doc|rule|pkg):/, '').split('#')[0];
+                let targetLineIdx = -1;
+                for (let i = 0; i < lines.length; i++) {
+                  if (lines[i].includes(targetKey) || (explained.object && lines[i].includes(explained.object))) {
+                    targetLineIdx = i;
+                    break;
+                  }
+                }
+                const center = targetLineIdx >= 0 ? targetLineIdx : 0;
+                const start = Math.max(0, center - 4);
+                const end = Math.min(lines.length, center + 6);
+                snippet = {
+                  file: cleanRef,
+                  targetLine: targetLineIdx >= 0 ? targetLineIdx + 1 : null,
+                  code: lines.slice(start, end).map((text, idx) => ({ line: start + idx + 1, text })),
+                };
+                break;
+              } catch {
+                // ignore
+              }
+            }
+          }
+        }
+
+        // Generate natural language human summary
+        let humanSummary = `Lore records that ${claim.subject_id} has ${claim.predicate} set to "${explained.object}".`;
+        if (claim.predicate === 'read_by') {
+          humanSummary = `Environment variable "${claim.subject_id.replace(/^env:/, '')}" is read and used by source file "${explained.object}".`;
+        } else if (claim.predicate === 'imports_module') {
+          humanSummary = `Source file "${claim.subject_id.replace(/^file:/, '')}" imports external module "${explained.object}".`;
+        } else if (claim.predicate === 'title') {
+          humanSummary = `Document "${claim.subject_id.replace(/^doc:/, '')}" defines document title "${explained.object}".`;
+        } else if (claim.predicate === 'has_section') {
+          humanSummary = `Document "${claim.subject_id.replace(/^doc:/, '')}" contains section header "${explained.object}".`;
+        } else if (claim.predicate === 'exposes_route') {
+          humanSummary = `Source file "${claim.subject_id.replace(/^file:/, '')}" exposes HTTP route "${explained.object}".`;
+        } else if (claim.predicate === 'declared_dependency') {
+          humanSummary = `Package "${claim.subject_id.replace(/^pkg:/, '')}" is declared as a project dependency (${explained.object}).`;
+        }
+
+        json(res, {
+          ...explained,
+          snippet,
+          human_summary: humanSummary,
+        });
         return;
       }
 

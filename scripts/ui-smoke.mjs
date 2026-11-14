@@ -100,7 +100,11 @@ try {
   const supersededJson = await superseded.json();
   if (!supersededJson.newId) throw new Error('supersede returned no newId');
 
-  console.log('[OK] ui: read endpoints, CSRF, origin check, approve, reject, revert, claim, supersede, ontology');
+  // Test claim details & snippet inspector endpoint
+  const details = await (await fetch(`${handle.url}/api/claim-details?id=${supersededJson.newId}`)).json();
+  if (!details.id || !details.human_summary) throw new Error('claim-details endpoint missing summary');
+
+  console.log('[OK] ui: read endpoints, CSRF, origin check, approve, reject, revert, claim, supersede, ontology, claim-details');
 } finally {
   await handle.close();
 }

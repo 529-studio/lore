@@ -55,7 +55,16 @@ try {
   const geminiFile = path.join(tmp, '.gemini', 'settings.json');
   if (!existsSync(geminiFile)) throw new Error('gemini config file not created');
 
-  console.log('[OK] setup-smoke: config get/set/unset and setup agy/claude/cursor/codex/gemini passed');
+  // Test setup command for opencode
+  execFileSync('node', [cli, 'setup', 'opencode', '--scope', 'project', '--root', tmp]);
+  const opencodeFile = path.join(tmp, 'opencode.json');
+  if (!existsSync(opencodeFile)) throw new Error('opencode config file not created');
+  const opencodeJson = JSON.parse(readFileSync(opencodeFile, 'utf8'));
+  if (opencodeJson.mcp?.servers?.lore?.environment?.LORE_SESSION !== 'opencode') {
+    throw new Error('invalid opencode config payload');
+  }
+
+  console.log('[OK] setup-smoke: config get/set/unset and setup agy/claude/cursor/codex/gemini/opencode passed');
 } finally {
   rmSync(tmp, { recursive: true, force: true });
 }

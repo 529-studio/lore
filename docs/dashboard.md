@@ -35,6 +35,7 @@ the same model and action policies as the CLI.
 | `GET /` | the page |
 | `GET /api/health` | counters, branch, remote label |
 | `GET /api/claims?q=&status=&fresh=&limit=` | claim rows with freshness |
+| `GET /api/claim-details?id=` | full claim explanation, live code snippet, human summary |
 | `GET /api/commits` | last 50 commits |
 | `GET /api/conflicts` | unresolved merge conflicts |
 | `GET /api/identity` | principal, role, team mode, policy, remote |

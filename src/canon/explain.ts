@@ -185,7 +185,7 @@ function storedDecay(claim: ClaimRow): DecayResult | null {
   }
 }
 
-function explainClaim(db: DB, root: string, ref: string, claim: ClaimRow): ClaimExplanation {
+export function explainClaim(db: DB, root: string, ref: string, claim: ClaimRow): ClaimExplanation {
   const evidence = (
     db
       .prepare(
