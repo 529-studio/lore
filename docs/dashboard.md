@@ -10,9 +10,9 @@ lore ui --port 0   # pick a free port
 
 ![Dashboard demo: filtering claims](assets/demo-gui.gif)
 
-Four tabs: **Health**, **Review**, **Undo**, **Settings**. It reads the same `.lore/lore.db` the CLI
-uses, so the page is live and needs no export step. Review and Undo write through `src/actions.ts`, so
-policy is enforced exactly as it is in the CLI.
+Five tabs: **Knowledge Hub**, **Review**, **Undo**, **Ontology**, **Settings**. It reads the same `.lore/lore.db` the CLI
+uses, so the page is live and needs no export step. Review, Undo, Claim authoring and Supersede write through
+the same model and action policies as the CLI.
 
 ![Review](assets/dashboard-review.png)
 
@@ -23,7 +23,9 @@ policy is enforced exactly as it is in the CLI.
 | Panel | Source |
 |---|---|
 | active / draft / stale / ahead / conflicts | claim states, `claimFreshness`, `merge_conflict` |
-| claims | `claim` joined with freshness; filters: text, state, freshness |
+| knowledge categories | filtered by Architecture, Env, Routes, Dependencies, Inferences |
+| claims view modes | structured Cards, interactive Graph explorer, raw Triples table |
+| ontology inspector | `lore.ontology.yml` rules, cardinalities, TTLs, authority ladder |
 | recent commits | `memory_commit`, with a `merge` marker when a second parent exists |
 
 ## Endpoints
@@ -36,10 +38,13 @@ policy is enforced exactly as it is in the CLI.
 | `GET /api/commits` | last 50 commits |
 | `GET /api/conflicts` | unresolved merge conflicts |
 | `GET /api/identity` | principal, role, team mode, policy, remote |
+| `GET /api/ontology` | active ontology rules from `lore.ontology.yml` |
 | `POST /api/approve` | `{ ids }` — approve drafts |
 | `POST /api/reject` | `{ claim, reason }` — retract a draft |
 | `POST /api/revert` | `{ commit }` — inverse commit |
 | `POST /api/attest` | `{ claim, verdict, reason }` — independent review |
+| `POST /api/claim` | `{ subject, predicate, object }` — record a new human fact |
+| `POST /api/supersede` | `{ claim, object }` — supersede an existing claim with new text |
 
 Writes require the `x-lore-csrf` header (token injected into the page) and an `Origin` that matches the
 bound host; anything else is 403. Unknown writes return 403 before routing. MCP has no dashboard tool.

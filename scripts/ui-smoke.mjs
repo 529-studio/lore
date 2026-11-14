@@ -84,7 +84,23 @@ try {
   const post405 = await fetch(`${handle.url}/api/claims`, { method: 'POST' });
   if (post405.status !== 403) throw new Error(`unknown POST must be 403 (CSRF first), got ${post405.status}`);
 
-  console.log('[OK] ui: read endpoints, CSRF, origin check, approve, reject, revert');
+  // Test ontology endpoint
+  const ontology = await (await fetch(`${handle.url}/api/ontology`)).json();
+  if (typeof ontology !== 'object' || ontology.exists === undefined) throw new Error('ontology endpoint failed');
+
+  // Test creating new claim via UI
+  const created = await write('/api/claim', { subject: 'doc:ui.md', predicate: 'title', object: 'UI Guide' });
+  if (!created.ok) throw new Error(`create claim failed: ${created.status}`);
+  const createdJson = await created.json();
+  if (!createdJson.id) throw new Error('created claim has no id');
+
+  // Test superseding claim via UI
+  const superseded = await write('/api/supersede', { claim: createdJson.id, object: 'Updated UI Guide' });
+  if (!superseded.ok) throw new Error(`supersede failed: ${superseded.status}`);
+  const supersededJson = await superseded.json();
+  if (!supersededJson.newId) throw new Error('supersede returned no newId');
+
+  console.log('[OK] ui: read endpoints, CSRF, origin check, approve, reject, revert, claim, supersede, ontology');
 } finally {
   await handle.close();
 }
