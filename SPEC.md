@@ -439,6 +439,7 @@ No LLM judge. Outcome metrics on real repositories:
 | file/test evidence auto-promotes | only when the evidence hash was actually observed | an unhashable file is not evidence |
 | `conflict_rate` over 20 sessions | aborts among merges expected to succeed; deliberate conflicts reported separately | measuring a designed conflict against a production threshold is a category error |
 | MCP has five tools | seven (`memory_approve`, `memory_commit` added) | without approve, MCP-only memory is permanently invisible |
+| CLI has static config | `lore setup` auto-wires MCP for agents (agy, claude, cursor, codex, gemini) and `lore config` manages settings | manual JSON/TOML editing was error-prone and missed session branch isolation |
 
 ## Glossary
 

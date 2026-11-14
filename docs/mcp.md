@@ -20,6 +20,43 @@ It exposes 7 tools: `memory_search`, `memory_write`, `memory_approve`, `memory_c
 
 ---
 
+## Automated setup (`lore setup`)
+
+Instead of manual editing, configure your agents automatically:
+
+```bash
+lore setup agy       # Antigravity CLI (.agents/mcp_config.json or global ~/.gemini/config/mcp_config.json)
+lore setup claude    # Claude Code (.mcp.json)
+lore setup cursor    # Cursor (.cursor/mcp.json)
+lore setup codex     # Codex CLI (~/.codex/config.toml)
+lore setup gemini    # Gemini CLI (.gemini/settings.json)
+lore setup --all     # Detect and configure all installed agents
+```
+
+---
+
+## Antigravity CLI (`agy`)
+
+Option A — Automated:
+
+```bash
+lore setup agy
+```
+
+Option B — Manual config in `.agents/mcp_config.json` (or global `~/.gemini/config/mcp_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "lore": {
+      "command": "lore",
+      "args": ["mcp"],
+      "env": { "LORE_SESSION": "antigravity" }
+    }
+  }
+}
+```
+
 ## Claude Code
 
 Option A — CLI (run inside your project):

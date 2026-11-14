@@ -38,6 +38,8 @@ import { explainCommand } from './commands/explain.js';
 import { canonConfirmCommand, canonDecayCommand, canonMetricsCommand, canonResolveCommand, canonStatusCommand } from './commands/canon.js';
 import { verifyCommand } from './commands/verify.js';
 import { writeCommand } from './commands/write.js';
+import { setupCommand } from './commands/setup.js';
+import { configCommand } from './commands/config.js';
 import type { EvidenceKind } from './model.js';
 import { installCanon } from './canon/index.js';
 
@@ -469,6 +471,34 @@ program
   .requiredOption('--md', 'markdown projection')
   .option('--out <path>', 'write to a file (default: stdout)')
   .action((opts) => exportCommand({ md: opts.md, out: opts.out }));
+
+program
+  .command('setup [agent]')
+  .description('configure MCP integration for coding agents (agy, claude, cursor, codex, gemini)')
+  .option('--all', 'configure all detected agents')
+  .option('--scope <scope>', 'project (default) or global', 'project')
+  .option('--session <name>', 'session branch name (default: agent name)')
+  .option('--bin <path>', 'custom binary path or executable command')
+  .option('--root <path>', 'repository root (default: cwd)')
+  .action((agent, opts) =>
+    setupCommand(agent, {
+      all: opts.all,
+      scope: opts.scope,
+      session: opts.session,
+      bin: opts.bin,
+      root: opts.root,
+    }),
+  );
+
+program
+  .command('config [action] [key] [value]')
+  .description('view or edit project configuration (list|get|set|unset)')
+  .option('--root <path>', 'repository root (default: cwd)')
+  .action((action, key, value, opts) =>
+    configCommand(action, key, value, {
+      root: opts.root,
+    }),
+  );
 
 program
   .command('mcp')
