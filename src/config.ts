@@ -12,6 +12,7 @@ export interface LoreConfig {
   remote?: RemoteConfig;
   /** Last remote main commit seen by fetch/push, used for the ahead/behind line. */
   remote_main?: string | null;
+  [key: string]: unknown;
 }
 
 const DIR = '.lore';

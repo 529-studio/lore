@@ -44,9 +44,7 @@ stale, then accept the new reality with `verify --accept`.*
 
 **Canon demo:** [memory stops being injected after npm → pnpm](scripts/demo/canon-pnpm.sh).
 
-**GUI:** `lore ui` serves a local dashboard — Health, Review, Undo, Settings — through the same policy
-layer as the CLI. A macOS desktop build bundles it with its own Node runtime; see
-[docs/desktop.md](docs/desktop.md).
+**GUI:** `lore ui` serves a local dashboard — Health, Review, Undo, Settings. See [docs/desktop.md](docs/desktop.md).
 
 ![Lore dashboard](docs/assets/dashboard.png)
 
@@ -224,6 +222,8 @@ lore purge <claim> --yes      remove the row permanently, keep an audit entry
 lore gc [--ttl-sessions 3]     retract unreviewed drafts (rows are kept)
 lore export --md               deterministic markdown projection
 lore supersede <claim>         replace a claim, keeping the old version in history
+lore setup [agent]             configure MCP for agents (agy, claude, cursor, codex, gemini)
+lore config [action]           view or edit project configuration (list, get, set, unset)
 lore mcp                       MCP server over stdio
 ```
 
@@ -263,10 +263,7 @@ After that, you use Claude / Codex / Gemini exactly as before. What changes:
 markdown file of everything the agent knows, grouped by subject, with the evidence in comments.
 It is deterministic, so it reviews like a document in a pull request.
 
-**What does not exist yet:** a window with buttons. The app layer (health, review, undo) is
-milestone **v0.3.0**, tracked in
-[issue #21](https://github.com/529-studio/lore/issues/21). Until then, "approve" and "undo" mean
-asking a developer or running one command.
+**GUI status:** The web dashboard (`lore ui`) is live; desktop packaging is tracked in [issue #66](https://github.com/529-studio/lore/issues/66).
 
 ---
 

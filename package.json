@@ -25,6 +25,7 @@
     "canon:smoke": "node scripts/canon-smoke.mjs",
     "pg:smoke": "node scripts/pg-sync.mjs",
     "ui:smoke": "node scripts/ui-smoke.mjs",
+    "setup:smoke": "node scripts/setup-smoke.mjs",
     "eval": "node scripts/eval.mjs",
     "demo:cli": "node scripts/demo/record-cli.mjs",
     "docs:lint": "node scripts/docs-lint.mjs",
