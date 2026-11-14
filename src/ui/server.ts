@@ -129,12 +129,45 @@ const HTML = String.raw`<!doctype html>
   .modal label { font-size:12px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.05em; }
   .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:8px; }
 
+  /* View Switcher */
+  .view-switcher { display:inline-flex; background:#090d13; padding:2px; border-radius:6px; border:1px solid var(--line); gap:2px; }
+  .view-btn { background:transparent; border:1px solid transparent; color:var(--muted); padding:5px 12px; border-radius:4px; font:12px/1.2 ui-monospace, Menlo, monospace; cursor:pointer; transition:all .15s ease; }
+  .view-btn:hover { color:var(--ink); background:rgba(255,255,255,0.05); }
+  .view-btn.on { background:var(--panel); color:var(--accent); border-color:var(--line); box-shadow:0 1px 3px rgba(0,0,0,0.4); font-weight:600; }
+
   /* Graph Explorer */
-  #graph-box { width:100%; height:550px; background:#090d13; overflow:hidden; position:relative; border-bottom:1px solid var(--line); }
-  #graph-svg { width:100%; height:100%; cursor:grab; }
-  .node circle { stroke-width:2px; transition:r .2s; }
+  #graph-box { width:100%; height:580px; background:#090d13; overflow:hidden; position:relative; border-bottom:1px solid var(--line); }
+  #graph-svg { width:100%; height:100%; cursor:grab; user-select:none; }
+  #graph-svg:active { cursor:grabbing; }
+  .graph-toolbar { position:absolute; top:12px; left:16px; display:flex; align-items:center; gap:8px; z-index:10; pointer-events:auto; flex-wrap:wrap; }
+  .graph-controls { position:absolute; bottom:12px; right:16px; display:flex; align-items:center; gap:6px; z-index:15; pointer-events:auto; }
+  .graph-badge { background:rgba(22, 27, 34, 0.88); border:1px solid var(--line); padding:4px 10px; border-radius:20px; font-size:11px; color:var(--muted); backdrop-filter:blur(8px); }
+  .graph-btn { background:rgba(22, 27, 34, 0.88); border:1px solid var(--line); color:var(--ink); padding:5px 10px; border-radius:6px; font:12px ui-monospace, Menlo, monospace; cursor:pointer; backdrop-filter:blur(8px); transition:all .15s; }
+  .graph-btn:hover { background:var(--line); border-color:var(--muted); }
+  .graph-btn.primary { background:rgba(88, 166, 255, 0.15); border-color:var(--accent); color:var(--accent); font-weight:600; }
+  .graph-btn.pill-sm { padding:3px 8px; border-radius:12px; font-size:11px; color:var(--muted); }
+  .graph-btn.pill-sm.on { background:var(--accent); color:#0d1117; font-weight:600; border-color:var(--accent); }
+  .graph-legend { position:absolute; bottom:12px; left:16px; display:flex; gap:12px; background:rgba(22, 27, 34, 0.88); border:1px solid var(--line); padding:6px 12px; border-radius:6px; font-size:11px; color:var(--muted); backdrop-filter:blur(8px); pointer-events:none; z-index:10; }
+  .legend-item { display:flex; align-items:center; gap:6px; }
+  .legend-dot { width:8px; height:8px; border-radius:50%; }
+
+  /* Graph Node Drawer */
+  #graph-drawer { position:absolute; top:12px; bottom:52px; right:12px; width:330px; background:rgba(22, 27, 34, 0.95); border:1px solid var(--line); border-radius:8px; padding:16px; display:none; flex-direction:column; gap:12px; box-shadow:-4px 0 24px rgba(0,0,0,0.6); backdrop-filter:blur(12px); z-index:20; overflow-y:auto; }
+  .drawer-hdr { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; border-bottom:1px solid var(--line); padding-bottom:10px; }
+  .drawer-title { font-size:13px; font-weight:600; word-break:break-all; color:var(--ink); }
+  .drawer-sec { display:flex; flex-direction:column; gap:6px; }
+  .drawer-sec-lbl { font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+  .drawer-list { display:flex; flex-direction:column; gap:6px; max-height:220px; overflow-y:auto; }
+  .drawer-item { background:#0d1117; border:1px solid var(--line); border-radius:6px; padding:8px 10px; font-size:11px; display:grid; gap:4px; }
+  .drawer-item-rel { display:flex; justify-content:space-between; align-items:center; }
+  .node circle { stroke-width:2px; transition:r .2s, stroke-width .2s, stroke .2s; cursor:pointer; }
+  .node:hover circle { stroke:#ffffff; stroke-width:3px; }
+  .node.selected circle { stroke:#ffffff; stroke-width:3.5px; filter:drop-shadow(0 0 6px var(--accent)); }
   .node text { font-size:11px; fill:var(--ink); font-family:ui-monospace,monospace; pointer-events:none; }
-  .link { stroke:#30363d; stroke-opacity:0.6; stroke-width:1.5px; }
+  .node.dimmed { opacity:0.12; }
+  .link { stroke:#30363d; stroke-opacity:0.6; stroke-width:1.5px; transition:stroke-opacity .2s, stroke .2s; }
+  .link.highlighted { stroke:var(--accent); stroke-opacity:1; stroke-width:2.5px; }
+  .link.dimmed { stroke-opacity:0.06; }
 </style>
 </head>
 <body>
@@ -191,16 +224,65 @@ const HTML = String.raw`<!doctype html>
           <option value="stale">stale (drifted)</option>
           <option value="ahead">ahead of checkout</option>
         </select>
-        <div style="margin-left:auto; display:flex; gap:6px;">
-          <button class="act" id="view-cards" style="font-weight:600">Cards</button>
-          <button class="act" id="view-graph">Graph</button>
-          <button class="act" id="view-raw">Raw Table</button>
+        <div class="view-switcher" style="margin-left:auto;">
+          <button class="view-btn on" id="view-cards">Cards</button>
+          <button class="view-btn" id="view-graph">Graph</button>
+          <button class="view-btn" id="view-raw">Raw Table</button>
         </div>
       </div>
 
       <!-- Graph Container -->
       <div id="graph-box" style="display:none">
-        <svg id="graph-svg"></svg>
+        <div class="graph-toolbar">
+          <button class="graph-btn primary" id="graph-reset-selection" style="display:none">← Back to Overview</button>
+          <span class="graph-badge" id="graph-stat">0 nodes</span>
+          <div style="display:flex; gap:4px;" id="graph-type-filters">
+            <button class="graph-btn pill-sm on" data-type="all">All</button>
+            <button class="graph-btn pill-sm" data-type="file">Files</button>
+            <button class="graph-btn pill-sm" data-type="env">Env</button>
+            <button class="graph-btn pill-sm" data-type="pkg">Packages</button>
+            <button class="graph-btn pill-sm" data-type="doc">Docs/Rules</button>
+          </div>
+        </div>
+
+        <div class="graph-controls">
+          <button class="graph-btn" id="graph-zoom-in" title="Zoom In">+</button>
+          <button class="graph-btn" id="graph-zoom-out" title="Zoom Out">−</button>
+          <button class="graph-btn" id="graph-zoom-reset" title="Reset View">⟲ Reset</button>
+        </div>
+
+        <svg id="graph-svg">
+          <g id="graph-viewport"></g>
+        </svg>
+
+        <!-- Graph Node Drawer -->
+        <div id="graph-drawer">
+          <div class="drawer-hdr">
+            <div>
+              <span id="drawer-type" class="tag" style="margin-bottom:6px; display:inline-block">File</span>
+              <div id="drawer-title" class="drawer-title"></div>
+            </div>
+            <div style="display:flex; gap:4px; align-items:center;">
+              <button class="graph-btn primary pill-sm" id="drawer-reset-btn" title="Back to Overview">← Overview</button>
+              <button class="act" id="drawer-close" style="padding:2px 8px;">✕</button>
+            </div>
+          </div>
+          <div class="drawer-sec">
+            <span class="drawer-sec-lbl">Connected Facts & Relations</span>
+            <div id="drawer-relations" class="drawer-list"></div>
+          </div>
+          <div class="drawer-sec" style="margin-top:auto;">
+            <button class="act primary" id="drawer-focus-btn" style="width:100%;">Focus This Subgraph</button>
+          </div>
+        </div>
+
+        <div class="graph-legend">
+          <div class="legend-item"><span class="legend-dot" style="background:#58a6ff"></span> File</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#d29922"></span> Env Var</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#bc8cff"></span> Package</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#f85149"></span> Doc/Rule</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#8b949e"></span> Value</div>
+        </div>
       </div>
 
       <!-- Cards Container -->
@@ -642,24 +724,177 @@ function renderRawView(claims) {
   }
 }
 
+let graphState = {
+  zoom: 1,
+  panX: 0,
+  panY: 0,
+  typeFilter: 'all',
+  selectedNode: null,
+  focusedSubgraph: null,
+  isDragging: false,
+  dragStartX: 0,
+  dragStartY: 0,
+};
+
+function updateGraphTransform() {
+  const vp = $('graph-viewport');
+  if (vp) {
+    vp.setAttribute('transform', 'translate(' + graphState.panX + ',' + graphState.panY + ') scale(' + graphState.zoom + ')');
+  }
+}
+
+function resetGraphSelection() {
+  graphState.selectedNode = null;
+  graphState.focusedSubgraph = null;
+  const drawer = $('graph-drawer');
+  if (drawer) drawer.style.display = 'none';
+  const resetBtn = $('graph-reset-selection');
+  if (resetBtn) resetBtn.style.display = 'none';
+
+  const svg = $('graph-svg');
+  if (svg) {
+    for (const el of svg.querySelectorAll('.node')) el.classList.remove('selected', 'dimmed');
+    for (const el of svg.querySelectorAll('.link')) el.classList.remove('highlighted', 'dimmed');
+  }
+  renderActiveView();
+}
+
+function selectGraphNode(n, links, claims) {
+  graphState.selectedNode = n.id;
+  const svg = $('graph-svg');
+
+  const neighborIds = new Set([n.id]);
+  for (const l of links) {
+    if (l.source.id === n.id || l.target.id === n.id) {
+      neighborIds.add(l.source.id);
+      neighborIds.add(l.target.id);
+    }
+  }
+
+  for (const g of svg.querySelectorAll('.node')) {
+    const id = g.getAttribute('data-id');
+    if (id === n.id) {
+      g.classList.add('selected');
+      g.classList.remove('dimmed');
+    } else if (neighborIds.has(id)) {
+      g.classList.remove('dimmed', 'selected');
+    } else {
+      g.classList.add('dimmed');
+      g.classList.remove('selected');
+    }
+  }
+  for (const l of svg.querySelectorAll('.link')) {
+    const src = l.getAttribute('data-source');
+    const tgt = l.getAttribute('data-target');
+    if (src === n.id || tgt === n.id) {
+      l.classList.add('highlighted');
+      l.classList.remove('dimmed');
+    } else {
+      l.classList.add('dimmed');
+      l.classList.remove('highlighted');
+    }
+  }
+
+  const drawer = $('graph-drawer');
+  const dType = $('drawer-type');
+  const dTitle = $('drawer-title');
+  const dRels = $('drawer-relations');
+  const dFocusBtn = $('drawer-focus-btn');
+  const resetBtn = $('graph-reset-selection');
+
+  let typeLabel = 'Value';
+  let typeTagClass = 'tag';
+  if (n.type === 'file') { typeLabel = 'Source File'; typeTagClass = 'tag file'; }
+  else if (n.type === 'env') { typeLabel = 'Environment Var'; typeTagClass = 'tag draft'; }
+  else if (n.type === 'pkg') { typeLabel = 'Package / Module'; typeTagClass = 'tag active'; }
+  else if (n.type === 'doc') { typeLabel = 'Doc / Rule'; typeTagClass = 'tag valid'; }
+
+  dType.textContent = typeLabel;
+  dType.className = typeTagClass;
+  dTitle.textContent = n.id;
+
+  dRels.replaceChildren();
+  const touchingClaims = claims.filter(c => c.subject === n.id || String(c.object).slice(0, 30) === n.id || String(c.object) === n.id);
+  if (!touchingClaims.length) {
+    dRels.append(el('div', 'No direct claims in current sample.', 'muted'));
+  } else {
+    for (const c of touchingClaims) {
+      const item = el('div', undefined, 'drawer-item');
+      const relRow = el('div', undefined, 'drawer-item-rel');
+      const relTxt = el('span', c.predicate + ' ' + (c.subject === n.id ? '→ ' + String(c.object).slice(0, 22) : '← ' + c.subject));
+      relTxt.style.fontWeight = '600';
+      relRow.append(relTxt);
+
+      const insp = el('button', 'Inspect', 'act');
+      insp.style.padding = '2px 6px';
+      insp.onclick = (e) => { e.stopPropagation(); inspectClaim(c.id); };
+      relRow.append(insp);
+
+      item.append(relRow);
+      const subRow = el('div', undefined, 'k-tags');
+      subRow.append(el('span', c.state, 'tag ' + c.state), el('span', c.freshness, 'tag ' + c.freshness));
+      item.append(subRow);
+      dRels.append(item);
+    }
+  }
+
+  dFocusBtn.textContent = graphState.focusedSubgraph === n.id ? 'Show Full Graph' : 'Focus Only This Subgraph';
+  dFocusBtn.onclick = () => {
+    graphState.focusedSubgraph = graphState.focusedSubgraph === n.id ? null : n.id;
+    renderActiveView();
+  };
+
+  drawer.style.display = 'flex';
+  resetBtn.style.display = 'inline-block';
+}
+
 function renderGraphView(claims) {
   const svg = $('graph-svg');
-  svg.replaceChildren();
-  const width = svg.clientWidth || 900;
-  const height = 550;
+  let viewport = $('graph-viewport');
+  if (!viewport) {
+    svg.replaceChildren();
+    viewport = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    viewport.setAttribute('id', 'graph-viewport');
+    svg.append(viewport);
+  } else {
+    viewport.replaceChildren();
+  }
+
+  const width = svg.clientWidth || 920;
+  const height = 580;
   svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
+  updateGraphTransform();
+
+  let targetClaims = claims;
+  if (graphState.focusedSubgraph) {
+    const focusId = graphState.focusedSubgraph;
+    targetClaims = claims.filter(c => c.subject === focusId || String(c.object).slice(0, 30) === focusId || String(c.object) === focusId);
+    $('graph-reset-selection').style.display = 'inline-block';
+  } else if (!graphState.selectedNode) {
+    $('graph-reset-selection').style.display = 'none';
+  }
+
+  if (graphState.typeFilter !== 'all') {
+    targetClaims = targetClaims.filter(c => {
+      if (graphState.typeFilter === 'env') return c.subject.startsWith('env:');
+      if (graphState.typeFilter === 'file') return c.subject.startsWith('file:') || String(c.object).startsWith('src/') || String(c.object).endsWith('.ts');
+      if (graphState.typeFilter === 'pkg') return c.subject.startsWith('pkg:') || c.predicate === 'imports_module';
+      if (graphState.typeFilter === 'doc') return c.subject.startsWith('doc:') || c.subject.startsWith('rule:');
+      return true;
+    });
+  }
 
   const nodes = new Map();
   const links = [];
 
   const addNode = (id, type) => {
     if (!nodes.has(id)) {
-      nodes.set(id, { id, type, x: width/2 + (Math.random()-0.5)*(width*0.7), y: height/2 + (Math.random()-0.5)*(height*0.7) });
+      nodes.set(id, { id, type, x: 0, y: 0 });
     }
     return nodes.get(id);
   };
 
-  const sample = claims.slice(0, 60);
+  const sample = targetClaims.slice(0, 75);
   for (const c of sample) {
     let sType = 'file';
     if (c.subject.startsWith('env:')) sType = 'env';
@@ -674,41 +909,99 @@ function renderGraphView(claims) {
     links.push({ source: sNode, target: oNode, label: c.predicate });
   }
 
-  // Draw links
+  $('graph-stat').textContent = nodes.size + ' nodes, ' + links.length + ' relations';
+
+  const nodeArr = Array.from(nodes.values());
+  const total = nodeArr.length;
+  nodeArr.forEach((n, idx) => {
+    const angle = (idx / (total || 1)) * 2 * Math.PI;
+    const r = 100 + (idx % 3) * 65;
+    n.x = width / 2 + Math.cos(angle) * r;
+    n.y = height / 2 + Math.sin(angle) * r;
+  });
+
+  for (let iter = 0; iter < 35; iter++) {
+    for (let i = 0; i < total; i++) {
+      for (let j = i + 1; j < total; j++) {
+        const a = nodeArr[i];
+        const b = nodeArr[j];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const minDist = 130;
+        if (dist < minDist) {
+          const f = ((minDist - dist) / dist) * 0.35;
+          a.x -= dx * f;
+          a.y -= dy * f;
+          b.x += dx * f;
+          b.y += dy * f;
+        }
+      }
+    }
+    for (const l of links) {
+      const dx = l.target.x - l.source.x;
+      const dy = l.target.y - l.source.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const targetDist = 95;
+      const f = (dist - targetDist) * 0.04;
+      l.source.x += (dx / dist) * f;
+      l.source.y += (dy / dist) * f;
+      l.target.x -= (dx / dist) * f;
+      l.target.y -= (dy / dist) * f;
+    }
+    for (const n of nodeArr) {
+      n.x += (width / 2 - n.x) * 0.03;
+      n.y += (height / 2 - n.y) * 0.03;
+    }
+  }
+
+  for (const n of nodeArr) {
+    n.x = Math.max(50, Math.min(width - 50, n.x));
+    n.y = Math.max(50, Math.min(height - 50, n.y));
+  }
+
   for (const l of links) {
     const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
     line.setAttribute('x1', l.source.x); line.setAttribute('y1', l.source.y);
     line.setAttribute('x2', l.target.x); line.setAttribute('y2', l.target.y);
     line.setAttribute('class', 'link');
-    svg.append(line);
+    line.setAttribute('data-source', l.source.id);
+    line.setAttribute('data-target', l.target.id);
+    viewport.append(line);
   }
 
-  // Draw nodes
-  for (const n of nodes.values()) {
+  for (const n of nodeArr) {
     const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    g.setAttribute('class', 'node');
+    g.setAttribute('class', 'node' + (graphState.selectedNode === n.id ? ' selected' : ''));
+    g.setAttribute('data-id', n.id);
     g.setAttribute('transform', 'translate(' + n.x + ',' + n.y + ')');
 
     const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    circle.setAttribute('r', '8');
+    circle.setAttribute('r', n.type === 'file' || n.type === 'pkg' ? '9' : '8');
     let color = '#58a6ff';
     if (n.type === 'env') color = '#d29922';
-    if (n.type === 'pkg') color = '#bc8cff';
-    if (n.type === 'doc') color = '#f85149';
+    else if (n.type === 'pkg') color = '#bc8cff';
+    else if (n.type === 'doc') color = '#f85149';
+    else if (n.type === 'obj') color = '#8b949e';
     circle.setAttribute('fill', color);
     circle.setAttribute('stroke', '#161b22');
     g.append(circle);
 
     const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    text.setAttribute('dx', '12'); text.setAttribute('dy', '4');
+    text.setAttribute('dx', '13'); text.setAttribute('dy', '4');
     text.textContent = n.id;
     g.append(text);
 
-    g.onclick = () => {
-      $('q').value = n.id;
-      renderActiveView();
+    g.onclick = (e) => {
+      e.stopPropagation();
+      selectGraphNode(n, links, targetClaims);
     };
-    svg.append(g);
+
+    viewport.append(g);
+  }
+
+  if (graphState.selectedNode && nodes.has(graphState.selectedNode)) {
+    selectGraphNode(nodes.get(graphState.selectedNode), links, targetClaims);
   }
 }
 
@@ -891,9 +1184,9 @@ for (const pill of document.querySelectorAll('#category-pills .pill')) {
 // View mode switcher
 function switchView(view) {
   currentView = view;
-  $('view-cards').style.fontWeight = view === 'cards' ? '600' : 'normal';
-  $('view-graph').style.fontWeight = view === 'graph' ? '600' : 'normal';
-  $('view-raw').style.fontWeight = view === 'raw' ? '600' : 'normal';
+  $('view-cards').classList.toggle('on', view === 'cards');
+  $('view-graph').classList.toggle('on', view === 'graph');
+  $('view-raw').classList.toggle('on', view === 'raw');
 
   $('cards-view').style.display = view === 'cards' ? 'grid' : 'none';
   $('graph-box').style.display = view === 'graph' ? 'block' : 'none';
@@ -905,6 +1198,65 @@ function switchView(view) {
 $('view-cards').onclick = () => switchView('cards');
 $('view-graph').onclick = () => switchView('graph');
 $('view-raw').onclick = () => switchView('raw');
+
+// Graph mouse pan and zoom interactions
+const graphSvg = $('graph-svg');
+graphSvg.onmousedown = (e) => {
+  if (e.target === graphSvg || e.target.id === 'graph-viewport' || e.target.tagName.toLowerCase() === 'line') {
+    graphState.isDragging = true;
+    graphState.dragStartX = e.clientX - graphState.panX;
+    graphState.dragStartY = e.clientY - graphState.panY;
+  }
+};
+window.addEventListener('mousemove', (e) => {
+  if (!graphState.isDragging) return;
+  graphState.panX = e.clientX - graphState.dragStartX;
+  graphState.panY = e.clientY - graphState.dragStartY;
+  updateGraphTransform();
+});
+window.addEventListener('mouseup', () => {
+  graphState.isDragging = false;
+});
+graphSvg.onwheel = (e) => {
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.15 : 0.87;
+  graphState.zoom = Math.min(Math.max(graphState.zoom * factor, 0.3), 3.5);
+  updateGraphTransform();
+};
+graphSvg.onclick = (e) => {
+  if (e.target === graphSvg || e.target.id === 'graph-viewport') {
+    if (graphState.selectedNode) {
+      resetGraphSelection();
+    }
+  }
+};
+
+$('graph-zoom-in').onclick = () => {
+  graphState.zoom = Math.min(graphState.zoom * 1.25, 3.5);
+  updateGraphTransform();
+};
+$('graph-zoom-out').onclick = () => {
+  graphState.zoom = Math.max(graphState.zoom / 1.25, 0.3);
+  updateGraphTransform();
+};
+$('graph-zoom-reset').onclick = () => {
+  graphState.zoom = 1;
+  graphState.panX = 0;
+  graphState.panY = 0;
+  updateGraphTransform();
+};
+$('graph-reset-selection').onclick = resetGraphSelection;
+$('drawer-close').onclick = resetGraphSelection;
+$('drawer-reset-btn').onclick = resetGraphSelection;
+
+for (const btn of document.querySelectorAll('#graph-type-filters button')) {
+  btn.onclick = () => {
+    for (const b of document.querySelectorAll('#graph-type-filters button')) b.classList.remove('on');
+    btn.classList.add('on');
+    graphState.typeFilter = btn.dataset.type;
+    renderActiveView();
+  };
+}
 
 for (const b of document.querySelectorAll('nav button')) b.onclick = () => show(b.dataset.tab);
 $('q').addEventListener('input', () => { clearTimeout(window.__t); window.__t = setTimeout(renderActiveView, 150); });
