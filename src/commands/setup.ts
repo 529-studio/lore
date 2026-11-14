@@ -5,8 +5,8 @@ import path from 'node:path';
 import process from 'node:process';
 import pc from 'picocolors';
 
-export type AgentName = 'agy' | 'claude' | 'cursor' | 'codex' | 'gemini';
-export const SUPPORTED_AGENTS: AgentName[] = ['agy', 'claude', 'cursor', 'codex', 'gemini'];
+export type AgentName = 'agy' | 'claude' | 'cursor' | 'codex' | 'gemini' | 'opencode';
+export const SUPPORTED_AGENTS: AgentName[] = ['agy', 'claude', 'cursor', 'codex', 'gemini', 'opencode'];
 
 export interface SetupOptions {
   agent?: string;
@@ -79,6 +79,40 @@ function updateTomlMcpConfig(
     content = `${content.trim()}\n\n${sectionBlock}`.trim() + '\n';
   }
   writeFileSync(filePath, content, 'utf8');
+}
+
+function updateOpencodeMcpConfig(
+  filePath: string,
+  serverName: string,
+  commandArray: string[],
+  environment: Record<string, string>,
+): void {
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  let content: Record<string, unknown> = {};
+  if (existsSync(filePath)) {
+    try {
+      const raw = readFileSync(filePath, 'utf8');
+      const cleaned = raw.replace(/^\s*\/\/.*$/gm, '');
+      content = JSON.parse(cleaned);
+    } catch {
+      content = {};
+    }
+  }
+  if (!content.mcp || typeof content.mcp !== 'object') {
+    content.mcp = {};
+  }
+  const mcp = content.mcp as Record<string, unknown>;
+  if (!mcp.servers || typeof mcp.servers !== 'object') {
+    mcp.servers = {};
+  }
+  const servers = mcp.servers as Record<string, unknown>;
+  servers[serverName] = {
+    type: 'local',
+    command: commandArray,
+    environment,
+    enabled: true,
+  };
+  writeFileSync(filePath, `${JSON.stringify(content, null, 2)}\n`, 'utf8');
 }
 
 interface AgentDefinition {
@@ -165,6 +199,21 @@ const AGENTS: Record<AgentName, AgentDefinition> = {
         args: cmd.args,
         env: { LORE_SESSION: session },
       });
+    },
+  },
+  opencode: {
+    name: 'opencode',
+    displayName: 'OpenCode',
+    defaultSession: 'opencode',
+    getConfigFile: (root, scope) =>
+      scope === 'global'
+        ? (existsSync(path.join(homedir(), '.config', 'opencode', 'opencode.jsonc'))
+            ? path.join(homedir(), '.config', 'opencode', 'opencode.jsonc')
+            : path.join(homedir(), '.config', 'opencode', 'opencode.json'))
+        : (existsSync(path.join(root, 'opencode.jsonc')) ? path.join(root, 'opencode.jsonc') : path.join(root, 'opencode.json')),
+    isInstalled: () => existsSync(path.join(homedir(), '.config', 'opencode')) || isBinaryOnPath('opencode'),
+    applyConfig: (filePath, cmd, session) => {
+      updateOpencodeMcpConfig(filePath, 'lore', [cmd.command, ...cmd.args], { LORE_SESSION: session });
     },
   },
 };

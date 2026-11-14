@@ -30,6 +30,7 @@ lore setup claude    # Claude Code (.mcp.json)
 lore setup cursor    # Cursor (.cursor/mcp.json)
 lore setup codex     # Codex CLI (~/.codex/config.toml)
 lore setup gemini    # Gemini CLI (.gemini/settings.json)
+lore setup opencode  # OpenCode (opencode.json or ~/.config/opencode/opencode.jsonc)
 lore setup --all     # Detect and configure all installed agents
 ```
 
@@ -115,6 +116,31 @@ Edit `~/.gemini/settings.json`:
 
 Gemini also supports a project-level `.gemini/settings.json` if you prefer not to touch the global one.
 Run `gemini` from the project root.
+
+## OpenCode
+
+Option A — Automated:
+
+```bash
+lore setup opencode
+```
+
+Option B — Manual configuration in `~/.config/opencode/opencode.jsonc`:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "lore": {
+        "type": "local",
+        "command": ["lore", "mcp"],
+        "environment": { "LORE_SESSION": "opencode" },
+        "enabled": true
+      }
+    }
+  }
+}
+```
 
 ---
 

@@ -474,7 +474,7 @@ program
 
 program
   .command('setup [agent]')
-  .description('configure MCP integration for coding agents (agy, claude, cursor, codex, gemini)')
+  .description('configure MCP integration for coding agents (agy, claude, cursor, codex, gemini, opencode)')
   .option('--all', 'configure all detected agents')
   .option('--scope <scope>', 'project (default) or global', 'project')
   .option('--session <name>', 'session branch name (default: agent name)')
