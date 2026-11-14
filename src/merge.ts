@@ -95,14 +95,18 @@ export type Freshness = 'valid' | 'stale' | 'ahead';
  * The evidence records the git HEAD at observation time; if that commit is not an
  * ancestor of the current HEAD, the claim describes newer code than this checkout.
  */
-export function claimFreshness(db: DB, root: string, claimId: string): Freshness {
+export interface FreshnessOptions {
+  head?: string | null;
+}
+
+export function claimFreshness(db: DB, root: string, claimId: string, options?: FreshnessOptions): Freshness {
   const rows = db
     .prepare(`SELECT ref, hash, commit_id FROM evidence WHERE claim_id = ? AND kind IN ('file','test')`)
     .all(claimId) as Array<{ ref: string; hash: string | null; commit_id: string | null }>;
   if (!rows.length) return 'valid';
 
   const cache = hashCache(db, root);
-  const head = gitHead(root);
+  const head = options?.head !== undefined ? options.head : gitHead(root);
   let ahead = false;
 
   for (const row of rows) {
@@ -119,8 +123,8 @@ export function claimFreshness(db: DB, root: string, claimId: string): Freshness
 }
 
 /** Conservative: anything not valid locally (drifted or ahead) is untrusted for merge. */
-export function isStale(db: DB, root: string, claimId: string): boolean {
-  return claimFreshness(db, root, claimId) !== 'valid';
+export function isStale(db: DB, root: string, claimId: string, options?: FreshnessOptions): boolean {
+  return claimFreshness(db, root, claimId, options) !== 'valid';
 }
 
 interface CommitParents {
