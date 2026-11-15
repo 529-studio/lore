@@ -94,24 +94,16 @@ the milestone that changes this.
 
 ### Install
 
-Pick one:
-
 ```bash
-# A. npm (recommended)
+# npm (recommended)
 npm i -g @529studio/lore
-# or run it without installing:
-npx @529studio/lore --version
 
-# B. release tarball (works today, no registry needed)
-curl -L -o lore.tgz https://github.com/529-studio/lore/releases/download/v0.3.0/529studio-lore-0.3.0.tgz
-npm i -g ./lore.tgz
-
-# C. from source
+# or build from source
 git clone https://github.com/529-studio/lore.git && cd lore
 npm ci && npm run build && npm link
 ```
 
-Verify: `lore --version` → `0.1.0`.
+Verify: `lore --version`.
 
 ### Initialise a repository
 
@@ -136,6 +128,9 @@ lore.ontology.yml      # which predicates may hold one value vs many
 | env vars | `env:DATABASE_URL — read_by — src/db.ts` |
 | imports | `file:src/api.ts — imports_module — zod` |
 | routes | `file:src/routes.ts — exposes_route — GET /health` |
+| in-code invariants | `file:src/db.go#L42 — enforces_invariant — Hand-written SQL only` |
+| ADR decisions | `adr:001 — decides — Store memory in a single SQLite file` |
+| lesson rules | `lesson:L04 — defines_rule — When a shared helper is the fix...` |
 | rule registries | `rule:MCP-001 — detects — Remote endpoint uses plain HTTP` |
 | root docs | `doc:README.md — has_section — Quick start` |
 
@@ -143,38 +138,20 @@ Re-running `ingest` is idempotent: claims are content-addressed, so the same fac
 
 ### Connect your agents (MCP)
 
-Claude Code:
+Run `lore setup` to configure your agent automatically:
 
 ```bash
-claude mcp add lore --scope project \
-  --env LORE_SESSION=claude \
-  -- node "$(command -v lore)" mcp
+lore setup agy        # Antigravity CLI (.agents/mcp_config.json)
+lore setup claude     # Claude Code (.mcp.json)
+lore setup codex      # Codex CLI (~/.codex/config.toml)
+lore setup gemini     # Gemini CLI (~/.gemini/settings.json)
+lore setup cursor     # Cursor IDE (.cursor/mcp.json)
+lore setup opencode   # OpenCode (opencode.json)
 ```
 
-Codex CLI (`~/.codex/config.toml`):
+Or configure manually: `claude mcp add lore --scope project --env LORE_SESSION=claude -- node "$(command -v lore)" mcp`.
 
-```toml
-[mcp_servers.lore]
-command = "node"
-args = ["/absolute/path/to/lore/dist/cli.js", "mcp"]
-env = { LORE_SESSION = "codex" }
-```
-
-Gemini CLI (`~/.gemini/settings.json`):
-
-```json
-{
-  "mcpServers": {
-    "lore": {
-      "command": "node",
-      "args": ["/absolute/path/to/lore/dist/cli.js", "mcp"],
-      "env": { "LORE_SESSION": "gemini" }
-    }
-  }
-}
-```
-
-Each client should set its own `LORE_SESSION`, which maps to a branch `agent/<session>`.
+Each client sets its own `LORE_SESSION`, which maps to a branch `agent/<session>`.
 Agents never write to `main`; you decide what gets promoted. Full details: [docs/mcp.md](docs/mcp.md).
 
 ### Daily workflow
@@ -224,6 +201,7 @@ lore export --md               deterministic markdown projection
 lore supersede <claim>         replace a claim, keeping the old version in history
 lore setup [agent]             configure MCP for agents (agy, claude, cursor, codex, gemini)
 lore config [action]           view or edit project configuration (list, get, set, unset)
+lore check-update              check npm registry for newer versions of lore
 lore mcp                       MCP server over stdio
 ```
 

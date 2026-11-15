@@ -30,8 +30,20 @@ JSON
 cat > src/cli.js <<'JS'
 import { z } from "zod";
 const token = process.env.DEMO_TOKEN;
+// lore:invariant Hand-written SQL only, no ORMs allowed
 export const schema = z.string().min(1);
 JS
+
+mkdir -p docs/adr
+cat > docs/adr/ADR-001-sqlite.md <<'MD'
+# ADR-001: SQLite with content-addressed claims
+
+Status: accepted
+
+## Decision
+
+Store memory in a single SQLite file at .lore/lore.db.
+MD
 
 cat > README.md <<'MD'
 # Smoke
@@ -57,11 +69,21 @@ DRY="$(lore ingest --dry-run)"
 expect_contains "$DRY" "pkg:zod"
 expect_contains "$DRY" "env:DEMO_TOKEN"
 expect_contains "$DRY" "doc:README.md"
+expect_contains "$DRY" "enforces_invariant"
+expect_contains "$DRY" "decides"
 
 lore ingest >/dev/null
 STATUS="$(lore status)"
 ACTIVE_AFTER_INGEST="$(grep -oE '[0-9]+ active' <<<"$STATUS" | grep -oE '^[0-9]+')"
 [ "$ACTIVE_AFTER_INGEST" -ge 8 ] || fail "expected >=8 active claims after ingest, got $ACTIVE_AFTER_INGEST"
+
+SEARCH_INV="$(lore search "sql orm")"
+expect_contains "$SEARCH_INV" "enforces_invariant"
+expect_contains "$SEARCH_INV" "Hand-written SQL only"
+
+UPDATE_JSON="$(lore check-update --json)"
+expect_contains "$UPDATE_JSON" '"package": "@529studio/lore"'
+expect_contains "$UPDATE_JSON" '"current":'
 
 # --- idempotency -------------------------------------------------------------
 SECOND="$(lore ingest)"
