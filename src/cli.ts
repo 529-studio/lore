@@ -41,6 +41,7 @@ import { writeCommand } from './commands/write.js';
 import { setupCommand } from './commands/setup.js';
 import { rulesCommand } from './commands/rules.js';
 import { configCommand } from './commands/config.js';
+import { checkUpdateCommand } from './commands/update.js';
 import type { EvidenceKind } from './model.js';
 import { installCanon } from './canon/index.js';
 
@@ -53,6 +54,13 @@ program
   .name('lore')
   .description('Git for what your agents know — versioned, verifiable memory')
   .version(pkg.version);
+
+program
+  .command('check-update')
+  .description('check npm registry for a newer version of lore')
+  .option('--json', 'print machine-readable JSON')
+  .option('--timeout <ms>', 'network timeout in milliseconds (default: 2000)')
+  .action((opts) => checkUpdateCommand({ json: opts.json, timeout: opts.timeout }));
 
 program
   .command('init')

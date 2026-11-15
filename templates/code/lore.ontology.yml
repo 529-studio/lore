@@ -18,3 +18,9 @@ predicates:
   uses_library:         { cardinality: many, domain: symbol }
   has_known_bug:        { cardinality: many, domain: symbol }
   entrypoint:           { cardinality: one,  domain: file }
+  enforces_invariant:   { cardinality: many, domain: file }
+  defines_rule:         { cardinality: many, domain: doc }
+  decides:              { cardinality: many, domain: adr }
+  has_guardrail:        { cardinality: many, domain: doc }
+  has_constraint:       { cardinality: many, domain: symbol }
+  describes_issue:      { cardinality: many, domain: doc }

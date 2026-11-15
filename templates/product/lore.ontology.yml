@@ -10,3 +10,8 @@ predicates:
   depends_on:       { cardinality: many, domain: concept }
   supersedes:       { cardinality: one,  domain: concept }
   success_metric:   { cardinality: one,  domain: concept }
+  enforces_invariant: { cardinality: many, domain: file }
+  defines_rule:       { cardinality: many, domain: doc }
+  has_guardrail:      { cardinality: many, domain: doc }
+  has_constraint:     { cardinality: many, domain: symbol }
+  describes_issue:    { cardinality: many, domain: doc }

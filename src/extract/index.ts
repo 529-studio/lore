@@ -45,6 +45,7 @@ export function listFiles(root: string): string[] {
       cwd: root,
       maxBuffer: 64 * 1024 * 1024,
       encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'ignore'],
     });
     // git only knows about .gitignore; a fresh repo has none, so filter the
     // usual build/vendor directories ourselves.
@@ -126,7 +127,42 @@ const HEADING_RE = /^##\s+(.+?)\s*$/gm;
 const TITLE_RE = /^#\s+(.+?)\s*$/m;
 const STATUS_RE = /^\s*Status:\s*(.+?)\s*$/im;
 const ADR_PATH_RE = /(?:^|\/)(?:adr\/)?ADR-(\d+)[-_]?([^/]*)\.md$/i;
+const LESSON_PATH_RE = /(?:^|\/)(?:docs\/)?lessons\/L(\d+)[-_]?([^/]*)\.md$/i;
 const ISSUE_PATH_RE = /^(?:docs\/)?issues\/(\d+)[-_]?([^/]*)\.md$/i;
+const AGENTS_RULE_DOC_RE = /(?:^|\/)(?:AGENTS|CLAUDE|ARCHITECTURE|CONTRIBUTING|RULES)\.md$/i;
+const NUMBERED_RULE_HEADING_RE = /^##\s+(\d+\.\s*.+?)\s*$/gm;
+
+function cleanText(raw: string, maxLen = 400): string {
+  const clean = raw
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (clean.length <= maxLen) return clean;
+  const sliced = clean.slice(0, maxLen);
+  const lastSpace = sliced.lastIndexOf(' ');
+  return lastSpace > maxLen * 0.7 ? `${sliced.slice(0, lastSpace)}...` : `${sliced}...`;
+}
+
+function extractSectionBody(text: string, headingRe: RegExp, maxLen = 400): string | null {
+  const match = headingRe.exec(text);
+  if (!match) return null;
+  const start = match.index + match[0].length;
+  const rest = text.slice(start);
+  const nextHeading = rest.search(/\n##+\s+/);
+  const rawBody = nextHeading === -1 ? rest : rest.slice(0, nextHeading);
+  const cleaned = cleanText(rawBody, maxLen);
+  return cleaned.length > 5 ? cleaned : null;
+}
+
+function extractInlinePrefix(text: string, prefixRe: RegExp, maxLen = 400): string | null {
+  const match = prefixRe.exec(text);
+  if (!match || !match[1]) return null;
+  const cleaned = cleanText(match[1], maxLen);
+  return cleaned.length > 5 ? cleaned : null;
+}
 
 /** Stable, readable section id: lowercase, accents removed, punctuation collapsed. */
 export function slug(text: string): string {
@@ -221,7 +257,53 @@ function addRules(text: string, rel: string, out: Candidate[]): void {
   }
 }
 
+const IN_CODE_LORE_RE =
+  /(?:^|\n)[ \t]*(?:\/\/|#|\/\*)[ \t]*lore:(invariant|rule|constraint|decision)[ \t]*:?[ \t]*([^\r\n]+)/gi;
+const IN_CODE_KEYWORD_RE =
+  /(?:^|\n)[ \t]*(?:\/\/|#|\/\*)[ \t]*(INVARIANT|RULE|CONSTRAINT|ARCHITECTURE)[ \t]*:?[ \t]*([^\r\n]+)/g;
+
+function predicateForKeyword(keyword: string): string {
+  const k = keyword.toLowerCase();
+  if (k === 'invariant') return 'enforces_invariant';
+  if (k === 'rule' || k === 'architecture') return 'defines_rule';
+  if (k === 'constraint') return 'has_constraint';
+  if (k === 'decision') return 'decides';
+  return 'enforces_invariant';
+}
+
+function scanInvariants(rel: string, text: string, out: Candidate[]): void {
+  const scanRegex = (re: RegExp) => {
+    for (const m of text.matchAll(re)) {
+      const keyword = m[1];
+      const rawText = m[2];
+      if (!keyword || !rawText) continue;
+      const cleanBody = rawText
+        .replace(/\*\/$/, '')
+        .replace(/\*+$/, '')
+        .trim();
+      const cleaned = cleanText(cleanBody, 300);
+      if (cleaned.length < 3) continue;
+
+      const offset = (m.index ?? 0) + (m[0].startsWith('\n') ? 1 : 0);
+      const line = (text.slice(0, offset).match(/\n/g) || []).length + 1;
+      const predicate = predicateForKeyword(keyword);
+
+      out.push({
+        subject: `file:${rel}#L${line}`,
+        predicate,
+        object: cleaned,
+        evidenceRef: rel,
+        confidence: 0.95,
+      });
+    }
+  };
+
+  scanRegex(IN_CODE_LORE_RE);
+  scanRegex(IN_CODE_KEYWORD_RE);
+}
+
 function scanCode(root: string, rel: string, text: string, out: Candidate[]): void {
+  scanInvariants(rel, text, out);
   for (const m of text.matchAll(ENV_RE)) {
     const name = m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5];
     if (!name) continue;
@@ -312,6 +394,28 @@ export function extractAll(root: string): Candidate[] {
           for (const m of text.matchAll(HEADING_RE)) {
             out.push({ subject: id, predicate: 'has_section', object: m[1], confidence: 0.8, evidenceRef: rel });
           }
+          const decision = extractSectionBody(text, /^##\s+Decision\b:?/im);
+          if (decision) {
+            out.push({ subject: id, predicate: 'decides', object: decision, confidence: 0.95, evidenceRef: rel });
+          }
+        }
+
+        const lesson = rel.match(LESSON_PATH_RE);
+        if (lesson) {
+          const id = `lesson:L${lesson[1].padStart(2, '0')}`;
+          if (title) out.push({ subject: id, predicate: 'title', object: title, confidence: 0.95, evidenceRef: rel });
+          const rule =
+            extractInlinePrefix(text, /\*\*(?:Guardrail|Rule|Solution)\.\*\*\s*([^\n]+(?:\n(?!\*\*)[^\n#]+)*)/i) ||
+            extractSectionBody(text, /^##\s+(?:Guardrail|Rule|Solution)\b:?/im);
+          if (rule) {
+            out.push({ subject: id, predicate: 'defines_rule', object: rule, confidence: 0.95, evidenceRef: rel });
+          }
+          const issue =
+            extractInlinePrefix(text, /\*\*(?:What happened|Problem|Context)\.\*\*\s*([^\n]+(?:\n(?!\*\*)[^\n#]+)*)/i) ||
+            extractSectionBody(text, /^##\s+(?:What happened|Problem|Context)\b:?/im);
+          if (issue) {
+            out.push({ subject: id, predicate: 'describes_issue', object: issue, confidence: 0.9, evidenceRef: rel });
+          }
         }
 
         const issue = rel.match(ISSUE_PATH_RE);
@@ -320,6 +424,24 @@ export function extractAll(root: string): Candidate[] {
           if (title) out.push({ subject: id, predicate: 'title', object: title, confidence: 0.9, evidenceRef: rel });
           const status = text.match(STATUS_RE)?.[1];
           if (status) out.push({ subject: id, predicate: 'status', object: status, confidence: 0.9, evidenceRef: rel });
+        }
+
+        if (AGENTS_RULE_DOC_RE.test(rel)) {
+          for (const m of text.matchAll(NUMBERED_RULE_HEADING_RE)) {
+            const heading = m[1];
+            if (!heading) continue;
+            const headingEsc = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const ruleBody = extractSectionBody(text, new RegExp(`^##\\s+${headingEsc}`, 'm'));
+            if (ruleBody) {
+              out.push({
+                subject: `doc:${rel}#${slug(heading)}`,
+                predicate: 'defines_rule',
+                object: ruleBody,
+                confidence: 0.9,
+                evidenceRef: rel,
+              });
+            }
+          }
         }
       }
     }
