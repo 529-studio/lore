@@ -60,3 +60,12 @@ the sound implementation, not the shortcut.
 
 When a sprint closes, write `docs/HANDOFF-s<N>.md` and start a new conversation from it. Long
 conversations lose context and start repeating mistakes.
+
+<!-- lore:memory-protocol:start -->
+## 11. Persistent memory protocol (Lore)
+
+This project uses Lore for shared memory across all AI agents and sessions.
+- **Task start**: Before proposing or editing code, invoke MCP tool `memory_search` with relevant file paths, symbols, or feature keywords to retrieve active architectural decisions, conventions, and environment variables.
+- **Definition of Done**: When introducing or modifying environment variables, API endpoints, module dependencies, or architectural rules, invoke `memory_write` with evidence.
+- **Provenance & drift**: Use `memory_blame` to verify authority, author, and evidence before overwriting an established pattern.
+<!-- lore:memory-protocol:end -->

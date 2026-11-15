@@ -64,7 +64,26 @@ try {
     throw new Error('invalid opencode config payload');
   }
 
-  console.log('[OK] setup-smoke: config get/set/unset and setup agy/claude/cursor/codex/gemini/opencode passed');
+  // Test autonomous rules injection
+  const agentsFile = path.join(tmp, 'AGENTS.md');
+  if (!existsSync(agentsFile)) throw new Error('AGENTS.md rule file not created by setup');
+  const agentsContent = readFileSync(agentsFile, 'utf8');
+  if (!agentsContent.includes('lore:memory-protocol:start') || !agentsContent.includes('memory_search')) {
+    throw new Error('AGENTS.md missing memory protocol');
+  }
+
+  // Test lore rules command idempotency
+  execFileSync('node', [cli, 'rules', '--root', tmp]);
+  const agentsContent2 = readFileSync(agentsFile, 'utf8');
+  if (agentsContent2 !== agentsContent) {
+    throw new Error('lore rules was not idempotent on AGENTS.md');
+  }
+
+  // Test lore rules --print
+  const printed = execFileSync('node', [cli, 'rules', '--print'], { encoding: 'utf8' });
+  if (!printed.includes('memory_search')) throw new Error('rules --print failed');
+
+  console.log('[OK] setup-smoke: config get/set/unset, setup agy/claude/cursor/codex/gemini/opencode, and agent rules injection passed');
 } finally {
   rmSync(tmp, { recursive: true, force: true });
 }

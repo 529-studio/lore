@@ -39,6 +39,7 @@ import { canonConfirmCommand, canonDecayCommand, canonMetricsCommand, canonResol
 import { verifyCommand } from './commands/verify.js';
 import { writeCommand } from './commands/write.js';
 import { setupCommand } from './commands/setup.js';
+import { rulesCommand } from './commands/rules.js';
 import { configCommand } from './commands/config.js';
 import type { EvidenceKind } from './model.js';
 import { installCanon } from './canon/index.js';
@@ -474,12 +475,14 @@ program
 
 program
   .command('setup [agent]')
-  .description('configure MCP integration for coding agents (agy, claude, cursor, codex, gemini, opencode)')
+  .description('configure MCP integration and agent instructions for coding agents (agy, claude, cursor, codex, gemini, opencode)')
   .option('--all', 'configure all detected agents')
   .option('--scope <scope>', 'project (default) or global', 'project')
   .option('--session <name>', 'session branch name (default: agent name)')
   .option('--bin <path>', 'custom binary path or executable command')
   .option('--root <path>', 'repository root (default: cwd)')
+  .option('--rules', 'install memory protocol instructions into AGENTS.md / CLAUDE.md (default: true)')
+  .option('--no-rules', 'skip installing memory protocol rules')
   .action((agent, opts) =>
     setupCommand(agent, {
       all: opts.all,
@@ -487,8 +490,16 @@ program
       session: opts.session,
       bin: opts.bin,
       root: opts.root,
+      rules: opts.rules,
     }),
   );
+
+program
+  .command('rules')
+  .description('install or preview autonomous memory protocol rules in AGENTS.md / CLAUDE.md')
+  .option('--root <path>', 'repository root (default: cwd)')
+  .option('--print', 'print the rules snippet to stdout without writing')
+  .action((opts) => rulesCommand(opts));
 
 program
   .command('config [action] [key] [value]')

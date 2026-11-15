@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import pc from 'picocolors';
 import { initCommand } from './init.js';
 import { ingestCommand } from './ingest.js';
+import { installAgentRules } from './rules.js';
 
 export interface OnboardOptions {
   path?: string;
@@ -87,6 +88,7 @@ export async function onboardCommand(opts: OnboardOptions = {}): Promise<void> {
     } else {
       console.log(pc.dim('keeping the existing lore.ontology.yml'));
     }
+    installAgentRules(root);
     if (doIngest) ingestCommand({});
   } finally {
     process.chdir(previous);
