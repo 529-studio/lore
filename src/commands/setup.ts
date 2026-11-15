@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import pc from 'picocolors';
+import { installAgentRules } from './rules.js';
 
 export type AgentName = 'agy' | 'claude' | 'cursor' | 'codex' | 'gemini' | 'opencode';
 export const SUPPORTED_AGENTS: AgentName[] = ['agy', 'claude', 'cursor', 'codex', 'gemini', 'opencode'];
@@ -15,6 +16,7 @@ export interface SetupOptions {
   bin?: string;
   root?: string;
   all?: boolean;
+  rules?: boolean;
 }
 
 function isBinaryOnPath(name: string): boolean {
@@ -268,6 +270,20 @@ export function setupCommand(target?: string, opts: SetupOptions = {}): void {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`  ${pc.red('[ERR]')} ${def.displayName}: failed to write ${configFile}: ${msg}`);
+    }
+  }
+
+  if (opts.rules !== false) {
+    console.log(`\n${pc.bold('Agent memory directives:')}`);
+    const rulesResults = installAgentRules(root, { targets });
+    for (const r of rulesResults) {
+      if (r.action === 'created') {
+        console.log(`  ${pc.green('[OK]')} Created ${pc.bold(r.file)} with autonomous memory protocol`);
+      } else if (r.action === 'appended') {
+        console.log(`  ${pc.green('[OK]')} Injected autonomous memory protocol into ${pc.bold(r.file)}`);
+      } else {
+        console.log(`  ${pc.dim('[OK]')} ${pc.dim(r.file)}: memory protocol already present`);
+      }
     }
   }
 

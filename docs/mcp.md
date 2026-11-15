@@ -22,7 +22,7 @@ It exposes 7 tools: `memory_search`, `memory_write`, `memory_approve`, `memory_c
 
 ## Automated setup (`lore setup`)
 
-Instead of manual editing, configure your agents automatically:
+Instead of manual editing, configure your agents and install autonomous memory protocol rules automatically:
 
 ```bash
 lore setup agy       # Antigravity CLI (.agents/mcp_config.json or global ~/.gemini/config/mcp_config.json)
@@ -32,7 +32,11 @@ lore setup codex     # Codex CLI (~/.codex/config.toml)
 lore setup gemini    # Gemini CLI (.gemini/settings.json)
 lore setup opencode  # OpenCode (opencode.json or ~/.config/opencode/opencode.jsonc)
 lore setup --all     # Detect and configure all installed agents
+lore rules           # Check or install memory protocol rules in AGENTS.md / CLAUDE.md
+lore rules --print   # Output the markdown rules snippet for manual copying
 ```
+
+By default, `lore setup` automatically injects the **Persistent Memory Protocol** into your repository's instruction file (`AGENTS.md`, `CLAUDE.md`, or `.cursorrules`), enabling agents to query `memory_search` at task initialization and record decisions via `memory_write` without manual prompting. Pass `--no-rules` to configure MCP configs only.
 
 ---
 
