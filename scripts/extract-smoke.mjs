@@ -37,3 +37,41 @@ assert(agentRule1, 'expected AGENTS.md rule 1 (root-cause) to be extracted');
 assert(agentRule1.object.includes('Do not ship a band-aid'), `unexpected agent rule: ${agentRule1.object}`);
 
 console.log('[OK] doc extraction tests passed');
+
+// 4. In-code invariant extraction across languages
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lore-test-invariants-'));
+try {
+  fs.writeFileSync(
+    path.join(tempDir, 'main.go'),
+    [
+      'package main',
+      '// lore:invariant Hand-written SQL only, no ORMs allowed',
+      '// lore:rule Leap zoom at least +2 when clicking cluster >= 20',
+      'func main() {}',
+    ].join('\n'),
+  );
+
+  fs.writeFileSync(
+    path.join(tempDir, 'safety.py'),
+    [
+      '# INVARIANT: Camera with flood report must never be merged into cluster',
+      'def check(): pass',
+    ].join('\n'),
+  );
+
+  const codeCandidates = extractAll(tempDir);
+  const invariants = codeCandidates.filter((c) => c.predicate === 'enforces_invariant');
+  assert.equal(invariants.length, 2, `expected 2 in-code invariants, got ${invariants.length}`);
+  assert(invariants.some((c) => c.object.includes('Hand-written SQL')));
+  assert(invariants.some((c) => c.object.includes('Camera with flood report')));
+
+  const codeRules = codeCandidates.filter((c) => c.predicate === 'defines_rule');
+  assert(codeRules.some((c) => c.object.includes('Leap zoom at least +2')));
+  console.log('[OK] in-code invariant extraction passed');
+} finally {
+  fs.rmSync(tempDir, { recursive: true, force: true });
+}
