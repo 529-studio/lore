@@ -1,0 +1,26 @@
+# Lore ontology — decides which predicates may hold several values.
+# cardinality: one  → two agents claiming different values is a conflict (merge must resolve)
+# cardinality: many → both values coexist (no conflict)
+# ttl_days: N       → optional; decay after N days without re-verification. Absent means no TTL.
+predicates:
+  declared_dependency:  { cardinality: one,  domain: pkg }
+  defines_script:       { cardinality: many, domain: file }
+  imports_module:       { cardinality: many, domain: file }
+  exposes_route:        { cardinality: many, domain: file }
+  read_by:              { cardinality: many, domain: env }
+  uses_image:           { cardinality: many, domain: file }
+  publishes_port:       { cardinality: many, domain: file }
+  has_make_target:      { cardinality: many, domain: file }
+  has_section:          { cardinality: many, domain: doc }
+  main_entry:           { cardinality: one,  domain: pkg }
+  package_name:         { cardinality: one,  domain: pkg }
+  requires_idempotency_key: { cardinality: one, domain: symbol }
+  uses_library:         { cardinality: many, domain: symbol }
+  has_known_bug:        { cardinality: many, domain: symbol }
+  entrypoint:           { cardinality: one,  domain: file }
+  enforces_invariant:   { cardinality: many, domain: file }
+  defines_rule:         { cardinality: many, domain: doc }
+  decides:              { cardinality: many, domain: adr }
+  has_guardrail:        { cardinality: many, domain: doc }
+  has_constraint:       { cardinality: many, domain: symbol }
+  describes_issue:      { cardinality: many, domain: doc }
