@@ -142,6 +142,10 @@ const HTML = String.raw`<!doctype html>
   .modal .form-group { display:grid; gap:6px; }
   .modal label { font-size:12px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.05em; }
   .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:8px; }
+  .type-pill { background:rgba(22, 27, 34, 0.88); border:1px solid var(--line); color:var(--muted); padding:5px 12px; border-radius:14px; font:11px ui-monospace, Menlo, monospace; cursor:pointer; transition:all .15s ease; }
+  .type-pill:hover { color:var(--ink); border-color:var(--muted); }
+  .type-pill.on { background:rgba(88, 166, 255, 0.15); color:var(--accent); border-color:var(--accent); font-weight:600; }
+  .type-pill:disabled { opacity:0.5; cursor:not-allowed; }
 
   /* View Switcher */
   .view-switcher { display:inline-flex; background:#090d13; padding:2px; border-radius:6px; border:1px solid var(--line); gap:2px; }
@@ -480,36 +484,61 @@ const HTML = String.raw`<!doctype html>
 
 <!-- New / Edit Fact Modal -->
 <div class="modal-overlay" id="claim-modal">
-  <div class="modal">
-    <h3 id="modal-title">Record New Fact</h3>
+  <div class="modal" style="max-width:580px">
+    <h3 id="modal-title">Record Memory for AI Agents</h3>
     <div id="modal-audit-note" style="display:none; padding:8px 10px; background:rgba(88,166,255,0.08); border:1px solid rgba(88,166,255,0.3); border-radius:6px; font-size:12px; color:var(--accent)">
       Lore maintains an immutable commit history. Submitting will record an inverse supersede commit with audit provenance.
     </div>
-    <div class="form-group">
-      <label>Subject</label>
-      <input id="modal-subj" placeholder="e.g. doc:architecture.md, env:DATABASE_URL, rule:auth" />
+
+    <div id="modal-type-container" style="display:grid; gap:6px">
+      <label style="font-size:11px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.05em">Memory Type</label>
+      <div id="modal-type-selector" style="display:flex; gap:6px; flex-wrap:wrap">
+        <button type="button" class="type-pill on" data-type="rule">Rule / Guideline</button>
+        <button type="button" class="type-pill" data-type="env">Config / Env</button>
+        <button type="button" class="type-pill" data-type="invariant">Code Invariant</button>
+        <button type="button" class="type-pill" data-type="custom">Custom / Expert</button>
+      </div>
     </div>
-    <div class="form-group">
-      <label>Predicate</label>
-      <input id="modal-pred" placeholder="e.g. read_by, imports_module, exposes_route, title" list="pred-suggestions" />
+
+    <div class="form-group" id="form-group-scope">
+      <label id="modal-scope-label">Rule Identifier or Target Scope</label>
+      <input id="modal-scope" placeholder="e.g. auth:bearer-token or src/server.ts" list="entity-suggestions" autocomplete="off" />
+      <datalist id="entity-suggestions"></datalist>
+      <div id="modal-scope-hint" style="font-size:11px; color:var(--muted)">Target entity or scope this memory applies to. Autocompletes known files and rules.</div>
+    </div>
+
+    <div class="form-group" id="form-group-pred" style="display:none">
+      <label>Predicate (Relationship)</label>
+      <input id="modal-pred" placeholder="e.g. enforces_invariant, notes, read_by" list="pred-suggestions" />
       <datalist id="pred-suggestions">
+        <option value="enforces_invariant">Enforces invariant</option>
+        <option value="defines_rule">Defines rule</option>
+        <option value="notes">Operational notes</option>
         <option value="read_by">Referenced in file</option>
+        <option value="has_guardrail">Has guardrail</option>
+        <option value="has_constraint">Has constraint</option>
+        <option value="decides">Decides (ADR)</option>
+        <option value="exposes_route">Exposes route</option>
         <option value="imports_module">Imports module</option>
         <option value="declared_dependency">Declared dependency</option>
-        <option value="exposes_route">Exposes route</option>
-        <option value="title">Document title</option>
-        <option value="has_section">Has section</option>
-        <option value="requires_auth">Requires authentication</option>
-        <option value="notes">Operational notes</option>
       </datalist>
     </div>
+
     <div class="form-group">
-      <label>Object (Value)</label>
-      <textarea id="modal-obj" rows="4" placeholder="Factual statement or value"></textarea>
+      <label id="modal-obj-label">What Lore Should Remember</label>
+      <textarea id="modal-obj" rows="3" placeholder="State the rule, invariant, configuration requirement, or instruction for AI agents..."></textarea>
     </div>
+
+    <div id="modal-preview-box" style="background:#090d13; border:1px solid var(--line); border-radius:6px; padding:10px 12px; display:grid; gap:4px">
+      <div style="font-size:10px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.05em">What AI Agents Will See (Live Retrieval Preview)</div>
+      <div id="modal-preview-text" style="font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--accent); line-height:1.4; word-break:break-all">
+        [score 2.0] rule:general — enforces_invariant: "..." (active, canonical, T2 human)
+      </div>
+    </div>
+
     <div class="modal-actions">
       <button class="act" id="modal-cancel">Cancel</button>
-      <button class="act primary" id="modal-save">Save Fact</button>
+      <button class="act primary" id="modal-save">Save Memory</button>
     </div>
   </div>
 </div>
@@ -1164,27 +1193,145 @@ async function loadSettings() {
   }
 }
 
-function openNewModal() {
+let currentMemoryType = 'rule';
+
+function setMemoryType(type) {
+  currentMemoryType = type;
+  for (const b of document.querySelectorAll('#modal-type-selector .type-pill')) {
+    b.classList.toggle('on', b.dataset.type === type);
+  }
+  const scopeLabel = $('modal-scope-label');
+  const scopeInput = $('modal-scope');
+  const scopeHint = $('modal-scope-hint');
+  const predGroup = $('form-group-pred');
+  const objLabel = $('modal-obj-label');
+  const objInput = $('modal-obj');
+
+  if (type === 'rule') {
+    scopeLabel.textContent = 'Rule Identifier or Target Scope';
+    scopeInput.placeholder = 'e.g. auth:bearer-token or src/server.ts';
+    scopeHint.textContent = 'Rule name or target scope. Prepends rule: if omitted.';
+    predGroup.style.display = 'none';
+    objLabel.textContent = 'Rule Statement / Guideline';
+    objInput.placeholder = 'State what AI agents must follow when touching this code...';
+  } else if (type === 'env') {
+    scopeLabel.textContent = 'Environment Variable Name';
+    scopeInput.placeholder = 'e.g. DATABASE_URL, LORE_TOKEN';
+    scopeHint.textContent = 'Env var name. Prepends env: if omitted.';
+    predGroup.style.display = 'none';
+    objLabel.textContent = 'Configuration Requirement / Fallback';
+    objInput.placeholder = 'Describe usage, format, default value, or fallback behavior...';
+  } else if (type === 'invariant') {
+    scopeLabel.textContent = 'Target File or Symbol';
+    scopeInput.placeholder = 'e.g. src/remotes/postgres.ts or src/db.ts#openDb';
+    scopeHint.textContent = 'Target file or symbol where this invariant holds.';
+    predGroup.style.display = 'none';
+    objLabel.textContent = 'Code Invariant / Guardrail';
+    objInput.placeholder = 'State the technical guardrail or critical business constraint...';
+  } else if (type === 'custom') {
+    scopeLabel.textContent = 'Subject (Entity ID)';
+    scopeInput.placeholder = 'e.g. doc:SPEC.md, rule:auth, env:PORT';
+    scopeHint.textContent = 'Exact subject entity id.';
+    predGroup.style.display = 'grid';
+    objLabel.textContent = 'Object Value';
+    objInput.placeholder = 'Factual assertion or object value...';
+  }
+  updateModalPreview();
+}
+
+function updateModalPreview() {
+  const scope = ($('modal-scope').value || '').trim();
+  const obj = ($('modal-obj').value || '').trim();
+  const pred = ($('modal-pred').value || '').trim();
+
+  let s = scope;
+  let p = pred;
+  if (currentMemoryType === 'rule') {
+    s = scope ? (scope.startsWith('rule:') || scope.startsWith('file:') || scope.startsWith('doc:') ? scope : 'rule:' + scope) : 'rule:<name>';
+    p = scope && scope.startsWith('doc:') ? 'defines_rule' : 'enforces_invariant';
+  } else if (currentMemoryType === 'env') {
+    s = scope ? (scope.startsWith('env:') ? scope : 'env:' + scope) : 'env:<NAME>';
+    p = 'notes';
+  } else if (currentMemoryType === 'invariant') {
+    s = scope ? (scope.startsWith('file:') || scope.startsWith('sym:') ? scope : 'file:' + scope) : 'file:<path>';
+    p = 'has_guardrail';
+  } else if (currentMemoryType === 'custom') {
+    s = scope || '<subject>';
+    p = pred || '<predicate>';
+  }
+
+  const statement = obj ? '"' + obj + '"' : '"..."';
+  $('modal-preview-text').textContent = '[score 2.0] ' + s + ' — ' + p + ': ' + statement + ' (active, canonical, T2 human)';
+}
+
+for (const btn of document.querySelectorAll('#modal-type-selector .type-pill')) {
+  btn.onclick = () => setMemoryType(btn.dataset.type);
+}
+$('modal-scope').oninput = updateModalPreview;
+$('modal-obj').oninput = updateModalPreview;
+$('modal-pred').oninput = updateModalPreview;
+
+async function loadEntitySuggestions() {
+  try {
+    const list = await (await fetch('/api/entities')).json();
+    const datalist = $('entity-suggestions');
+    if (!datalist) return;
+    datalist.replaceChildren();
+    for (const ent of list) {
+      const opt = document.createElement('option');
+      opt.value = ent.id;
+      opt.textContent = '[' + ent.type + '] ' + ent.label;
+      datalist.append(opt);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function openNewModal(prefill) {
   editingClaim = null;
-  $('modal-title').textContent = 'Record New Fact';
+  $('modal-title').textContent = 'Record Memory for AI Agents';
   $('modal-audit-note').style.display = 'none';
-  $('modal-subj').value = '';
-  $('modal-subj').disabled = false;
-  $('modal-pred').value = '';
+  $('modal-type-container').style.display = 'grid';
+  $('modal-scope').disabled = false;
   $('modal-pred').disabled = false;
   $('modal-obj').value = '';
+
+  let initialType = 'rule';
+  if (prefill && prefill.type) initialType = prefill.type;
+  else if (prefill && prefill.scope) {
+    if (prefill.scope.startsWith('env:')) initialType = 'env';
+    else if (prefill.scope.startsWith('file:') || prefill.scope.startsWith('sym:')) initialType = 'invariant';
+    else if (prefill.scope.startsWith('rule:')) initialType = 'rule';
+  }
+  setMemoryType(initialType);
+
+  if (prefill && prefill.scope) {
+    $('modal-scope').value = prefill.scope;
+  } else {
+    $('modal-scope').value = '';
+  }
+  if (prefill && prefill.predicate) {
+    $('modal-pred').value = prefill.predicate;
+  }
+  updateModalPreview();
+  loadEntitySuggestions();
   $('claim-modal').style.display = 'flex';
 }
 
 function openEditModal(claim) {
   editingClaim = claim;
-  $('modal-title').textContent = 'Edit / Supersede Fact';
+  $('modal-title').textContent = 'Edit / Supersede Memory';
   $('modal-audit-note').style.display = 'block';
-  $('modal-subj').value = claim.subject;
-  $('modal-subj').disabled = true;
+  $('modal-type-container').style.display = 'none';
+  setMemoryType('custom');
+  $('modal-scope').value = claim.subject;
+  $('modal-scope').disabled = true;
+  $('form-group-pred').style.display = 'grid';
   $('modal-pred').value = claim.predicate;
   $('modal-pred').disabled = true;
   $('modal-obj').value = claim.object;
+  updateModalPreview();
   $('claim-modal').style.display = 'flex';
 }
 
@@ -1193,22 +1340,40 @@ function closeModal() {
   editingClaim = null;
 }
 
-$('btn-new-claim').onclick = openNewModal;
+$('btn-new-claim').onclick = () => openNewModal();
 $('modal-cancel').onclick = closeModal;
 $('modal-save').onclick = async () => {
-  const subj = $('modal-subj').value.trim();
-  const pred = $('modal-pred').value.trim();
+  const scope = $('modal-scope').value.trim();
   const obj = $('modal-obj').value.trim();
-  if (!obj) { banner('Object value cannot be empty', 'err'); return; }
+  const customPred = $('modal-pred').value.trim();
+  if (!obj) { banner('Memory statement cannot be empty', 'err'); return; }
 
   try {
     if (editingClaim) {
       await api('/api/supersede', { claim: editingClaim.id, object: obj });
-      banner('Superseded fact ' + editingClaim.id, 'ok');
+      banner('Superseded memory ' + editingClaim.id, 'ok');
     } else {
-      if (!subj || !pred) { banner('Subject and Predicate are required', 'err'); return; }
-      await api('/api/claim', { subject: subj, predicate: pred, object: obj });
-      banner('Recorded new fact', 'ok');
+      if (!scope) { banner('Target scope or entity is required', 'err'); return; }
+      let subject = scope;
+      let predicate = 'enforces_invariant';
+
+      if (currentMemoryType === 'rule') {
+        subject = scope.startsWith('rule:') || scope.startsWith('file:') || scope.startsWith('doc:') ? scope : 'rule:' + scope;
+        predicate = scope.startsWith('doc:') ? 'defines_rule' : 'enforces_invariant';
+      } else if (currentMemoryType === 'env') {
+        subject = scope.startsWith('env:') ? scope : 'env:' + scope;
+        predicate = 'notes';
+      } else if (currentMemoryType === 'invariant') {
+        subject = scope.startsWith('file:') || scope.startsWith('sym:') ? scope : 'file:' + scope;
+        predicate = 'has_guardrail';
+      } else if (currentMemoryType === 'custom') {
+        if (!customPred) { banner('Predicate is required in Custom mode', 'err'); return; }
+        subject = scope;
+        predicate = customPred;
+      }
+
+      await api('/api/claim', { subject, predicate, object: obj });
+      banner('Recorded memory: ' + subject, 'ok');
     }
     closeModal();
     refreshKnowledge();

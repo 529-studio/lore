@@ -94,6 +94,12 @@ try {
   const sampleEntity = entities[0];
   if (!sampleEntity.id || !sampleEntity.type || !sampleEntity.label) throw new Error('entity object missing required fields');
 
+  // Test HTML page has memory authoring components
+  const pageHtml = await (await fetch(handle.url)).text();
+  if (!pageHtml.includes('modal-type-selector') || !pageHtml.includes('modal-preview-box') || !pageHtml.includes('entity-suggestions')) {
+    throw new Error('page missing memory authoring components');
+  }
+
   // Test creating new claim via UI
   const created = await write('/api/claim', { subject: 'doc:ui.md', predicate: 'title', object: 'UI Guide' });
   if (!created.ok) throw new Error(`create claim failed: ${created.status}`);
