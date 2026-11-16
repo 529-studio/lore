@@ -4,9 +4,9 @@
 
 ```
 Lore.app/Contents/Resources/
-  node                      the Node runtime (105 MB)
+  runtime/node              the Node runtime (105 MB)
   app/dist/cli.js           the CLI and UI server
-  app/node_modules/better-sqlite3
+  app/node_modules/         production dependencies
 ```
 
 No Node installation is required on the user's Mac, and the app works offline.
@@ -29,7 +29,7 @@ desktop/src-tauri/target/release/bundle/macos/Lore.app          (~142 MB)
 desktop/src-tauri/target/release/bundle/dmg/Lore_0.3.0_aarch64.dmg  (~48 MB)
 ```
 
-`desktop/scripts/stage.mjs` copies `dist/`, `package.json`, `better-sqlite3` and the Node binary into
+`desktop/scripts/stage.mjs` copies `dist/`, `package.json`, production `node_modules` and the Node binary into
 `desktop/stage/`, which Tauri bundles as resources.
 
 ## Run
