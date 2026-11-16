@@ -196,7 +196,7 @@ const HTML = String.raw`<!doctype html>
   .node circle { stroke-width:2px; transition:r .2s, stroke-width .2s, stroke .2s; cursor:pointer; }
   .node:hover circle { stroke:#ffffff; stroke-width:3px; }
   .node.selected circle { stroke:#ffffff; stroke-width:3.5px; filter:drop-shadow(0 0 6px var(--accent)); }
-  .node text { font-size:11px; fill:var(--ink); font-family:ui-monospace,monospace; pointer-events:none; }
+  .node text { font-size:11px; fill:#e6edf3; font-family:ui-monospace,monospace; pointer-events:none; paint-order:stroke fill; stroke:#090d13; stroke-width:3.5px; stroke-linejoin:round; stroke-linecap:round; }
   .node.dimmed { opacity:0.12; }
   .link { stroke:#30363d; stroke-opacity:0.6; stroke-width:1.5px; transition:stroke-opacity .2s, stroke .2s; }
   .link.highlighted { stroke:var(--accent); stroke-opacity:1; stroke-width:2.5px; }
@@ -281,8 +281,9 @@ const HTML = String.raw`<!doctype html>
             <button class="graph-btn pill-sm on" data-type="all">All</button>
             <button class="graph-btn pill-sm" data-type="file">Files</button>
             <button class="graph-btn pill-sm" data-type="env">Env</button>
-            <button class="graph-btn pill-sm" data-type="pkg">Packages</button>
             <button class="graph-btn pill-sm" data-type="doc">Docs/Rules</button>
+            <button class="graph-btn pill-sm" data-type="pkg">Packages</button>
+            <button class="graph-btn pill-sm" data-type="internal">Internal Only</button>
           </div>
         </div>
 
@@ -1040,6 +1041,22 @@ function selectGraphNode(n, links, claims) {
   resetBtn.style.display = 'inline-block';
 }
 
+function shortLabel(id) {
+  if (!id) return '';
+  if (id.startsWith('file:') || id.startsWith('doc:')) {
+    const raw = id.slice(id.indexOf(':') + 1);
+    const parts = raw.split('/');
+    return parts.length > 1 ? parts.slice(-2).join('/') : raw;
+  }
+  if (id.startsWith('env:') || id.startsWith('rule:') || id.startsWith('pkg:')) {
+    return id.slice(id.indexOf(':') + 1);
+  }
+  if (id.startsWith('sym:')) {
+    return id.split('#').pop() || id;
+  }
+  return id.length > 25 ? id.slice(0, 22) + '…' : id;
+}
+
 function renderGraphView(claims) {
   const svg = $('graph-svg');
   let viewport = $('graph-viewport');
@@ -1072,6 +1089,10 @@ function renderGraphView(claims) {
       if (graphState.typeFilter === 'file') return c.subject.startsWith('file:') || String(c.object).startsWith('src/') || String(c.object).endsWith('.ts');
       if (graphState.typeFilter === 'pkg') return c.subject.startsWith('pkg:') || c.predicate === 'imports_module';
       if (graphState.typeFilter === 'doc') return c.subject.startsWith('doc:') || c.subject.startsWith('rule:');
+      if (graphState.typeFilter === 'internal') {
+        const isPkg = c.subject.startsWith('pkg:') || (c.predicate === 'imports_module' && !String(c.object).startsWith('.') && !String(c.object).startsWith('src/'));
+        return !isPkg;
+      }
       return true;
     });
   }
@@ -1081,12 +1102,12 @@ function renderGraphView(claims) {
 
   const addNode = (id, type) => {
     if (!nodes.has(id)) {
-      nodes.set(id, { id, type, x: 0, y: 0 });
+      nodes.set(id, { id, type, x: 0, y: 0, degree: 0 });
     }
     return nodes.get(id);
   };
 
-  const sample = targetClaims.slice(0, 75);
+  const sample = targetClaims.slice(0, 85);
   for (const c of sample) {
     let sType = 'file';
     if (c.subject.startsWith('env:')) sType = 'env';
@@ -1098,6 +1119,8 @@ function renderGraphView(claims) {
     if (String(c.object).startsWith('src/') || String(c.object).endsWith('.ts') || String(c.object).endsWith('.js')) oType = 'file';
     else if (c.predicate === 'imports_module') oType = 'pkg';
     const oNode = addNode(String(c.object).slice(0, 30), oType);
+    sNode.degree++;
+    oNode.degree++;
     links.push({ source: sNode, target: oNode, label: c.predicate });
   }
 
@@ -1107,12 +1130,14 @@ function renderGraphView(claims) {
   const total = nodeArr.length;
   nodeArr.forEach((n, idx) => {
     const angle = (idx / (total || 1)) * 2 * Math.PI;
-    const r = 100 + (idx % 3) * 65;
+    const r = 110 + (idx % 4) * 55;
     n.x = width / 2 + Math.cos(angle) * r;
     n.y = height / 2 + Math.sin(angle) * r;
   });
 
-  for (let iter = 0; iter < 35; iter++) {
+  const iterations = 80;
+  for (let iter = 0; iter < iterations; iter++) {
+    const decay = 1 - (iter / iterations) * 0.7;
     for (let i = 0; i < total; i++) {
       for (let j = i + 1; j < total; j++) {
         const a = nodeArr[i];
@@ -1120,9 +1145,9 @@ function renderGraphView(claims) {
         const dx = b.x - a.x;
         const dy = b.y - a.y;
         const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        const minDist = 130;
+        const minDist = 110 + Math.min(25, Math.max(a.degree, b.degree)) * 6;
         if (dist < minDist) {
-          const f = ((minDist - dist) / dist) * 0.35;
+          const f = ((minDist - dist) / dist) * 0.35 * decay;
           a.x -= dx * f;
           a.y -= dy * f;
           b.x += dx * f;
@@ -1134,22 +1159,39 @@ function renderGraphView(claims) {
       const dx = l.target.x - l.source.x;
       const dy = l.target.y - l.source.y;
       const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      const targetDist = 95;
-      const f = (dist - targetDist) * 0.04;
+      const hubBonus = Math.min(25, Math.max(l.source.degree, l.target.degree)) * 6;
+      const targetDist = 95 + hubBonus;
+      const f = (dist - targetDist) * 0.04 * decay;
       l.source.x += (dx / dist) * f;
       l.source.y += (dy / dist) * f;
       l.target.x -= (dx / dist) * f;
       l.target.y -= (dy / dist) * f;
     }
     for (const n of nodeArr) {
-      n.x += (width / 2 - n.x) * 0.03;
-      n.y += (height / 2 - n.y) * 0.03;
+      n.x += (width / 2 - n.x) * 0.025 * decay;
+      n.y += (height / 2 - n.y) * 0.025 * decay;
     }
   }
 
-  for (const n of nodeArr) {
-    n.x = Math.max(50, Math.min(width - 50, n.x));
-    n.y = Math.max(50, Math.min(height - 50, n.y));
+  // Smooth auto-fit into canvas bounds without hard boundary clamping
+  if (total > 0) {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const n of nodeArr) {
+      if (n.x < minX) minX = n.x;
+      if (n.x > maxX) maxX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.y > maxY) maxY = n.y;
+    }
+    const rangeX = maxX - minX || 1;
+    const rangeY = maxY - minY || 1;
+    const padX = 75;
+    const padY = 55;
+    const targetW = width - padX * 2;
+    const targetH = height - padY * 2;
+    for (const n of nodeArr) {
+      n.x = padX + ((n.x - minX) / rangeX) * targetW;
+      n.y = padY + ((n.y - minY) / rangeY) * targetH;
+    }
   }
 
   for (const l of links) {
@@ -1168,8 +1210,13 @@ function renderGraphView(claims) {
     g.setAttribute('data-id', n.id);
     g.setAttribute('transform', 'translate(' + n.x + ',' + n.y + ')');
 
+    const titleEl = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+    titleEl.textContent = n.id + ' (' + n.degree + ' connection' + (n.degree === 1 ? '' : 's') + ')';
+    g.append(titleEl);
+
     const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    circle.setAttribute('r', n.type === 'file' || n.type === 'pkg' ? '9' : '8');
+    const r = Math.min(14, 7 + Math.floor(Math.sqrt(n.degree || 1) * 2));
+    circle.setAttribute('r', String(r));
     let color = '#58a6ff';
     if (n.type === 'env') color = '#d29922';
     else if (n.type === 'pkg') color = '#bc8cff';
@@ -1180,8 +1227,9 @@ function renderGraphView(claims) {
     g.append(circle);
 
     const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    text.setAttribute('dx', '13'); text.setAttribute('dy', '4');
-    text.textContent = n.id;
+    text.setAttribute('dx', String(r + 5));
+    text.setAttribute('dy', '4');
+    text.textContent = shortLabel(n.id);
     g.append(text);
 
     g.onclick = (e) => {
@@ -1195,6 +1243,7 @@ function renderGraphView(claims) {
   if (graphState.selectedNode && nodes.has(graphState.selectedNode)) {
     selectGraphNode(nodes.get(graphState.selectedNode), links, targetClaims);
   }
+}
 }
 
 function renderActiveView() {

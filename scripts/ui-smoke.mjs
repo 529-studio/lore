@@ -102,6 +102,9 @@ try {
   if (!pageHtml.includes('id="view-dossier"') || !pageHtml.includes('id="dossier-view"')) {
     throw new Error('page missing dossier view components');
   }
+  if (!pageHtml.includes('data-type="internal"') || !pageHtml.includes('shortLabel')) {
+    throw new Error('page missing graph layout enhancements');
+  }
 
   // Test creating new claim via UI
   const created = await write('/api/claim', { subject: 'doc:ui.md', predicate: 'title', object: 'UI Guide' });
