@@ -88,6 +88,12 @@ try {
   const ontology = await (await fetch(`${handle.url}/api/ontology`)).json();
   if (typeof ontology !== 'object' || ontology.exists === undefined) throw new Error('ontology endpoint failed');
 
+  // Test entities endpoint
+  const entities = await (await fetch(`${handle.url}/api/entities`)).json();
+  if (!Array.isArray(entities) || entities.length === 0) throw new Error('entities endpoint returned no entities');
+  const sampleEntity = entities[0];
+  if (!sampleEntity.id || !sampleEntity.type || !sampleEntity.label) throw new Error('entity object missing required fields');
+
   // Test creating new claim via UI
   const created = await write('/api/claim', { subject: 'doc:ui.md', predicate: 'title', object: 'UI Guide' });
   if (!created.ok) throw new Error(`create claim failed: ${created.status}`);

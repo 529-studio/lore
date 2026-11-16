@@ -8,7 +8,7 @@ import { parse } from 'yaml';
 import { openDb } from '../db.js';
 import { initCommand } from '../commands/init.js';
 import { claimFreshness } from '../merge.js';
-import { head, inBranch, makeCommit, supersedeClaim, upsertClaim, type ClaimRow } from '../model.js';
+import { activeAt, head, inBranch, makeCommit, supersedeClaim, upsertClaim, type ClaimRow } from '../model.js';
 import { branchFor, currentSession } from '../session.js';
 import { readConfig } from '../config.js';
 import { ActionError, approveDrafts, attestClaim, rejectDraft, revertCommit } from '../actions.js';
@@ -1742,6 +1742,38 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
           snippet,
           human_summary: humanSummary,
         });
+        return;
+      }
+
+      if (url.pathname === '/api/entities') {
+        const tip = head(db, ref) ?? head(db, 'main');
+        const active = activeAt(db, tip);
+        const counts = new Map<string, number>();
+        for (const id of active.keys()) {
+          const row = db.prepare('SELECT subject_id FROM claim WHERE id = ?').get(id) as { subject_id: string } | undefined;
+          if (row?.subject_id) {
+            counts.set(row.subject_id, (counts.get(row.subject_id) ?? 0) + 1);
+          }
+        }
+        if (counts.size === 0) {
+          const rows = db.prepare("SELECT subject_id, COUNT(*) as cnt FROM claim WHERE state = 'active' GROUP BY subject_id").all() as Array<{ subject_id: string; cnt: number }>;
+          for (const r of rows) {
+            counts.set(r.subject_id, r.cnt);
+          }
+        }
+        const result = Array.from(counts.entries()).map(([id, claimCount]) => {
+          let type = 'file';
+          let label = id;
+          if (id.startsWith('env:')) { type = 'env'; label = id.slice(4); }
+          else if (id.startsWith('rule:')) { type = 'rule'; label = id.slice(5); }
+          else if (id.startsWith('doc:')) { type = 'doc'; label = id.slice(4); }
+          else if (id.startsWith('adr:')) { type = 'adr'; label = id.slice(4); }
+          else if (id.startsWith('pkg:')) { type = 'pkg'; label = id.slice(4); }
+          else if (id.startsWith('sym:')) { type = 'symbol'; label = id.slice(4); }
+          else if (id.startsWith('file:')) { type = 'file'; label = id.slice(5); }
+          return { id, type, label, claimCount };
+        }).sort((a, b) => a.id.localeCompare(b.id));
+        json(res, result);
         return;
       }
 
