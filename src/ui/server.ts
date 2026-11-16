@@ -134,6 +134,21 @@ const HTML = String.raw`<!doctype html>
   .banner.ok { display:block; border-color:var(--ok); color:var(--ok); }
   .kv { display:grid; grid-template-columns:180px 1fr; gap:6px 16px; padding:14px 16px; }
   .kv div:nth-child(odd) { color:var(--muted); }
+
+  /* Dossier View */
+  .dossier-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(380px, 1fr)); gap:14px; padding:16px; }
+  .d-card { background:var(--panel); border:1px solid var(--line); border-radius:8px; display:flex; flex-direction:column; overflow:hidden; transition:border-color .15s ease, box-shadow .15s ease; }
+  .d-card:hover { border-color:#388bfd; box-shadow:0 4px 16px rgba(0,0,0,0.3); }
+  .d-hdr { padding:12px 14px; background:rgba(255,255,255,0.02); border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .d-title-box { display:flex; align-items:center; gap:8px; min-width:0; }
+  .d-title { font-weight:600; font-size:13px; color:var(--ink); word-break:break-all; }
+  .d-badge { font-size:10px; text-transform:uppercase; font-weight:700; padding:2px 7px; border-radius:10px; letter-spacing:.05em; flex-shrink:0; }
+  .d-facts { padding:10px 14px; display:flex; flex-direction:column; gap:8px; flex:1; font-size:12px; }
+  .d-fact-item { display:flex; align-items:baseline; gap:8px; line-height:1.4; padding:4px 6px; border-radius:4px; cursor:pointer; transition:background .1s; }
+  .d-fact-item:hover { background:rgba(88,166,255,0.08); }
+  .d-fact-pred { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--accent); background:rgba(88,166,255,0.12); padding:1px 6px; border-radius:3px; flex-shrink:0; }
+  .d-fact-val { color:var(--ink); word-break:break-word; flex:1; }
+  .d-foot { padding:10px 14px; border-top:1px solid var(--line); background:rgba(0,0,0,0.15); display:flex; justify-content:space-between; align-items:center; }
   
   /* Modal */
   .modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); display:none; justify-content:center; align-items:center; z-index:999; padding:20px; }
@@ -250,7 +265,8 @@ const HTML = String.raw`<!doctype html>
           <option value="ahead">ahead of checkout</option>
         </select>
         <div class="view-switcher" style="margin-left:auto;">
-          <button class="view-btn on" id="view-cards">Cards</button>
+          <button class="view-btn on" id="view-dossier">Dossier</button>
+          <button class="view-btn" id="view-cards">Cards</button>
           <button class="view-btn" id="view-graph">Graph</button>
           <button class="view-btn" id="view-raw">Raw Table</button>
         </div>
@@ -310,8 +326,11 @@ const HTML = String.raw`<!doctype html>
         </div>
       </div>
 
+      <!-- Dossier Container -->
+      <div id="dossier-view" class="dossier-grid"></div>
+
       <!-- Cards Container -->
-      <div id="cards-view" class="grid-view"></div>
+      <div id="cards-view" class="grid-view" style="display:none"></div>
 
       <!-- Raw Table Container -->
       <div id="raw-view" style="display:none">
@@ -558,11 +577,17 @@ const PREDICATE_LABELS = {
   'section_title': 'Section title',
   'title': 'Document title',
   'detects': 'Rule detection',
-  'supersedes': 'Supersedes'
+  'supersedes': 'Supersedes',
+  'enforces_invariant': 'Enforces invariant',
+  'defines_rule': 'Defines rule',
+  'decides': 'Decides (ADR)',
+  'has_guardrail': 'Has guardrail',
+  'has_constraint': 'Has constraint',
+  'notes': 'Operational notes'
 };
 
 let currentTab = 'knowledge';
-let currentView = 'cards';
+let currentView = 'dossier';
 let currentCategory = 'all';
 let allClaims = [];
 let editingClaim = null;
@@ -716,6 +741,103 @@ function closeInspectModal() {
 
 $('insp-close-btn').onclick = closeInspectModal;
 $('insp-close-action').onclick = closeInspectModal;
+
+function renderDossierView(claims) {
+  const box = $('dossier-view');
+  box.replaceChildren();
+  if (!claims.length) {
+    box.append(el('div', 'No knowledge claims match the selected filters.', 'muted'));
+    return;
+  }
+
+  const bySubject = new Map();
+  for (const c of claims) {
+    const list = bySubject.get(c.subject) || [];
+    list.push(c);
+    bySubject.set(c.subject, list);
+  }
+
+  for (const [subject, factList] of bySubject.entries()) {
+    const card = el('div', undefined, 'd-card');
+
+    let entityType = 'file';
+    let label = subject;
+    let badgeColor = '#58a6ff';
+    if (subject.startsWith('env:')) { entityType = 'env'; label = subject.slice(4); badgeColor = '#d29922'; }
+    else if (subject.startsWith('rule:')) { entityType = 'rule'; label = subject.slice(5); badgeColor = '#f85149'; }
+    else if (subject.startsWith('doc:')) { entityType = 'doc'; label = subject.slice(4); badgeColor = '#bc8cff'; }
+    else if (subject.startsWith('adr:')) { entityType = 'adr'; label = subject.slice(4); badgeColor = '#bc8cff'; }
+    else if (subject.startsWith('pkg:')) { entityType = 'pkg'; label = subject.slice(4); badgeColor = '#56d364'; }
+    else if (subject.startsWith('sym:')) { entityType = 'symbol'; label = subject.slice(4); badgeColor = '#39c5cf'; }
+    else if (subject.startsWith('file:')) { entityType = 'file'; label = subject.slice(5); badgeColor = '#58a6ff'; }
+
+    // Header
+    const hdr = el('div', undefined, 'd-hdr');
+    const titleBox = el('div', undefined, 'd-title-box');
+    const badge = el('span', entityType, 'd-badge');
+    badge.style.background = badgeColor + '22';
+    badge.style.color = badgeColor;
+    badge.style.border = '1px solid ' + badgeColor + '55';
+    titleBox.append(badge);
+
+    const titleEl = el('span', label, 'd-title');
+    titleEl.title = subject;
+    titleBox.append(titleEl);
+    hdr.append(titleBox);
+
+    const countTag = el('span', factList.length + ' fact' + (factList.length > 1 ? 's' : ''), 'tag muted');
+    hdr.append(countTag);
+    card.append(hdr);
+
+    // Facts list
+    const factsContainer = el('div', undefined, 'd-facts');
+    for (const f of factList) {
+      const item = el('div', undefined, 'd-fact-item');
+      item.onclick = () => inspectClaim(f.id);
+
+      const predLabel = PREDICATE_LABELS[f.predicate] || f.predicate;
+      const predTag = el('span', predLabel, 'd-fact-pred');
+      item.append(predTag);
+
+      const valEl = el('span', f.object, 'd-fact-val');
+      item.append(valEl);
+
+      if (f.freshness === 'stale') {
+        item.append(el('span', 'stale', 'tag stale'));
+      }
+      factsContainer.append(item);
+    }
+    card.append(factsContainer);
+
+    // Footer
+    const foot = el('div', undefined, 'd-foot');
+    const tags = el('div', undefined, 'k-tags');
+    const anyStale = factList.some(f => f.freshness === 'stale');
+    tags.append(el('span', factList[0].state, 'tag ' + factList[0].state));
+    tags.append(el('span', anyStale ? 'stale' : 'valid', 'tag ' + (anyStale ? 'stale' : 'valid')));
+    foot.append(tags);
+
+    const acts = el('div', undefined, 'k-tags');
+    const addBtn = el('button', '+ Add Fact', 'act');
+    addBtn.onclick = (e) => {
+      e.stopPropagation();
+      openNewModal({ scope: subject });
+    };
+    acts.append(addBtn);
+
+    const inspBtn = el('button', 'Inspect', 'act');
+    inspBtn.onclick = (e) => {
+      e.stopPropagation();
+      inspectClaim(factList[0].id);
+    };
+    acts.append(inspBtn);
+
+    foot.append(acts);
+    card.append(foot);
+
+    box.append(card);
+  }
+}
 
 function renderCardsView(claims) {
   const box = $('cards-view');
@@ -1077,6 +1199,7 @@ function renderGraphView(claims) {
 
 function renderActiveView() {
   const filtered = filterClaimsList();
+  if (currentView === 'dossier') renderDossierView(filtered);
   if (currentView === 'cards') renderCardsView(filtered);
   if (currentView === 'raw') renderRawView(filtered);
   if (currentView === 'graph') renderGraphView(filtered);
@@ -1395,10 +1518,12 @@ for (const pill of document.querySelectorAll('#category-pills .pill')) {
 // View mode switcher
 function switchView(view) {
   currentView = view;
+  $('view-dossier').classList.toggle('on', view === 'dossier');
   $('view-cards').classList.toggle('on', view === 'cards');
   $('view-graph').classList.toggle('on', view === 'graph');
   $('view-raw').classList.toggle('on', view === 'raw');
 
+  $('dossier-view').style.display = view === 'dossier' ? 'grid' : 'none';
   $('cards-view').style.display = view === 'cards' ? 'grid' : 'none';
   $('graph-box').style.display = view === 'graph' ? 'block' : 'none';
   $('raw-view').style.display = view === 'raw' ? 'block' : 'none';
@@ -1406,6 +1531,7 @@ function switchView(view) {
   renderActiveView();
 }
 
+$('view-dossier').onclick = () => switchView('dossier');
 $('view-cards').onclick = () => switchView('cards');
 $('view-graph').onclick = () => switchView('graph');
 $('view-raw').onclick = () => switchView('raw');

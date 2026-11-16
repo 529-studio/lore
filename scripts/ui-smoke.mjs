@@ -94,10 +94,13 @@ try {
   const sampleEntity = entities[0];
   if (!sampleEntity.id || !sampleEntity.type || !sampleEntity.label) throw new Error('entity object missing required fields');
 
-  // Test HTML page has memory authoring components
+  // Test HTML page has memory authoring and dossier components
   const pageHtml = await (await fetch(handle.url)).text();
   if (!pageHtml.includes('modal-type-selector') || !pageHtml.includes('modal-preview-box') || !pageHtml.includes('entity-suggestions')) {
     throw new Error('page missing memory authoring components');
+  }
+  if (!pageHtml.includes('id="view-dossier"') || !pageHtml.includes('id="dossier-view"')) {
+    throw new Error('page missing dossier view components');
   }
 
   // Test creating new claim via UI
@@ -105,6 +108,9 @@ try {
   if (!created.ok) throw new Error(`create claim failed: ${created.status}`);
   const createdJson = await created.json();
   if (!createdJson.id) throw new Error('created claim has no id');
+
+  const createdRule = await write('/api/claim', { subject: 'rule:auth-check', predicate: 'enforces_invariant', object: 'Require bearer token on all private APIs' });
+  if (!createdRule.ok) throw new Error(`create rule claim failed: ${createdRule.status}`);
 
   // Test superseding claim via UI
   const superseded = await write('/api/supersede', { claim: createdJson.id, object: 'Updated UI Guide' });
