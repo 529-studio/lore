@@ -8,7 +8,7 @@ import { parse } from 'yaml';
 import { openDb } from '../db.js';
 import { initCommand } from '../commands/init.js';
 import { claimFreshness } from '../merge.js';
-import { head, inBranch, makeCommit, supersedeClaim, upsertClaim, type ClaimRow } from '../model.js';
+import { activeAt, head, inBranch, makeCommit, supersedeClaim, upsertClaim, type ClaimRow } from '../model.js';
 import { branchFor, currentSession } from '../session.js';
 import { readConfig } from '../config.js';
 import { ActionError, approveDrafts, attestClaim, rejectDraft, revertCommit } from '../actions.js';
@@ -134,6 +134,21 @@ const HTML = String.raw`<!doctype html>
   .banner.ok { display:block; border-color:var(--ok); color:var(--ok); }
   .kv { display:grid; grid-template-columns:180px 1fr; gap:6px 16px; padding:14px 16px; }
   .kv div:nth-child(odd) { color:var(--muted); }
+
+  /* Dossier View */
+  .dossier-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(380px, 1fr)); gap:14px; padding:16px; }
+  .d-card { background:var(--panel); border:1px solid var(--line); border-radius:8px; display:flex; flex-direction:column; overflow:hidden; transition:border-color .15s ease, box-shadow .15s ease; }
+  .d-card:hover { border-color:#388bfd; box-shadow:0 4px 16px rgba(0,0,0,0.3); }
+  .d-hdr { padding:12px 14px; background:rgba(255,255,255,0.02); border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .d-title-box { display:flex; align-items:center; gap:8px; min-width:0; }
+  .d-title { font-weight:600; font-size:13px; color:var(--ink); word-break:break-all; }
+  .d-badge { font-size:10px; text-transform:uppercase; font-weight:700; padding:2px 7px; border-radius:10px; letter-spacing:.05em; flex-shrink:0; }
+  .d-facts { padding:10px 14px; display:flex; flex-direction:column; gap:8px; flex:1; font-size:12px; }
+  .d-fact-item { display:flex; align-items:baseline; gap:8px; line-height:1.4; padding:4px 6px; border-radius:4px; cursor:pointer; transition:background .1s; }
+  .d-fact-item:hover { background:rgba(88,166,255,0.08); }
+  .d-fact-pred { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--accent); background:rgba(88,166,255,0.12); padding:1px 6px; border-radius:3px; flex-shrink:0; }
+  .d-fact-val { color:var(--ink); word-break:break-word; flex:1; }
+  .d-foot { padding:10px 14px; border-top:1px solid var(--line); background:rgba(0,0,0,0.15); display:flex; justify-content:space-between; align-items:center; }
   
   /* Modal */
   .modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); display:none; justify-content:center; align-items:center; z-index:999; padding:20px; }
@@ -142,6 +157,10 @@ const HTML = String.raw`<!doctype html>
   .modal .form-group { display:grid; gap:6px; }
   .modal label { font-size:12px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.05em; }
   .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:8px; }
+  .type-pill { background:rgba(22, 27, 34, 0.88); border:1px solid var(--line); color:var(--muted); padding:5px 12px; border-radius:14px; font:11px ui-monospace, Menlo, monospace; cursor:pointer; transition:all .15s ease; }
+  .type-pill:hover { color:var(--ink); border-color:var(--muted); }
+  .type-pill.on { background:rgba(88, 166, 255, 0.15); color:var(--accent); border-color:var(--accent); font-weight:600; }
+  .type-pill:disabled { opacity:0.5; cursor:not-allowed; }
 
   /* View Switcher */
   .view-switcher { display:inline-flex; background:#090d13; padding:2px; border-radius:6px; border:1px solid var(--line); gap:2px; }
@@ -246,7 +265,8 @@ const HTML = String.raw`<!doctype html>
           <option value="ahead">ahead of checkout</option>
         </select>
         <div class="view-switcher" style="margin-left:auto;">
-          <button class="view-btn on" id="view-cards">Cards</button>
+          <button class="view-btn on" id="view-dossier">Dossier</button>
+          <button class="view-btn" id="view-cards">Cards</button>
           <button class="view-btn" id="view-graph">Graph</button>
           <button class="view-btn" id="view-raw">Raw Table</button>
         </div>
@@ -306,8 +326,11 @@ const HTML = String.raw`<!doctype html>
         </div>
       </div>
 
+      <!-- Dossier Container -->
+      <div id="dossier-view" class="dossier-grid"></div>
+
       <!-- Cards Container -->
-      <div id="cards-view" class="grid-view"></div>
+      <div id="cards-view" class="grid-view" style="display:none"></div>
 
       <!-- Raw Table Container -->
       <div id="raw-view" style="display:none">
@@ -480,36 +503,61 @@ const HTML = String.raw`<!doctype html>
 
 <!-- New / Edit Fact Modal -->
 <div class="modal-overlay" id="claim-modal">
-  <div class="modal">
-    <h3 id="modal-title">Record New Fact</h3>
+  <div class="modal" style="max-width:580px">
+    <h3 id="modal-title">Record Memory for AI Agents</h3>
     <div id="modal-audit-note" style="display:none; padding:8px 10px; background:rgba(88,166,255,0.08); border:1px solid rgba(88,166,255,0.3); border-radius:6px; font-size:12px; color:var(--accent)">
       Lore maintains an immutable commit history. Submitting will record an inverse supersede commit with audit provenance.
     </div>
-    <div class="form-group">
-      <label>Subject</label>
-      <input id="modal-subj" placeholder="e.g. doc:architecture.md, env:DATABASE_URL, rule:auth" />
+
+    <div id="modal-type-container" style="display:grid; gap:6px">
+      <label style="font-size:11px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.05em">Memory Type</label>
+      <div id="modal-type-selector" style="display:flex; gap:6px; flex-wrap:wrap">
+        <button type="button" class="type-pill on" data-type="rule">Rule / Guideline</button>
+        <button type="button" class="type-pill" data-type="env">Config / Env</button>
+        <button type="button" class="type-pill" data-type="invariant">Code Invariant</button>
+        <button type="button" class="type-pill" data-type="custom">Custom / Expert</button>
+      </div>
     </div>
-    <div class="form-group">
-      <label>Predicate</label>
-      <input id="modal-pred" placeholder="e.g. read_by, imports_module, exposes_route, title" list="pred-suggestions" />
+
+    <div class="form-group" id="form-group-scope">
+      <label id="modal-scope-label">Rule Identifier or Target Scope</label>
+      <input id="modal-scope" placeholder="e.g. auth:bearer-token or src/server.ts" list="entity-suggestions" autocomplete="off" />
+      <datalist id="entity-suggestions"></datalist>
+      <div id="modal-scope-hint" style="font-size:11px; color:var(--muted)">Target entity or scope this memory applies to. Autocompletes known files and rules.</div>
+    </div>
+
+    <div class="form-group" id="form-group-pred" style="display:none">
+      <label>Predicate (Relationship)</label>
+      <input id="modal-pred" placeholder="e.g. enforces_invariant, notes, read_by" list="pred-suggestions" />
       <datalist id="pred-suggestions">
+        <option value="enforces_invariant">Enforces invariant</option>
+        <option value="defines_rule">Defines rule</option>
+        <option value="notes">Operational notes</option>
         <option value="read_by">Referenced in file</option>
+        <option value="has_guardrail">Has guardrail</option>
+        <option value="has_constraint">Has constraint</option>
+        <option value="decides">Decides (ADR)</option>
+        <option value="exposes_route">Exposes route</option>
         <option value="imports_module">Imports module</option>
         <option value="declared_dependency">Declared dependency</option>
-        <option value="exposes_route">Exposes route</option>
-        <option value="title">Document title</option>
-        <option value="has_section">Has section</option>
-        <option value="requires_auth">Requires authentication</option>
-        <option value="notes">Operational notes</option>
       </datalist>
     </div>
+
     <div class="form-group">
-      <label>Object (Value)</label>
-      <textarea id="modal-obj" rows="4" placeholder="Factual statement or value"></textarea>
+      <label id="modal-obj-label">What Lore Should Remember</label>
+      <textarea id="modal-obj" rows="3" placeholder="State the rule, invariant, configuration requirement, or instruction for AI agents..."></textarea>
     </div>
+
+    <div id="modal-preview-box" style="background:#090d13; border:1px solid var(--line); border-radius:6px; padding:10px 12px; display:grid; gap:4px">
+      <div style="font-size:10px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.05em">What AI Agents Will See (Live Retrieval Preview)</div>
+      <div id="modal-preview-text" style="font-family:ui-monospace,Menlo,monospace; font-size:11px; color:var(--accent); line-height:1.4; word-break:break-all">
+        [score 2.0] rule:general — enforces_invariant: "..." (active, canonical, T2 human)
+      </div>
+    </div>
+
     <div class="modal-actions">
       <button class="act" id="modal-cancel">Cancel</button>
-      <button class="act primary" id="modal-save">Save Fact</button>
+      <button class="act primary" id="modal-save">Save Memory</button>
     </div>
   </div>
 </div>
@@ -529,11 +577,17 @@ const PREDICATE_LABELS = {
   'section_title': 'Section title',
   'title': 'Document title',
   'detects': 'Rule detection',
-  'supersedes': 'Supersedes'
+  'supersedes': 'Supersedes',
+  'enforces_invariant': 'Enforces invariant',
+  'defines_rule': 'Defines rule',
+  'decides': 'Decides (ADR)',
+  'has_guardrail': 'Has guardrail',
+  'has_constraint': 'Has constraint',
+  'notes': 'Operational notes'
 };
 
 let currentTab = 'knowledge';
-let currentView = 'cards';
+let currentView = 'dossier';
 let currentCategory = 'all';
 let allClaims = [];
 let editingClaim = null;
@@ -687,6 +741,103 @@ function closeInspectModal() {
 
 $('insp-close-btn').onclick = closeInspectModal;
 $('insp-close-action').onclick = closeInspectModal;
+
+function renderDossierView(claims) {
+  const box = $('dossier-view');
+  box.replaceChildren();
+  if (!claims.length) {
+    box.append(el('div', 'No knowledge claims match the selected filters.', 'muted'));
+    return;
+  }
+
+  const bySubject = new Map();
+  for (const c of claims) {
+    const list = bySubject.get(c.subject) || [];
+    list.push(c);
+    bySubject.set(c.subject, list);
+  }
+
+  for (const [subject, factList] of bySubject.entries()) {
+    const card = el('div', undefined, 'd-card');
+
+    let entityType = 'file';
+    let label = subject;
+    let badgeColor = '#58a6ff';
+    if (subject.startsWith('env:')) { entityType = 'env'; label = subject.slice(4); badgeColor = '#d29922'; }
+    else if (subject.startsWith('rule:')) { entityType = 'rule'; label = subject.slice(5); badgeColor = '#f85149'; }
+    else if (subject.startsWith('doc:')) { entityType = 'doc'; label = subject.slice(4); badgeColor = '#bc8cff'; }
+    else if (subject.startsWith('adr:')) { entityType = 'adr'; label = subject.slice(4); badgeColor = '#bc8cff'; }
+    else if (subject.startsWith('pkg:')) { entityType = 'pkg'; label = subject.slice(4); badgeColor = '#56d364'; }
+    else if (subject.startsWith('sym:')) { entityType = 'symbol'; label = subject.slice(4); badgeColor = '#39c5cf'; }
+    else if (subject.startsWith('file:')) { entityType = 'file'; label = subject.slice(5); badgeColor = '#58a6ff'; }
+
+    // Header
+    const hdr = el('div', undefined, 'd-hdr');
+    const titleBox = el('div', undefined, 'd-title-box');
+    const badge = el('span', entityType, 'd-badge');
+    badge.style.background = badgeColor + '22';
+    badge.style.color = badgeColor;
+    badge.style.border = '1px solid ' + badgeColor + '55';
+    titleBox.append(badge);
+
+    const titleEl = el('span', label, 'd-title');
+    titleEl.title = subject;
+    titleBox.append(titleEl);
+    hdr.append(titleBox);
+
+    const countTag = el('span', factList.length + ' fact' + (factList.length > 1 ? 's' : ''), 'tag muted');
+    hdr.append(countTag);
+    card.append(hdr);
+
+    // Facts list
+    const factsContainer = el('div', undefined, 'd-facts');
+    for (const f of factList) {
+      const item = el('div', undefined, 'd-fact-item');
+      item.onclick = () => inspectClaim(f.id);
+
+      const predLabel = PREDICATE_LABELS[f.predicate] || f.predicate;
+      const predTag = el('span', predLabel, 'd-fact-pred');
+      item.append(predTag);
+
+      const valEl = el('span', f.object, 'd-fact-val');
+      item.append(valEl);
+
+      if (f.freshness === 'stale') {
+        item.append(el('span', 'stale', 'tag stale'));
+      }
+      factsContainer.append(item);
+    }
+    card.append(factsContainer);
+
+    // Footer
+    const foot = el('div', undefined, 'd-foot');
+    const tags = el('div', undefined, 'k-tags');
+    const anyStale = factList.some(f => f.freshness === 'stale');
+    tags.append(el('span', factList[0].state, 'tag ' + factList[0].state));
+    tags.append(el('span', anyStale ? 'stale' : 'valid', 'tag ' + (anyStale ? 'stale' : 'valid')));
+    foot.append(tags);
+
+    const acts = el('div', undefined, 'k-tags');
+    const addBtn = el('button', '+ Add Fact', 'act');
+    addBtn.onclick = (e) => {
+      e.stopPropagation();
+      openNewModal({ scope: subject });
+    };
+    acts.append(addBtn);
+
+    const inspBtn = el('button', 'Inspect', 'act');
+    inspBtn.onclick = (e) => {
+      e.stopPropagation();
+      inspectClaim(factList[0].id);
+    };
+    acts.append(inspBtn);
+
+    foot.append(acts);
+    card.append(foot);
+
+    box.append(card);
+  }
+}
 
 function renderCardsView(claims) {
   const box = $('cards-view');
@@ -1048,6 +1199,7 @@ function renderGraphView(claims) {
 
 function renderActiveView() {
   const filtered = filterClaimsList();
+  if (currentView === 'dossier') renderDossierView(filtered);
   if (currentView === 'cards') renderCardsView(filtered);
   if (currentView === 'raw') renderRawView(filtered);
   if (currentView === 'graph') renderGraphView(filtered);
@@ -1164,27 +1316,145 @@ async function loadSettings() {
   }
 }
 
-function openNewModal() {
+let currentMemoryType = 'rule';
+
+function setMemoryType(type) {
+  currentMemoryType = type;
+  for (const b of document.querySelectorAll('#modal-type-selector .type-pill')) {
+    b.classList.toggle('on', b.dataset.type === type);
+  }
+  const scopeLabel = $('modal-scope-label');
+  const scopeInput = $('modal-scope');
+  const scopeHint = $('modal-scope-hint');
+  const predGroup = $('form-group-pred');
+  const objLabel = $('modal-obj-label');
+  const objInput = $('modal-obj');
+
+  if (type === 'rule') {
+    scopeLabel.textContent = 'Rule Identifier or Target Scope';
+    scopeInput.placeholder = 'e.g. auth:bearer-token or src/server.ts';
+    scopeHint.textContent = 'Rule name or target scope. Prepends rule: if omitted.';
+    predGroup.style.display = 'none';
+    objLabel.textContent = 'Rule Statement / Guideline';
+    objInput.placeholder = 'State what AI agents must follow when touching this code...';
+  } else if (type === 'env') {
+    scopeLabel.textContent = 'Environment Variable Name';
+    scopeInput.placeholder = 'e.g. DATABASE_URL, LORE_TOKEN';
+    scopeHint.textContent = 'Env var name. Prepends env: if omitted.';
+    predGroup.style.display = 'none';
+    objLabel.textContent = 'Configuration Requirement / Fallback';
+    objInput.placeholder = 'Describe usage, format, default value, or fallback behavior...';
+  } else if (type === 'invariant') {
+    scopeLabel.textContent = 'Target File or Symbol';
+    scopeInput.placeholder = 'e.g. src/remotes/postgres.ts or src/db.ts#openDb';
+    scopeHint.textContent = 'Target file or symbol where this invariant holds.';
+    predGroup.style.display = 'none';
+    objLabel.textContent = 'Code Invariant / Guardrail';
+    objInput.placeholder = 'State the technical guardrail or critical business constraint...';
+  } else if (type === 'custom') {
+    scopeLabel.textContent = 'Subject (Entity ID)';
+    scopeInput.placeholder = 'e.g. doc:SPEC.md, rule:auth, env:PORT';
+    scopeHint.textContent = 'Exact subject entity id.';
+    predGroup.style.display = 'grid';
+    objLabel.textContent = 'Object Value';
+    objInput.placeholder = 'Factual assertion or object value...';
+  }
+  updateModalPreview();
+}
+
+function updateModalPreview() {
+  const scope = ($('modal-scope').value || '').trim();
+  const obj = ($('modal-obj').value || '').trim();
+  const pred = ($('modal-pred').value || '').trim();
+
+  let s = scope;
+  let p = pred;
+  if (currentMemoryType === 'rule') {
+    s = scope ? (scope.startsWith('rule:') || scope.startsWith('file:') || scope.startsWith('doc:') ? scope : 'rule:' + scope) : 'rule:<name>';
+    p = scope && scope.startsWith('doc:') ? 'defines_rule' : 'enforces_invariant';
+  } else if (currentMemoryType === 'env') {
+    s = scope ? (scope.startsWith('env:') ? scope : 'env:' + scope) : 'env:<NAME>';
+    p = 'notes';
+  } else if (currentMemoryType === 'invariant') {
+    s = scope ? (scope.startsWith('file:') || scope.startsWith('sym:') ? scope : 'file:' + scope) : 'file:<path>';
+    p = 'has_guardrail';
+  } else if (currentMemoryType === 'custom') {
+    s = scope || '<subject>';
+    p = pred || '<predicate>';
+  }
+
+  const statement = obj ? '"' + obj + '"' : '"..."';
+  $('modal-preview-text').textContent = '[score 2.0] ' + s + ' — ' + p + ': ' + statement + ' (active, canonical, T2 human)';
+}
+
+for (const btn of document.querySelectorAll('#modal-type-selector .type-pill')) {
+  btn.onclick = () => setMemoryType(btn.dataset.type);
+}
+$('modal-scope').oninput = updateModalPreview;
+$('modal-obj').oninput = updateModalPreview;
+$('modal-pred').oninput = updateModalPreview;
+
+async function loadEntitySuggestions() {
+  try {
+    const list = await (await fetch('/api/entities')).json();
+    const datalist = $('entity-suggestions');
+    if (!datalist) return;
+    datalist.replaceChildren();
+    for (const ent of list) {
+      const opt = document.createElement('option');
+      opt.value = ent.id;
+      opt.textContent = '[' + ent.type + '] ' + ent.label;
+      datalist.append(opt);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function openNewModal(prefill) {
   editingClaim = null;
-  $('modal-title').textContent = 'Record New Fact';
+  $('modal-title').textContent = 'Record Memory for AI Agents';
   $('modal-audit-note').style.display = 'none';
-  $('modal-subj').value = '';
-  $('modal-subj').disabled = false;
-  $('modal-pred').value = '';
+  $('modal-type-container').style.display = 'grid';
+  $('modal-scope').disabled = false;
   $('modal-pred').disabled = false;
   $('modal-obj').value = '';
+
+  let initialType = 'rule';
+  if (prefill && prefill.type) initialType = prefill.type;
+  else if (prefill && prefill.scope) {
+    if (prefill.scope.startsWith('env:')) initialType = 'env';
+    else if (prefill.scope.startsWith('file:') || prefill.scope.startsWith('sym:')) initialType = 'invariant';
+    else if (prefill.scope.startsWith('rule:')) initialType = 'rule';
+  }
+  setMemoryType(initialType);
+
+  if (prefill && prefill.scope) {
+    $('modal-scope').value = prefill.scope;
+  } else {
+    $('modal-scope').value = '';
+  }
+  if (prefill && prefill.predicate) {
+    $('modal-pred').value = prefill.predicate;
+  }
+  updateModalPreview();
+  loadEntitySuggestions();
   $('claim-modal').style.display = 'flex';
 }
 
 function openEditModal(claim) {
   editingClaim = claim;
-  $('modal-title').textContent = 'Edit / Supersede Fact';
+  $('modal-title').textContent = 'Edit / Supersede Memory';
   $('modal-audit-note').style.display = 'block';
-  $('modal-subj').value = claim.subject;
-  $('modal-subj').disabled = true;
+  $('modal-type-container').style.display = 'none';
+  setMemoryType('custom');
+  $('modal-scope').value = claim.subject;
+  $('modal-scope').disabled = true;
+  $('form-group-pred').style.display = 'grid';
   $('modal-pred').value = claim.predicate;
   $('modal-pred').disabled = true;
   $('modal-obj').value = claim.object;
+  updateModalPreview();
   $('claim-modal').style.display = 'flex';
 }
 
@@ -1193,22 +1463,40 @@ function closeModal() {
   editingClaim = null;
 }
 
-$('btn-new-claim').onclick = openNewModal;
+$('btn-new-claim').onclick = () => openNewModal();
 $('modal-cancel').onclick = closeModal;
 $('modal-save').onclick = async () => {
-  const subj = $('modal-subj').value.trim();
-  const pred = $('modal-pred').value.trim();
+  const scope = $('modal-scope').value.trim();
   const obj = $('modal-obj').value.trim();
-  if (!obj) { banner('Object value cannot be empty', 'err'); return; }
+  const customPred = $('modal-pred').value.trim();
+  if (!obj) { banner('Memory statement cannot be empty', 'err'); return; }
 
   try {
     if (editingClaim) {
       await api('/api/supersede', { claim: editingClaim.id, object: obj });
-      banner('Superseded fact ' + editingClaim.id, 'ok');
+      banner('Superseded memory ' + editingClaim.id, 'ok');
     } else {
-      if (!subj || !pred) { banner('Subject and Predicate are required', 'err'); return; }
-      await api('/api/claim', { subject: subj, predicate: pred, object: obj });
-      banner('Recorded new fact', 'ok');
+      if (!scope) { banner('Target scope or entity is required', 'err'); return; }
+      let subject = scope;
+      let predicate = 'enforces_invariant';
+
+      if (currentMemoryType === 'rule') {
+        subject = scope.startsWith('rule:') || scope.startsWith('file:') || scope.startsWith('doc:') ? scope : 'rule:' + scope;
+        predicate = scope.startsWith('doc:') ? 'defines_rule' : 'enforces_invariant';
+      } else if (currentMemoryType === 'env') {
+        subject = scope.startsWith('env:') ? scope : 'env:' + scope;
+        predicate = 'notes';
+      } else if (currentMemoryType === 'invariant') {
+        subject = scope.startsWith('file:') || scope.startsWith('sym:') ? scope : 'file:' + scope;
+        predicate = 'has_guardrail';
+      } else if (currentMemoryType === 'custom') {
+        if (!customPred) { banner('Predicate is required in Custom mode', 'err'); return; }
+        subject = scope;
+        predicate = customPred;
+      }
+
+      await api('/api/claim', { subject, predicate, object: obj });
+      banner('Recorded memory: ' + subject, 'ok');
     }
     closeModal();
     refreshKnowledge();
@@ -1230,10 +1518,12 @@ for (const pill of document.querySelectorAll('#category-pills .pill')) {
 // View mode switcher
 function switchView(view) {
   currentView = view;
+  $('view-dossier').classList.toggle('on', view === 'dossier');
   $('view-cards').classList.toggle('on', view === 'cards');
   $('view-graph').classList.toggle('on', view === 'graph');
   $('view-raw').classList.toggle('on', view === 'raw');
 
+  $('dossier-view').style.display = view === 'dossier' ? 'grid' : 'none';
   $('cards-view').style.display = view === 'cards' ? 'grid' : 'none';
   $('graph-box').style.display = view === 'graph' ? 'block' : 'none';
   $('raw-view').style.display = view === 'raw' ? 'block' : 'none';
@@ -1241,6 +1531,7 @@ function switchView(view) {
   renderActiveView();
 }
 
+$('view-dossier').onclick = () => switchView('dossier');
 $('view-cards').onclick = () => switchView('cards');
 $('view-graph').onclick = () => switchView('graph');
 $('view-raw').onclick = () => switchView('raw');
@@ -1742,6 +2033,38 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
           snippet,
           human_summary: humanSummary,
         });
+        return;
+      }
+
+      if (url.pathname === '/api/entities') {
+        const tip = head(db, ref) ?? head(db, 'main');
+        const active = activeAt(db, tip);
+        const counts = new Map<string, number>();
+        for (const id of active.keys()) {
+          const row = db.prepare('SELECT subject_id FROM claim WHERE id = ?').get(id) as { subject_id: string } | undefined;
+          if (row?.subject_id) {
+            counts.set(row.subject_id, (counts.get(row.subject_id) ?? 0) + 1);
+          }
+        }
+        if (counts.size === 0) {
+          const rows = db.prepare("SELECT subject_id, COUNT(*) as cnt FROM claim WHERE state = 'active' GROUP BY subject_id").all() as Array<{ subject_id: string; cnt: number }>;
+          for (const r of rows) {
+            counts.set(r.subject_id, r.cnt);
+          }
+        }
+        const result = Array.from(counts.entries()).map(([id, claimCount]) => {
+          let type = 'file';
+          let label = id;
+          if (id.startsWith('env:')) { type = 'env'; label = id.slice(4); }
+          else if (id.startsWith('rule:')) { type = 'rule'; label = id.slice(5); }
+          else if (id.startsWith('doc:')) { type = 'doc'; label = id.slice(4); }
+          else if (id.startsWith('adr:')) { type = 'adr'; label = id.slice(4); }
+          else if (id.startsWith('pkg:')) { type = 'pkg'; label = id.slice(4); }
+          else if (id.startsWith('sym:')) { type = 'symbol'; label = id.slice(4); }
+          else if (id.startsWith('file:')) { type = 'file'; label = id.slice(5); }
+          return { id, type, label, claimCount };
+        }).sort((a, b) => a.id.localeCompare(b.id));
+        json(res, result);
         return;
       }
 

@@ -24,7 +24,7 @@ the same model and action policies as the CLI.
 |---|---|
 | active / draft / stale / ahead / conflicts | claim states, `claimFreshness`, `merge_conflict` |
 | knowledge categories | filtered by Architecture, Env, Routes, Dependencies, Inferences |
-| claims view modes | structured Cards, interactive Graph explorer (physics layout, node inspector drawer, pan/zoom, type filters), raw Triples table |
+| claims view modes | Entity Dossier (grouped by entity with bulleted facts, freshness tags, and quick-add actions), structured Cards, interactive Graph explorer (physics layout, node inspector drawer, pan/zoom, type filters), raw Triples table |
 | ontology inspector | `lore.ontology.yml` rules, cardinalities, TTLs, authority ladder |
 | recent commits | `memory_commit`, with a `merge` marker when a second parent exists |
 
@@ -36,6 +36,7 @@ the same model and action policies as the CLI.
 | `GET /favicon.svg` | Lore brand icon SVG |
 | `GET /favicon.ico` | brand favicon icon |
 | `GET /api/health` | counters, branch, remote label |
+| `GET /api/entities` | distinct active entities with types and display labels |
 | `GET /api/claims?q=&status=&fresh=&limit=` | claim rows with freshness |
 | `GET /api/claim-details?id=` | full claim explanation, live code snippet, human summary |
 | `GET /api/commits` | last 50 commits |
