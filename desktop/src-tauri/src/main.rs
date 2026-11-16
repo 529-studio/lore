@@ -130,19 +130,68 @@ fn start_server(app: &tauri::AppHandle, repo: &Path) -> Result<String, String> {
     Err("the local server did not start in time".to_string())
 }
 
+#[tauri::command]
+fn choose_and_start(app: tauri::AppHandle) -> Result<(), String> {
+    std::thread::spawn(move || {
+        if let Some(repo) = rfd::FileDialog::new().set_title("Choose a repository for Lore").pick_folder() {
+            save_repo(&repo);
+            if let Some(state) = app.try_state::<Sidecar>() {
+                if let Some(mut child) = state.0.lock().unwrap().take() {
+                    let _ = child.kill();
+                }
+            }
+            if let Ok(url) = start_server(&app, &repo) {
+                if let Ok(parsed) = url.parse::<tauri::Url>() {
+                    if let Some(win) = app.get_webview_window("main") {
+                        let _ = win.navigate(parsed);
+                    }
+                }
+            }
+        }
+    });
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(Sidecar(Mutex::new(None)))
+        .invoke_handler(tauri::generate_handler![choose_and_start])
         .setup(|app| {
-            let repo = choose_repo().ok_or("no repository selected")?;
-            save_repo(&repo);
-            let url = start_server(&app.handle().clone(), &repo)?;
-            let parsed: tauri::Url = url.parse().map_err(|e| format!("bad url: {e}"))?;
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::External(parsed))
+            let _window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("Lore")
                 .inner_size(1200.0, 820.0)
                 .min_inner_size(900.0, 600.0)
                 .build()?;
+
+            let app_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                let repo = match choose_repo() {
+                    Some(r) => r,
+                    None => {
+                        if let Some(win) = app_handle.get_webview_window("main") {
+                            let _ = win.eval("if (window.showFallback) window.showFallback('Please select a repository to start Lore.');");
+                        }
+                        return;
+                    }
+                };
+                save_repo(&repo);
+                match start_server(&app_handle, &repo) {
+                    Ok(url) => {
+                        if let Ok(parsed) = url.parse::<tauri::Url>() {
+                            if let Some(win) = app_handle.get_webview_window("main") {
+                                let _ = win.navigate(parsed);
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        if let Some(win) = app_handle.get_webview_window("main") {
+                            let safe = err.replace('\\', "\\\\").replace('\'', "\\'");
+                            let _ = win.eval(&format!("if (window.showFallback) window.showFallback('Failed to start server: {}');", safe));
+                        }
+                    }
+                }
+            });
+
             Ok(())
         })
         .build(tauri::generate_context!())

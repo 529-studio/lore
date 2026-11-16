@@ -112,7 +112,15 @@ try {
   const favPng = await fetch(`${handle.url}/favicon.png`);
   if (!favPng.ok || favPng.headers.get('content-type') !== 'image/png') throw new Error('favicon.png failed');
 
-  console.log('[OK] ui: read endpoints, CSRF, origin check, approve, reject, revert, claim, supersede, ontology, claim-details, favicons');
+  // Test repo indicator & repo switch endpoint
+  if (!health.repo?.path || !health.repo?.name) throw new Error('health endpoint missing repo info');
+  const work2 = mkdtempSync(path.join(tmpdir(), 'lore-ui-switch-'));
+  const switched = await write('/api/repo/switch', { path: work2 });
+  if (!switched.ok) throw new Error(`repo switch failed: ${switched.status}`);
+  const switchedHealth = await (await fetch(`${handle.url}/api/health`)).json();
+  if (switchedHealth.repo?.path !== work2) throw new Error(`switched health path mismatch: ${switchedHealth.repo?.path} !== ${work2}`);
+
+  console.log('[OK] ui: read endpoints, CSRF, origin check, approve, reject, revert, claim, supersede, ontology, claim-details, favicons, repo-switch');
 } finally {
   await handle.close();
 }

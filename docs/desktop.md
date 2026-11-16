@@ -58,10 +58,12 @@ or an API key) once a membership exists; the bundle and pipeline do not need to 
 
 ## Architecture
 
-The Rust binary picks a free loopback port, spawns the bundled `node app/dist/cli.js ui --port N`,
-waits for the port to accept connections, then opens a window pointing at it. The child is killed when
-the app exits. Writes from the window go through the dashboard's CSRF token and the same
-`src/actions.ts` policy layer as the CLI.
+The Rust shell opens a window immediately with an instant loading screen (`desktop/ui/index.html`),
+picks a free loopback port, asynchronously spawns the bundled `node app/dist/cli.js ui --port N`,
+waits for the port to accept connections, then navigates the window to the local dashboard.
+The active repository is displayed in the header with a native folder chooser to switch repositories
+on the fly. The child server is killed when the app exits. Writes from the window go through the
+dashboard's CSRF token and the same `src/actions.ts` policy layer as the CLI.
 
 ## Windows
 
