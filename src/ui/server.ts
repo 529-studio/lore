@@ -1,10 +1,12 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { Buffer } from 'node:buffer';
 import { randomBytes } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { parse } from 'yaml';
 import { openDb } from '../db.js';
+import { initCommand } from '../commands/init.js';
 import { claimFreshness } from '../merge.js';
 import { head, inBranch, makeCommit, supersedeClaim, upsertClaim, type ClaimRow } from '../model.js';
 import { branchFor, currentSession } from '../session.js';
@@ -57,6 +59,18 @@ const HTML = String.raw`<!doctype html>
   nav button.on { color:var(--ink); border-color:var(--accent); background:rgba(88,166,255,0.1); }
   .hdr-right { display:flex; align-items:center; gap:12px; }
   .muted { color:var(--muted); }
+  .repo-badge { display:inline-flex; align-items:center; gap:6px; background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:3px 8px; font-size:12px; }
+  .repo-icon { display:flex; align-items:center; color:var(--muted); }
+  .repo-name { font-weight:600; color:var(--ink); max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  button.act.mini { padding:2px 8px; font-size:11px; border-radius:4px; margin-left:2px; }
+
+  /* Skeleton Loading Shimmer */
+  .skeleton-line { height:12px; border-radius:4px; background:rgba(255,255,255,0.07); margin-bottom:8px; }
+  .skeleton-line.short { width:40%; }
+  .skeleton-line.mid { width:70%; }
+  .skeleton-line.big { height:26px; width:50%; margin-bottom:10px; }
+  @keyframes shimmer { 0% { opacity:0.3; } 50% { opacity:0.75; } 100% { opacity:0.3; } }
+  .skeleton-shimmer { animation: shimmer 1.4s infinite ease-in-out; }
   main { padding:24px; display:grid; gap:24px; max-width:1400px; margin:0 auto; width:100%; }
   section { display:none; }
   section.on { display:grid; gap:20px; }
@@ -183,6 +197,13 @@ const HTML = String.raw`<!doctype html>
     </span>
     <h1>Lore</h1>
     <span class="brand-sub">Memory for AI Coding Agents</span>
+  </div>
+  <div class="repo-badge" id="repo-badge" title="Active Repository">
+    <span class="repo-icon" aria-hidden="true">
+      <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2A1.75 1.75 0 0 0 4.99 1H1.75Z"></path></svg>
+    </span>
+    <span id="repo-name" class="repo-name">…</span>
+    <button class="act mini" id="btn-switch-repo" title="Choose another repository folder">Switch Repo</button>
   </div>
   <nav>
     <button data-tab="knowledge" class="on">Knowledge Hub</button>
@@ -367,6 +388,18 @@ const HTML = String.raw`<!doctype html>
   <section id="tab-settings">
     <div class="panel">
       <div class="panel-header">
+        <h2>Active Repository</h2>
+      </div>
+      <div style="padding:16px; display:flex; flex-direction:column; gap:10px">
+        <div style="font-size:12px; color:var(--muted)">Current memory store directory:</div>
+        <div id="settings-active-repo" style="font-family:ui-monospace,Menlo,monospace; font-size:13px; background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:10px 14px; word-break:break-all">…</div>
+        <div>
+          <button class="act primary" id="settings-switch-repo-btn">Browse / Switch Repository</button>
+        </div>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:20px">
+      <div class="panel-header">
         <h2>Identity and Environment Policy</h2>
       </div>
       <div class="kv" id="settings"></div>
@@ -537,6 +570,14 @@ function show(tab) {
 async function loadHealth() {
   const h = await (await fetch('/api/health')).json();
   $('branch').textContent = 'branch ' + h.branch;
+  if (h.repo) {
+    const nameEl = $('repo-name');
+    if (nameEl) nameEl.textContent = h.repo.name;
+    const badgeEl = $('repo-badge');
+    if (badgeEl) badgeEl.title = 'Active Repository: ' + h.repo.path;
+    const settingsRepo = $('settings-active-repo');
+    if (settingsRepo) settingsRepo.textContent = h.repo.path;
+  }
   const cards = $('cards'); cards.replaceChildren();
   for (const [label, value, cls, desc] of [
     ['Active Facts', h.active, 'active', 'Live verified memory injected into agents'],
@@ -1105,7 +1146,12 @@ async function loadOntology() {
 async function loadSettings() {
   const data = await (await fetch('/api/identity')).json();
   const box = $('settings'); box.replaceChildren();
+  if (data.repo) {
+    const settingsRepo = $('settings-active-repo');
+    if (settingsRepo) settingsRepo.textContent = data.repo.path;
+  }
   for (const [k, v] of [
+    ['active repository', data.repo ? data.repo.path : '—'],
     ['identity', data.principal || data.error || '—'],
     ['role', data.role || '—'],
     ['source', data.source || '—'],
@@ -1275,6 +1321,76 @@ $('approve-all').onclick = async () => {
   } catch (e) { banner(e.message, 'err'); }
 };
 
+function renderCardsSkeleton() {
+  const cards = $('cards');
+  if (!cards) return;
+  cards.replaceChildren();
+  for (let i = 0; i < 4; i++) {
+    const c = el('div', undefined, 'card skeleton-shimmer');
+    c.innerHTML = '<div class="skeleton-line big"></div><div class="skeleton-line short"></div><div class="skeleton-line mid"></div>';
+    cards.append(c);
+  }
+}
+
+function renderKnowledgeSkeleton() {
+  const grid = $('knowledge-grid');
+  if (!grid) return;
+  grid.replaceChildren();
+  for (let i = 0; i < 6; i++) {
+    const k = el('div', undefined, 'k-card skeleton-shimmer');
+    k.innerHTML = '<div class="skeleton-line mid"></div><div class="skeleton-line short"></div><div class="skeleton-line big" style="height:48px;width:100%"></div>';
+    grid.append(k);
+  }
+}
+
+async function triggerSwitchRepo() {
+  banner('Opening folder browser...', 'muted');
+  try {
+    const browseRes = await api('/api/repo/browse', {});
+    if (browseRes.switched) {
+      banner('Switched to repository: ' + browseRes.repo.name, 'ok');
+      await refreshAll();
+      return;
+    }
+    if (browseRes.cancelled) {
+      banner('', '');
+      return;
+    }
+  } catch {
+    // If native browse failed or cancelled, fallback to prompt
+  }
+  const current = $('repo-name')?.title || '';
+  const target = window.prompt('Enter path to repository folder:', current);
+  if (target && target.trim()) {
+    try {
+      const res = await api('/api/repo/switch', { path: target.trim() });
+      if (res.ok) {
+        banner('Switched to repository: ' + res.repo.name, 'ok');
+        await refreshAll();
+      }
+    } catch (e) {
+      banner(e.message, 'err');
+    }
+  }
+}
+
+async function refreshAll() {
+  renderCardsSkeleton();
+  renderKnowledgeSkeleton();
+  await refreshKnowledge();
+  if (currentTab === 'review') await loadReview();
+  if (currentTab === 'undo') await loadCommits();
+  if (currentTab === 'ontology') await loadOntology();
+  if (currentTab === 'settings') await loadSettings();
+}
+
+const switchBtn = $('btn-switch-repo');
+if (switchBtn) switchBtn.onclick = triggerSwitchRepo;
+const settingsSwitchBtn = $('settings-switch-repo-btn');
+if (settingsSwitchBtn) settingsSwitchBtn.onclick = triggerSwitchRepo;
+
+renderCardsSkeleton();
+renderKnowledgeSkeleton();
 refreshKnowledge();
 </script>
 </body>
@@ -1325,9 +1441,45 @@ const FAVICON_PNG = Buffer.from(
   'base64'
 );
 
-export function startUi(root: string, opts: UiOptions = {}): Promise<UiHandle> {
+function saveDesktopRepo(repoPath: string): void {
+  const home = process.env.HOME || process.env.USERPROFILE;
+  if (!home) return;
+  const cfgDir = path.join(home, '.config', 'lore');
+  const cfgFile = path.join(cfgDir, 'desktop.json');
+  try {
+    mkdirSync(cfgDir, { recursive: true });
+    writeFileSync(cfgFile, JSON.stringify({ repo: repoPath }) + '\n', 'utf8');
+  } catch {
+    // ignore
+  }
+}
+
+function pickFolderNative(): string | null {
+  try {
+    if (process.platform === 'darwin') {
+      const script = 'POSIX path of (choose folder with prompt "Choose a repository for Lore")';
+      const out = execFileSync('osascript', ['-e', script], { encoding: 'utf8' }).trim();
+      return out || null;
+    } else if (process.platform === 'win32') {
+      const ps = `Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Choose a repository for Lore'; if ($d.ShowDialog() -eq 'OK') { Write-Output $d.SelectedPath }`;
+      const out = execFileSync('powershell', ['-NoProfile', '-Command', ps], { encoding: 'utf8' }).trim();
+      return out || null;
+    } else {
+      try {
+        return execFileSync('zenity', ['--file-selection', '--directory', '--title=Choose a repository for Lore'], { encoding: 'utf8' }).trim() || null;
+      } catch {
+        return execFileSync('kdialog', ['--getexistingdirectory', process.cwd()], { encoding: 'utf8' }).trim() || null;
+      }
+    }
+  } catch {
+    return null;
+  }
+}
+
+export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHandle> {
   installCanon();
-  const db = openDb(root);
+  let root = path.resolve(initialRoot);
+  let db = openDb(root);
   db.pragma('journal_mode = WAL');
   const csrf = randomBytes(24).toString('base64url');
   const host = opts.host ?? '127.0.0.1';
@@ -1432,6 +1584,47 @@ export function startUi(root: string, opts: UiOptions = {}): Promise<UiHandle> {
               return result;
             });
             json(res, run());
+            return;
+          }
+          if (url.pathname === '/api/repo/browse') {
+            const chosen = pickFolderNative();
+            if (!chosen) {
+              json(res, { ok: false, cancelled: true });
+              return;
+            }
+            const targetPath = path.resolve(chosen);
+            if (!existsSync(path.join(targetPath, '.lore'))) {
+              initCommand({ root: targetPath });
+            }
+            db.close();
+            root = targetPath;
+            db = openDb(root);
+            db.pragma('journal_mode = WAL');
+            saveDesktopRepo(root);
+            json(res, { ok: true, switched: true, repo: { name: path.basename(root), path: root } });
+            return;
+          }
+
+          if (url.pathname === '/api/repo/switch') {
+            const rawPath = String(body.path ?? '').trim();
+            if (!rawPath) {
+              json(res, { error: 'path is required' }, 400);
+              return;
+            }
+            const targetPath = path.resolve(rawPath);
+            if (!existsSync(targetPath)) {
+              json(res, { error: `Directory does not exist: ${targetPath}` }, 400);
+              return;
+            }
+            if (!existsSync(path.join(targetPath, '.lore'))) {
+              initCommand({ root: targetPath });
+            }
+            db.close();
+            root = targetPath;
+            db = openDb(root);
+            db.pragma('journal_mode = WAL');
+            saveDesktopRepo(root);
+            json(res, { ok: true, repo: { name: path.basename(root), path: root } });
             return;
           }
           json(res, { error: 'not found' }, 404);
@@ -1576,6 +1769,10 @@ export function startUi(root: string, opts: UiOptions = {}): Promise<UiHandle> {
           stale,
           ahead,
           conflicts,
+          repo: {
+            name: path.basename(root),
+            path: root,
+          },
         });
         return;
       }
@@ -1672,6 +1869,10 @@ export function startUi(root: string, opts: UiOptions = {}): Promise<UiHandle> {
               : `postgres${config.remote.url_env ? ` ($${config.remote.url_env})` : ''}`
             : null,
           branch: ref,
+          repo: {
+            name: path.basename(root),
+            path: root,
+          },
         });
         return;
       }
