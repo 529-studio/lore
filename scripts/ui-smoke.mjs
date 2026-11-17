@@ -105,6 +105,50 @@ try {
   if (!pageHtml.includes('data-type="internal"') || !pageHtml.includes('shortLabel')) {
     throw new Error('page missing graph layout enhancements');
   }
+  if (!pageHtml.includes('id="live-indicator"') || !pageHtml.includes('live-indicator')) {
+    throw new Error('page missing live indicator component');
+  }
+
+  // Test Server-Sent Events (SSE) streaming endpoint
+  const eventsUrl = `${handle.url}/api/events`;
+  const eventRes = await fetch(eventsUrl);
+  if (!eventRes.ok || !eventRes.headers.get('content-type')?.includes('text/event-stream')) {
+    throw new Error(`SSE endpoint failed: status ${eventRes.status}, content-type: ${eventRes.headers.get('content-type')}`);
+  }
+  const reader = eventRes.body.getReader();
+  const decoder = new TextDecoder();
+  let initialChunk = '';
+  while (!initialChunk.includes('event: connected')) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    initialChunk += decoder.decode(value, { stream: true });
+  }
+  if (!initialChunk.includes('event: connected') || !initialChunk.includes('"status":"connected"')) {
+    throw new Error(`SSE initial event mismatch: ${initialChunk}`);
+  }
+
+  // Trigger a claim write and assert broadcast receipt on the open SSE stream
+  const sseClaimPromise = (async () => {
+    let sseChunk = '';
+    while (!sseChunk.includes('event: claim:written')) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      sseChunk += decoder.decode(value, { stream: true });
+    }
+    return sseChunk;
+  })();
+
+  const sseCreated = await write('/api/claim', { subject: 'doc:sse.md', predicate: 'title', object: 'SSE Guide' });
+  if (!sseCreated.ok) throw new Error('write for SSE test failed');
+
+  const sseReceived = await Promise.race([
+    sseClaimPromise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout waiting for SSE broadcast')), 4000)),
+  ]);
+  if (!sseReceived.includes('event: claim:written') || !sseReceived.includes('doc:sse.md')) {
+    throw new Error(`SSE broadcast event mismatch: ${sseReceived}`);
+  }
+  await reader.cancel();
 
   // Test creating new claim via UI
   const created = await write('/api/claim', { subject: 'doc:ui.md', predicate: 'title', object: 'UI Guide' });
@@ -141,7 +185,7 @@ try {
   const switchedHealth = await (await fetch(`${handle.url}/api/health`)).json();
   if (switchedHealth.repo?.path !== work2) throw new Error(`switched health path mismatch: ${switchedHealth.repo?.path} !== ${work2}`);
 
-  console.log('[OK] ui: read endpoints, CSRF, origin check, approve, reject, revert, claim, supersede, ontology, claim-details, favicons, repo-switch');
+  console.log('[OK] ui: read endpoints, CSRF, origin check, approve, reject, revert, claim, supersede, ontology, claim-details, favicons, repo-switch, sse-stream');
 } finally {
   await handle.close();
 }
