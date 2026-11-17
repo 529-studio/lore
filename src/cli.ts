@@ -35,6 +35,7 @@ import { revertCommand } from './commands/revert.js';
 import { statusCommand } from './commands/status.js';
 import { supersedeCommand } from './commands/supersede.js';
 import { searchCommand } from './commands/search.js';
+import { timelineCommand } from './commands/timeline.js';
 import { explainCommand } from './commands/explain.js';
 import { canonConfirmCommand, canonDecayCommand, canonMetricsCommand, canonResolveCommand, canonStatusCommand } from './commands/canon.js';
 import { verifyCommand } from './commands/verify.js';
@@ -415,6 +416,8 @@ program
   .option('--budget <n>', 'token budget (chars/4)', '2000')
   .option('--include-stale', 'keep stale claims')
   .option('--as-of <iso>', 'read memory as it was known and valid at this instant')
+  .option('--valid-at <iso>', 'bi-temporal: read memory valid in the world at this instant')
+  .option('--tx-at <iso>', 'bi-temporal: read memory recorded by the system at this instant')
   .option('--no-cache', 'bypass the hash cache')
   .option('--trust-remote', 'include claims observed on newer code than this checkout')
   .option('--json', 'machine-readable JSON')
@@ -426,6 +429,8 @@ program
       budget: opts.budget,
       includeStale: opts.includeStale,
       asOf: opts.asOf,
+      validAt: opts.validAt,
+      txAt: opts.txAt,
       noCache: opts.cache === false,
       trustRemote: opts.trustRemote,
       json: opts.json,
@@ -437,6 +442,12 @@ program
   .description('why a claim is injected: trust, provenance, evidence and conflicts')
   .option('--json', 'machine-readable JSON')
   .action((target, opts) => explainCommand(target, { json: opts.json }));
+
+program
+  .command('timeline <subject> [predicate]')
+  .description('bi-temporal history and revisions of an entity across valid-time and transaction-time')
+  .option('--json', 'machine-readable JSON')
+  .action((subject, predicate, opts) => timelineCommand({ subject, predicate, json: opts.json }));
 
 const canon = program
   .command('canon')

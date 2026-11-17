@@ -108,6 +108,8 @@ interface SearchArgs {
   budget_tokens?: number;
   include_stale?: boolean;
   as_of?: string;
+  valid_at?: string;
+  tx_at?: string;
   trust_remote?: boolean;
 }
 
@@ -121,6 +123,8 @@ function toolSearch(args: SearchArgs): ToolResult {
       budgetTokens: args.budget_tokens,
       includeStale: args.include_stale,
       asOf: args.as_of,
+      validAt: args.valid_at,
+      txAt: args.tx_at,
       trustRemote: args.trust_remote,
     });
     const warnings = contested.map(contestedWarning);
@@ -486,7 +490,9 @@ const TOOLS: ToolDef[] = [
         symbols: { type: 'array', items: { type: 'string' }, description: 'entity ids in scope' },
         budget_tokens: { type: 'number', description: 'context budget, default 2000' },
         include_stale: { type: 'boolean', description: 'keep stale claims in the result' },
-        as_of: { type: 'string', description: 'ISO instant: read memory as it was known and valid then' },
+        as_of: { type: 'string', description: 'ISO instant: read memory as it was known and valid then (shorthand for valid_at + tx_at)' },
+        valid_at: { type: 'string', description: 'ISO instant: read memory valid in the world at this instant' },
+        tx_at: { type: 'string', description: 'ISO instant: read memory recorded by the system at this instant' },
         trust_remote: { type: 'boolean', description: 'include claims observed on newer code than this checkout' },
       },
     },
