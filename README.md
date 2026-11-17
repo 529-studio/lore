@@ -44,7 +44,7 @@ stale, then accept the new reality with `verify --accept`.*
 
 **Canon demo:** [memory stops being injected after npm → pnpm](scripts/demo/canon-pnpm.sh).
 
-**GUI:** `lore ui` serves a local dashboard (Health, Review, Undo). See [docs/desktop.md](docs/desktop.md).
+**GUI:** `lore ui` serves a live dashboard (Health, Review, Undo) with real-time SSE streaming. See [docs/desktop.md](docs/desktop.md).
 
 ![Lore dashboard](docs/assets/dashboard.png)
 
@@ -263,11 +263,10 @@ main ──────────●──────────────
 identity and enforces `lore.policy.yml`: `LORE_TOKEN` from `lore identity issue`, or `LORE_OIDC_EMAIL`
 asserted by a trusted launcher. See [docs/team-mode.md](docs/team-mode.md).
 
-**Internal or offline repositories.** Memory does not depend on a git host: `lore remote <shared-dir>`
-plus `lore fetch`/`lore push` shares commits with a team directory, `lore remote --postgres --env
-LORE_REMOTE_URL` uses a database instead (self-hosted or corporate-managed), and `lore bundle` moves
-commits across an air gap. Continuous multi-agent replication to S3/R2/GCS runs via `lore replicate start`
-backed by Litestream SQLite WAL streaming. A claim observed on newer code than your checkout is reported as *ahead of checkout*, not
+**Internal or offline repositories.** Memory does not depend on a git host: `lore remote`
+plus `fetch`/`push` shares commits with a team directory, Postgres remote uses a database,
+and `lore bundle` moves commits across an air gap. Continuous replication to S3/R2/GCS runs via `lore replicate start`
+(Litestream WAL streaming). A claim observed on newer code than your checkout is reported as *ahead of checkout*, not
 stale; `--trust-remote` includes it. See [docs/team-mode.md](docs/team-mode.md).
 
 **CI integration.** The GitHub Action comments on every pull request with what it teaches the agent
