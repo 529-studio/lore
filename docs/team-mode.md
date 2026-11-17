@@ -51,6 +51,9 @@ read the local store.
   reachable. Nothing blocks on the network.
 - **Air-gapped sharing uses bundles.** `lore bundle export` writes the missing commits, signed and
   encrypted; `lore bundle import` merges them. This replaces passing `AGENTS.md` around by hand.
+- **Streaming SQLite replication with Litestream.** For distributed multi-agent swarms and continuous backups,
+  `lore replicate` streams SQLite WAL frames in real time to S3, Cloudflare R2, Azure Blob, or GCS without
+  locking reads or writes. `lore replicate restore` restores a pristine local SQLite store from the replica.
 
 ### Two kinds of freshness
 

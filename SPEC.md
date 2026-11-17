@@ -441,6 +441,7 @@ No LLM judge. Outcome metrics on real repositories:
 | MCP has five tools | seven (`memory_approve`, `memory_commit` added) | without approve, MCP-only memory is permanently invisible |
 | CLI has static config | `lore setup` auto-wires MCP for agents (agy, claude, cursor, codex, gemini) and `lore config` manages settings | manual JSON/TOML editing was error-prone and missed session branch isolation |
 | UI has flat triple table only | Knowledge Hub defaults to Entity Dossier view with bulleted facts, and modal provides memory presets with live agent preview | raw triples dump and 1-line cards fragmented memory and confused users about how agents retrieve facts |
+| sync carries commits only | `lore replicate` enables continuous SQLite WAL streaming via Litestream to S3/R2/GCS | distributed multi-agent clusters require real-time streaming replication without manual batch export/import |
 
 ## Glossary
 
