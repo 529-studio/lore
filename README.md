@@ -74,12 +74,7 @@ lore verify --all --strict      # exit 3 — memory health is a CI gate
 
 ## Who this is for
 
-**Works today:** developers and technical teams using one or more coding agents on a repository.
-The tool is a CLI plus an MCP server; it needs Node 22+, git, and a terminal.
-
-**Not yet:** people who never open a terminal. There is no app. If that is you, read
-[Track B](#track-b--if-you-do-not-use-a-terminal) — there is still a way to benefit, and v0.3 is
-the milestone that changes this.
+Developers and teams using coding agents on a repository. Operates as a CLI and MCP server requiring Node 22+, git, and a terminal. Non-terminal users can follow [Track B](#track-b--non-terminal-setup).
 
 ---
 
@@ -194,6 +189,7 @@ lore ui                       read-only dashboard on localhost (health, claims, 
 lore remote <dir>             point fetch/push at a shared directory
 lore fetch | push             exchange commits with that directory
 lore bundle export|import     air-gapped exchange of commits
+lore replicate [action]       streaming SQLite WAL replication via Litestream (check, config, start, restore, status)
 lore redact <claim>           replace the object with [redacted], keep id and audit
 lore purge <claim> --yes      remove the row permanently, keep an audit entry
 lore gc [--ttl-sessions 3]     retract unreviewed drafts (rows are kept)
@@ -219,11 +215,9 @@ Exit codes: `0` ok · `2` unresolved merge conflict · `3` stale above threshold
 
 ---
 
-## Track B — if you do not use a terminal
+## Track B — non-terminal setup
 
-You can still get most of the value today, but someone technical has to set it up once.
-
-**Ask a developer on your team to run these two commands in the project folder:**
+A developer sets this up once in the project folder:
 
 ```bash
 lore init && lore ingest
@@ -271,7 +265,8 @@ asserted by a trusted launcher. See [docs/team-mode.md](docs/team-mode.md).
 **Internal or offline repositories.** Memory does not depend on a git host: `lore remote <shared-dir>`
 plus `lore fetch`/`lore push` shares commits with a team directory, `lore remote --postgres --env
 LORE_REMOTE_URL` uses a database instead (self-hosted or corporate-managed), and `lore bundle` moves
-commits across an air gap. A claim observed on newer code than your checkout is reported as *ahead of checkout*, not
+commits across an air gap. Continuous multi-agent replication to S3/R2/GCS runs via `lore replicate start`
+backed by Litestream SQLite WAL streaming. A claim observed on newer code than your checkout is reported as *ahead of checkout*, not
 stale; `--trust-remote` includes it. See [docs/team-mode.md](docs/team-mode.md).
 
 **CI integration.** The GitHub Action comments on every pull request with what it teaches the agent
