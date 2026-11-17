@@ -22,6 +22,7 @@ import { pushCommand } from './commands/push.js';
 import { purgeCommand } from './commands/purge.js';
 import { redactCommand } from './commands/redact.js';
 import { remoteCommand } from './commands/remote.js';
+import { replicateCommand } from './commands/replicate.js';
 import { exportCommand } from './commands/export.js';
 import { ingestCommand } from './commands/ingest.js';
 import { initCommand } from './commands/init.js';
@@ -308,6 +309,26 @@ program
   .option('--env <name>', 'read the postgres connection string from this environment variable')
   .action((path, opts) =>
     remoteCommand({ path, show: opts.show, postgres: opts.postgres, env: opts.env }),
+  );
+
+program
+  .command('replicate [action]')
+  .description('stream SQLite WAL changes via Litestream (check, config, start, restore, status)')
+  .option('--replica <url>', 'replica target URL (e.g. s3://bucket/lore.db or file:///path)')
+  .option('--config <path>', 'path to litestream.yml configuration')
+  .option('--out <file>', 'output path for config or restored database')
+  .option('--retention <duration>', 'retention period (e.g. 24h)')
+  .option('--sync-interval <duration>', 'sync interval (e.g. 1s)')
+  .option('--timestamp <iso>', 'restore database as of this timestamp')
+  .action((action, opts) =>
+    replicateCommand(action, {
+      replica: opts.replica,
+      config: opts.config,
+      out: opts.out,
+      retention: opts.retention,
+      syncInterval: opts.syncInterval,
+      timestamp: opts.timestamp,
+    }),
   );
 
 program
