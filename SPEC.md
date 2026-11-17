@@ -444,6 +444,7 @@ No LLM judge. Outcome metrics on real repositories:
 | sync carries commits only | `lore replicate` enables continuous SQLite WAL streaming via Litestream to S3/R2/GCS | distributed multi-agent clusters require real-time streaming replication without manual batch export/import |
 | search couples valid-time and transaction-time | decoupled bi-temporal search (`--valid-at`, `--tx-at`, `lore timeline`, `src/canon/temporal.ts`) | audit, incident replay, and multi-agent conflict inspection require querying past beliefs about past or current reality independently |
 | UI is static on read | live Server-Sent Events stream (`/api/events`) with SQLite `PRAGMA data_version` detection | multi-agent workflows produce continuous background mutations that must reflect live in the UI without manual page refresh |
+| UI graph is uniform radial scatter | semantic visual clustering, predicate relationship filtering, and directional markers | complex knowledge graphs with heterogeneous predicates need architectural domain grouping and relationship isolation |
 
 ## Glossary
 

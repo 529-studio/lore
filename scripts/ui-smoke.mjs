@@ -105,6 +105,12 @@ try {
   if (!pageHtml.includes('data-type="internal"') || !pageHtml.includes('shortLabel')) {
     throw new Error('page missing graph layout enhancements');
   }
+  if (!pageHtml.includes('id="graph-predicate-select"') || !pageHtml.includes('id="graph-cluster-mode"')) {
+    throw new Error('page missing graph predicate filter or cluster mode controls');
+  }
+  if (!pageHtml.includes('id="arrow-imports"') || !pageHtml.includes('id="arrow-read"')) {
+    throw new Error('page missing SVG directional arrow markers');
+  }
   if (!pageHtml.includes('id="live-indicator"') || !pageHtml.includes('live-indicator')) {
     throw new Error('page missing live indicator component');
   }
@@ -185,7 +191,7 @@ try {
   const switchedHealth = await (await fetch(`${handle.url}/api/health`)).json();
   if (switchedHealth.repo?.path !== work2) throw new Error(`switched health path mismatch: ${switchedHealth.repo?.path} !== ${work2}`);
 
-  console.log('[OK] ui: read endpoints, CSRF, origin check, approve, reject, revert, claim, supersede, ontology, claim-details, favicons, repo-switch, sse-stream');
+  console.log('[OK] ui: read endpoints, CSRF, origin check, approve, reject, revert, claim, supersede, ontology, claim-details, favicons, repo-switch, sse-stream, graph-clustering');
 } finally {
   await handle.close();
 }
