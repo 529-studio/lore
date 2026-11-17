@@ -627,4 +627,9 @@ node "$LORE_BIN" replicate config --replica s3://test-vault/lore.db >/dev/null
 grep -q "s3://test-vault/lore.db" .lore/litestream.yml || fail "replicate config must write litestream.yml"
 node "$LORE_BIN" replicate status | grep -q "s3://test-vault/lore.db" || fail "replicate status must show replica URL"
 
-echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge, identity, policy, machine, attest, entities, alias, rename, reject, review, onboard, litestream"
+# --- bi-temporal search & timeline -------------------------------------------
+node "$LORE_BIN" timeline doc:README.md | grep -q "Bi-temporal Timeline" || fail "timeline must display bi-temporal revisions"
+node "$LORE_BIN" timeline doc:README.md --json | grep -q "claimId" || fail "timeline --json must output valid JSON"
+node "$LORE_BIN" search "Smoke" --valid-at 2026-11-15T00:00:00Z | grep -q "Smoke" || fail "search --valid-at must find valid claims"
+
+echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge, identity, policy, machine, attest, entities, alias, rename, reject, review, onboard, litestream, temporal"

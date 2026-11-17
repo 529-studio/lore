@@ -12,6 +12,8 @@ export interface SearchCommandOptions {
   budget?: string; // token budget
   includeStale?: boolean;
   asOf?: string;
+  validAt?: string;
+  txAt?: string;
   noCache?: boolean;
   trustRemote?: boolean;
   json?: boolean;
@@ -36,6 +38,8 @@ export function searchCommand(opts: SearchCommandOptions): void {
     budgetTokens: opts.budget ? Number(opts.budget) : undefined,
     includeStale: opts.includeStale,
     asOf: opts.asOf,
+    validAt: opts.validAt,
+    txAt: opts.txAt,
     trustRemote: opts.trustRemote,
   });
   const warnings = contested.map(contestedWarning);

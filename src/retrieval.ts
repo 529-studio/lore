@@ -12,8 +12,12 @@ export interface SearchOptions {
   symbols?: string[]; // entity ids in scope
   budgetTokens?: number; // default 2000
   includeStale?: boolean;
-  /** Bi-temporal read: what the branch knew, and what was valid, at this instant. */
+  /** Bi-temporal read: what the branch knew, and what was valid, at this instant (shorthand for txAt + validAt). */
   asOf?: string;
+  /** Bi-temporal: transaction-time instant (what the system knew then). */
+  txAt?: string;
+  /** Bi-temporal: valid-time instant (what was true in reality then). */
+  validAt?: string;
   /** Include claims observed on newer code than this checkout. */
   trustRemote?: boolean;
 }
@@ -74,20 +78,32 @@ function validAt(claim: ClaimRow, instant: number): boolean {
 function branchSnapshot(
   db: DB,
   root: string,
-  asOf?: string,
+  temporalOpts: { asOf?: string; txAt?: string; validAt?: string } = {},
   allowStale = false,
 ): { claims: Map<string, ClaimRow>; activeIds: Set<string> } {
   const session = currentSession(root);
   const branch = branchFor(session);
   const headTip = head(db, branch) ?? head(db, 'main');
-  const instant = asOf ? parseInstant(asOf, '--as-of') : Date.now();
-  const active = activeAtAsOf(db, headTip, instant);
+
+  const txInstant = temporalOpts.txAt
+    ? parseInstant(temporalOpts.txAt, '--tx-at')
+    : temporalOpts.asOf
+      ? parseInstant(temporalOpts.asOf, '--as-of')
+      : Date.now();
+
+  const validInstant = temporalOpts.validAt
+    ? parseInstant(temporalOpts.validAt, '--valid-at')
+    : temporalOpts.asOf
+      ? parseInstant(temporalOpts.asOf, '--as-of')
+      : Date.now();
+
+  const active = activeAtAsOf(db, headTip, txInstant);
   const ids = [...active.keys()];
   const rows: ClaimRow[] = [];
   const stmt = db.prepare('SELECT * FROM claim WHERE id = ?');
   for (const id of ids) {
     const row = stmt.get(id) as ClaimRow | undefined;
-    if (!row || row.state !== 'active' || !validAt(row, instant)) continue;
+    if (!row || row.state !== 'active' || !validAt(row, validInstant)) continue;
     const trustOk = row.trust === 'canonical' || (allowStale && row.trust === 'stale');
     if (!trustOk) continue;
     // Lazy decay: a claim past its TTL or pointing at a deleted path is never
@@ -377,7 +393,12 @@ export function contestedWarning(fact: ContestedFact): string {
  */
 export function searchMemory(db: DB, root: string, opts: SearchOptions = {}): SearchResult {
   const budget = opts.budgetTokens ?? BUDGET_DEFAULT;
-  const { claims: current, activeIds } = branchSnapshot(db, root, opts.asOf, opts.includeStale);
+  const { claims: current, activeIds } = branchSnapshot(
+    db,
+    root,
+    { asOf: opts.asOf, txAt: opts.txAt, validAt: opts.validAt },
+    opts.includeStale,
+  );
 
   // Aliases let a human say "refund flow" and reach doc:...#refund-flow.
   const aliasTargets = new Set<string>();
