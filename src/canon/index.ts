@@ -7,6 +7,17 @@ import { closeConflictsForClaim } from './resolve.js';
 export { detectTier1Conflicts, type Tier1Conflict } from './conflicts.js';
 export { evaluateDecay, markDecay, restoreAfterReverify, sweepDecay, type DecayResult, type DecayTrigger } from './decay.js';
 export { closeConflictsForClaim, resolveFact, type ResolveResult } from './resolve.js';
+export {
+  queryBiTemporal,
+  reconstructTimeline,
+  parseTemporalInstant,
+  isInValidTime,
+  isInTxTime,
+  type BiTemporalQuery,
+  type BiTemporalRange,
+  type TimelineEntry,
+  type TimelineResult,
+} from './temporal.js';
 
 let installed = false;
 
