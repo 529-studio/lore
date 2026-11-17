@@ -445,6 +445,8 @@ No LLM judge. Outcome metrics on real repositories:
 | search couples valid-time and transaction-time | decoupled bi-temporal search (`--valid-at`, `--tx-at`, `lore timeline`, `src/canon/temporal.ts`) | audit, incident replay, and multi-agent conflict inspection require querying past beliefs about past or current reality independently |
 | UI is static on read | live Server-Sent Events stream (`/api/events`) with SQLite `PRAGMA data_version` detection | multi-agent workflows produce continuous background mutations that must reflect live in the UI without manual page refresh |
 | UI graph is uniform radial scatter | semantic visual clustering, predicate relationship filtering, and directional markers | complex knowledge graphs with heterogeneous predicates need architectural domain grouping and relationship isolation |
+| Windows installer built without code signing or checksums | dedicated `.github/workflows/desktop-windows.yml` with Authenticode signtool step and SHA256 integrity verification | Windows users need verifiable binary integrity and code-signing automation for official releases |
+
 
 ## Glossary
 
