@@ -621,4 +621,10 @@ ONBOARD_DOCS="$(mktemp -d)"
   grep -q "decides" lore.ontology.yml || fail "onboard must honour --template"
 )
 
-echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge, identity, policy, machine, attest, entities, alias, rename, reject, review, onboard"
+# --- litestream replication --------------------------------------------------
+node "$LORE_BIN" replicate check >/dev/null 2>&1 || true
+node "$LORE_BIN" replicate config --replica s3://test-vault/lore.db >/dev/null
+grep -q "s3://test-vault/lore.db" .lore/litestream.yml || fail "replicate config must write litestream.yml"
+node "$LORE_BIN" replicate status | grep -q "s3://test-vault/lore.db" || fail "replicate status must show replica URL"
+
+echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge, identity, policy, machine, attest, entities, alias, rename, reject, review, onboard, litestream"
