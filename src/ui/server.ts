@@ -63,6 +63,10 @@ const HTML = String.raw`<!doctype html>
   .repo-icon { display:flex; align-items:center; color:var(--muted); }
   .repo-name { font-weight:600; color:var(--ink); max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   button.act.mini { padding:2px 8px; font-size:11px; border-radius:4px; margin-left:2px; }
+  .live-indicator { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:600; letter-spacing:0.04em; color:var(--text); background:rgba(35, 134, 54, 0.15); border:1px solid rgba(46, 160, 67, 0.35); padding:3px 8px; border-radius:12px; font-family:ui-monospace,monospace; user-select:none; }
+  .live-dot { width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 6px var(--green); }
+  .live-indicator.offline { background:rgba(218, 54, 51, 0.15); border-color:rgba(218, 54, 51, 0.35); color:var(--muted); }
+  .live-indicator.offline .live-dot { background:var(--red); box-shadow:none; }
 
   /* Skeleton Loading Shimmer */
   .skeleton-line { height:12px; border-radius:4px; background:rgba(255,255,255,0.07); margin-bottom:8px; }
@@ -232,6 +236,9 @@ const HTML = String.raw`<!doctype html>
     <button data-tab="settings">Settings</button>
   </nav>
   <div class="hdr-right">
+    <span id="live-indicator" class="live-indicator" title="Live real-time stream active">
+      <span class="live-dot"></span> LIVE
+    </span>
     <span id="branch" class="muted"></span>
     <button class="act primary" id="btn-new-claim">+ New Fact</button>
   </div>
@@ -1732,6 +1739,54 @@ if (settingsSwitchBtn) settingsSwitchBtn.onclick = triggerSwitchRepo;
 renderCardsSkeleton();
 renderKnowledgeSkeleton();
 refreshKnowledge();
+
+let liveRefreshTimer = null;
+function scheduleLiveRefresh() {
+  if (liveRefreshTimer) clearTimeout(liveRefreshTimer);
+  liveRefreshTimer = setTimeout(() => {
+    loadHealth().catch(() => {});
+    if (currentTab === 'knowledge') refreshKnowledge();
+    else if (currentTab === 'review') loadReview();
+    else if (currentTab === 'undo') loadCommits();
+  }, 200);
+}
+
+function initEventStream() {
+  if (typeof EventSource === 'undefined') return;
+  const indicator = $('live-indicator');
+  let es;
+  try {
+    es = new EventSource('/api/events');
+  } catch {
+    if (indicator) indicator.classList.add('offline');
+    return;
+  }
+
+  es.addEventListener('open', () => {
+    if (indicator) {
+      indicator.classList.remove('offline');
+      indicator.title = 'Live real-time stream active';
+    }
+  });
+
+  es.addEventListener('connected', () => {
+    if (indicator) indicator.classList.remove('offline');
+  });
+
+  ['claim:written', 'claim:approved', 'claim:rejected', 'claim:superseded', 'claim:reverted', 'claim:attested', 'memory:changed', 'repo:switched'].forEach((evt) => {
+    es.addEventListener(evt, () => {
+      scheduleLiveRefresh();
+    });
+  });
+
+  es.addEventListener('error', () => {
+    if (indicator) {
+      indicator.classList.add('offline');
+      indicator.title = 'Reconnecting to live stream...';
+    }
+  });
+}
+initEventStream();
 </script>
 </body>
 </html>`;
@@ -1825,6 +1880,46 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
   const host = opts.host ?? '127.0.0.1';
   let actualPort = opts.port ?? 4173;
 
+  const sseClients = new Set<ServerResponse>();
+
+  function broadcastEvent(eventType: string, payload: unknown): void {
+    const data = JSON.stringify(payload);
+    const msg = `event: ${eventType}\ndata: ${data}\n\n`;
+    for (const client of sseClients) {
+      try {
+        client.write(msg);
+      } catch {
+        sseClients.delete(client);
+      }
+    }
+  }
+
+  let lastDataVersion = (db.pragma('data_version', { simple: true }) as number) ?? 0;
+  const pingInterval = setInterval(() => {
+    for (const client of sseClients) {
+      try {
+        client.write(': ping\n\n');
+      } catch {
+        sseClients.delete(client);
+      }
+    }
+  }, 15000);
+
+  const dataVersionInterval = setInterval(() => {
+    try {
+      const currentVersion = (db.pragma('data_version', { simple: true }) as number) ?? 0;
+      if (currentVersion !== lastDataVersion) {
+        lastDataVersion = currentVersion;
+        broadcastEvent('memory:changed', {
+          dataVersion: currentVersion,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } catch {
+      // db may be busy
+    }
+  }, 1000);
+
   const server = createServer((req, res) => {
     void (async () => {
       const url = new URL(req.url ?? '/', 'http://localhost');
@@ -1849,20 +1944,28 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
         try {
           if (url.pathname === '/api/approve') {
             const ids = Array.isArray(body.ids) ? body.ids.map(String) : body.claim ? [String(body.claim)] : [];
-            json(res, approveDrafts(db, root, ref, ids));
+            const result = approveDrafts(db, root, ref, ids);
+            broadcastEvent('claim:approved', { ids, ref, count: ids.length, timestamp: new Date().toISOString() });
+            json(res, result);
             return;
           }
           if (url.pathname === '/api/reject') {
-            json(res, rejectDraft(db, root, ref, String(body.claim), body.reason ? String(body.reason) : undefined));
+            const result = rejectDraft(db, root, ref, String(body.claim), body.reason ? String(body.reason) : undefined);
+            broadcastEvent('claim:rejected', { claim: body.claim, reason: body.reason, ref, timestamp: new Date().toISOString() });
+            json(res, result);
             return;
           }
           if (url.pathname === '/api/revert') {
-            json(res, revertCommit(db, root, ref, String(body.commit)));
+            const result = revertCommit(db, root, ref, String(body.commit));
+            broadcastEvent('claim:reverted', { commit: body.commit, ref, timestamp: new Date().toISOString() });
+            json(res, result);
             return;
           }
           if (url.pathname === '/api/attest') {
             const verdict = body.verdict === 'disagree' ? 'disagree' : 'agree';
-            json(res, attestClaim(db, root, ref, String(body.claim), verdict, body.reason ? String(body.reason) : undefined));
+            const result = attestClaim(db, root, ref, String(body.claim), verdict, body.reason ? String(body.reason) : undefined);
+            broadcastEvent('claim:attested', { claim: body.claim, verdict, timestamp: new Date().toISOString() });
+            json(res, result);
             return;
           }
           if (url.pathname === '/api/claim') {
@@ -1894,7 +1997,9 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
               }
               return result;
             });
-            json(res, run());
+            const result = run();
+            broadcastEvent('claim:written', { claimId: result.id, subject, predicate, state: result.state, timestamp: new Date().toISOString() });
+            json(res, result);
             return;
           }
           if (url.pathname === '/api/supersede') {
@@ -1923,7 +2028,9 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
               }
               return result;
             });
-            json(res, run());
+            const result = run();
+            broadcastEvent('claim:superseded', { oldId: result.oldId, newId: result.newId, timestamp: new Date().toISOString() });
+            json(res, result);
             return;
           }
           if (url.pathname === '/api/repo/browse') {
@@ -1940,7 +2047,9 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
             root = targetPath;
             db = openDb(root);
             db.pragma('journal_mode = WAL');
+            lastDataVersion = (db.pragma('data_version', { simple: true }) as number) ?? 0;
             saveDesktopRepo(root);
+            broadcastEvent('repo:switched', { repo: { name: path.basename(root), path: root }, timestamp: new Date().toISOString() });
             json(res, { ok: true, switched: true, repo: { name: path.basename(root), path: root } });
             return;
           }
@@ -1963,7 +2072,9 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
             root = targetPath;
             db = openDb(root);
             db.pragma('journal_mode = WAL');
+            lastDataVersion = (db.pragma('data_version', { simple: true }) as number) ?? 0;
             saveDesktopRepo(root);
+            broadcastEvent('repo:switched', { repo: { name: path.basename(root), path: root }, timestamp: new Date().toISOString() });
             json(res, { ok: true, repo: { name: path.basename(root), path: root } });
             return;
           }
@@ -2114,6 +2225,29 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
           return { id, type, label, claimCount };
         }).sort((a, b) => a.id.localeCompare(b.id));
         json(res, result);
+        return;
+      }
+
+      if (url.pathname === '/api/events') {
+        res.writeHead(200, {
+          'content-type': 'text/event-stream; charset=utf-8',
+          'cache-control': 'no-cache, no-transform',
+          'connection': 'keep-alive',
+          'x-accel-buffering': 'no',
+          'access-control-allow-origin': '*',
+        });
+        res.write(`event: connected\ndata: ${JSON.stringify({
+          status: 'connected',
+          branch: ref,
+          repo: path.basename(root),
+          timestamp: new Date().toISOString(),
+        })}\n\n`);
+
+        sseClients.add(res);
+
+        req.on('close', () => {
+          sseClients.delete(res);
+        });
         return;
       }
 
@@ -2268,6 +2402,16 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
         server,
         close: () =>
           new Promise<void>((done) => {
+            clearInterval(pingInterval);
+            clearInterval(dataVersionInterval);
+            for (const client of sseClients) {
+              try {
+                client.end();
+              } catch {
+                // ignore
+              }
+            }
+            sseClients.clear();
             server.close(() => {
               db.close();
               done();
