@@ -1,0 +1,92 @@
+name: Desktop (Windows)
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to attach the installer to (defaults to the pushed tag)
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows installer (x64) and code signing
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Build the CLI
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build the Windows desktop installer
+        working-directory: desktop
+        run: |
+          npm ci
+          npm run build
+
+      - name: Authenticode code signing
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_CERT: ${{ secrets.WINDOWS_SIGNING_CERT }}
+          WINDOWS_SIGNING_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
+        run: |
+          if ($env:WINDOWS_SIGNING_CERT -and $env:WINDOWS_SIGNING_PASSWORD) {
+            Write-Host "Decoding Windows signing certificate..."
+            $certBytes = [Convert]::FromBase64String($env:WINDOWS_SIGNING_CERT)
+            $certPath = "$env:RUNNER_TEMP\authenticode.pfx"
+            [IO.File]::WriteAllBytes($certPath, $certBytes)
+
+            $filesToSign = Get-ChildItem -Path "desktop/src-tauri/target/release/bundle/nsis/*.exe"
+            foreach ($file in $filesToSign) {
+              Write-Host "Signing $($file.FullName) with Signtool..."
+              & "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe" sign /fd SHA256 /f $certPath /p $env:WINDOWS_SIGNING_PASSWORD /tr http://timestamp.digicert.com /td SHA256 $file.FullName
+            }
+            Remove-Item -Force $certPath
+            Write-Host "[OK] Windows Authenticode signing complete."
+          } else {
+            Write-Host "[WARN] WINDOWS_SIGNING_CERT is not configured; generating unsigned installer."
+            Write-Host "Unsigned binaries will trigger Windows SmartScreen prompts on first run."
+          }
+
+      - name: Compute SHA256 integrity checksums
+        shell: pwsh
+        run: |
+          $nsisDir = "desktop/src-tauri/target/release/bundle/nsis"
+          if (Test-Path $nsisDir) {
+            $checksumFile = "$nsisDir/SHA256SUMS-windows.txt"
+            $hashes = Get-ChildItem -Path "$nsisDir/*.exe" | ForEach-Object {
+              $hash = (Get-FileHash -Algorithm SHA256 -Path $_.FullName).Hash.ToLower()
+              "$hash  $($_.Name)"
+            }
+            $hashes | Out-File -Encoding utf8 -FilePath $checksumFile
+            Write-Host "[OK] Generated SHA256 checksums:"
+            Get-Content $checksumFile
+          } else {
+            Write-Host "[WARN] NSIS bundle directory not found at $nsisDir"
+          }
+
+      - name: Attach the installer and checksums to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          files: |
+            desktop/src-tauri/target/release/bundle/nsis/*.exe
+            desktop/src-tauri/target/release/bundle/nsis/SHA256SUMS-windows.txt
+          fail_on_unmatched_files: false
