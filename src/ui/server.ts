@@ -292,6 +292,10 @@ const HTML = String.raw`<!doctype html>
             <button class="graph-btn pill-sm" data-type="pkg">Packages</button>
             <button class="graph-btn pill-sm" data-type="internal">Internal Only</button>
           </div>
+          <select id="graph-predicate-select" class="graph-btn" style="padding:3px 8px; font-size:11px;" title="Filter by predicate relationship">
+            <option value="all">All Relationships</option>
+          </select>
+          <button class="graph-btn pill-sm on" id="graph-cluster-mode" title="Toggle Semantic Clustering Force">Clusters: ON</button>
         </div>
 
         <div class="graph-controls">
@@ -301,6 +305,23 @@ const HTML = String.raw`<!doctype html>
         </div>
 
         <svg id="graph-svg">
+          <defs>
+            <marker id="arrow-imports" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#bc8cff"/>
+            </marker>
+            <marker id="arrow-read" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#d29922"/>
+            </marker>
+            <marker id="arrow-invariant" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#f85149"/>
+            </marker>
+            <marker id="arrow-route" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#2ea043"/>
+            </marker>
+            <marker id="arrow-default" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#58a6ff"/>
+            </marker>
+          </defs>
           <g id="graph-viewport"></g>
         </svg>
 
@@ -929,6 +950,8 @@ let graphState = {
   panX: 0,
   panY: 0,
   typeFilter: 'all',
+  predicateFilter: 'all',
+  clustered: true,
   selectedNode: null,
   focusedSubgraph: null,
   isDragging: false,
@@ -1090,6 +1113,33 @@ function renderGraphView(claims) {
     $('graph-reset-selection').style.display = 'none';
   }
 
+  // Populate predicate selector dynamically from available claims
+  const predSelect = $('graph-predicate-select');
+  if (predSelect) {
+    const availablePreds = new Set();
+    for (const c of claims) {
+      if (c.predicate) availablePreds.add(c.predicate);
+    }
+    const currentVal = graphState.predicateFilter || 'all';
+    predSelect.replaceChildren();
+    const allOpt = document.createElement('option');
+    allOpt.value = 'all';
+    allOpt.textContent = 'All Relationships';
+    predSelect.append(allOpt);
+    for (const pred of Array.from(availablePreds).sort()) {
+      const opt = document.createElement('option');
+      opt.value = pred;
+      opt.textContent = (PREDICATE_LABELS[pred] || pred) + ' (' + pred + ')';
+      predSelect.append(opt);
+    }
+    predSelect.value = availablePreds.has(currentVal) ? currentVal : 'all';
+    graphState.predicateFilter = predSelect.value;
+  }
+
+  if (graphState.predicateFilter && graphState.predicateFilter !== 'all') {
+    targetClaims = targetClaims.filter(c => c.predicate === graphState.predicateFilter);
+  }
+
   if (graphState.typeFilter !== 'all') {
     targetClaims = targetClaims.filter(c => {
       if (graphState.typeFilter === 'env') return c.subject.startsWith('env:');
@@ -1133,13 +1183,29 @@ function renderGraphView(claims) {
 
   $('graph-stat').textContent = nodes.size + ' nodes, ' + links.length + ' relations';
 
+  const clusterCentroids = {
+    file: { x: width * 0.42, y: height * 0.46 },
+    env:  { x: width * 0.82, y: height * 0.28 },
+    pkg:  { x: width * 0.18, y: height * 0.72 },
+    doc:  { x: width * 0.80, y: height * 0.75 },
+    obj:  { x: width * 0.50, y: height * 0.58 },
+  };
+
   const nodeArr = Array.from(nodes.values());
   const total = nodeArr.length;
   nodeArr.forEach((n, idx) => {
-    const angle = (idx / (total || 1)) * 2 * Math.PI;
-    const r = 110 + (idx % 4) * 55;
-    n.x = width / 2 + Math.cos(angle) * r;
-    n.y = height / 2 + Math.sin(angle) * r;
+    if (graphState.clustered) {
+      const cCenter = clusterCentroids[n.type] || clusterCentroids.file;
+      const angle = (idx / (total || 1)) * 2 * Math.PI;
+      const jitter = 40 + (idx % 6) * 16;
+      n.x = cCenter.x + Math.cos(angle) * jitter;
+      n.y = cCenter.y + Math.sin(angle) * jitter;
+    } else {
+      const angle = (idx / (total || 1)) * 2 * Math.PI;
+      const r = 110 + (idx % 4) * 55;
+      n.x = width / 2 + Math.cos(angle) * r;
+      n.y = height / 2 + Math.sin(angle) * r;
+    }
   });
 
   const iterations = 80;
@@ -1174,9 +1240,17 @@ function renderGraphView(claims) {
       l.target.x -= (dx / dist) * f;
       l.target.y -= (dy / dist) * f;
     }
-    for (const n of nodeArr) {
-      n.x += (width / 2 - n.x) * 0.025 * decay;
-      n.y += (height / 2 - n.y) * 0.025 * decay;
+    if (graphState.clustered) {
+      for (const n of nodeArr) {
+        const cCenter = clusterCentroids[n.type] || clusterCentroids.file;
+        n.x += (cCenter.x - n.x) * 0.045 * decay;
+        n.y += (cCenter.y - n.y) * 0.045 * decay;
+      }
+    } else {
+      for (const n of nodeArr) {
+        n.x += (width / 2 - n.x) * 0.025 * decay;
+        n.y += (height / 2 - n.y) * 0.025 * decay;
+      }
     }
   }
 
@@ -1201,13 +1275,32 @@ function renderGraphView(claims) {
     }
   }
 
+  const getLinkStyle = (predicate) => {
+    if (predicate === 'imports_module') return { color: '#bc8cff', marker: 'url(#arrow-imports)' };
+    if (predicate === 'read_by') return { color: '#d29922', marker: 'url(#arrow-read)' };
+    if (predicate === 'enforces_invariant') return { color: '#f85149', marker: 'url(#arrow-invariant)' };
+    if (predicate === 'exposes_route') return { color: '#2ea043', marker: 'url(#arrow-route)' };
+    return { color: '#58a6ff', marker: 'url(#arrow-default)' };
+  };
+
   for (const l of links) {
     const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    const style = getLinkStyle(l.label);
     line.setAttribute('x1', l.source.x); line.setAttribute('y1', l.source.y);
     line.setAttribute('x2', l.target.x); line.setAttribute('y2', l.target.y);
     line.setAttribute('class', 'link');
+    line.setAttribute('stroke', style.color);
+    line.setAttribute('stroke-opacity', '0.65');
+    line.setAttribute('stroke-width', '1.5');
+    line.setAttribute('marker-end', style.marker);
     line.setAttribute('data-source', l.source.id);
     line.setAttribute('data-target', l.target.id);
+    line.setAttribute('data-predicate', l.label);
+
+    const titleEl = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+    titleEl.textContent = l.source.id + ' — [' + l.label + '] → ' + l.target.id;
+    line.append(titleEl);
+
     viewport.append(line);
   }
 
@@ -1647,6 +1740,24 @@ for (const btn of document.querySelectorAll('#graph-type-filters button')) {
     for (const b of document.querySelectorAll('#graph-type-filters button')) b.classList.remove('on');
     btn.classList.add('on');
     graphState.typeFilter = btn.dataset.type;
+    renderActiveView();
+  };
+}
+
+const predSelectEl = $('graph-predicate-select');
+if (predSelectEl) {
+  predSelectEl.onchange = (e) => {
+    graphState.predicateFilter = e.target.value;
+    renderActiveView();
+  };
+}
+
+const clusterModeBtn = $('graph-cluster-mode');
+if (clusterModeBtn) {
+  clusterModeBtn.onclick = () => {
+    graphState.clustered = !graphState.clustered;
+    clusterModeBtn.textContent = graphState.clustered ? 'Clusters: ON' : 'Clusters: OFF';
+    clusterModeBtn.classList.toggle('on', graphState.clustered);
     renderActiveView();
   };
 }
