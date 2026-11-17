@@ -6,10 +6,18 @@ export type RemoteConfig =
   | { type: 'dir'; path: string }
   | { type: 'postgres'; url?: string; url_env?: string };
 
+export interface LitestreamConfig {
+  replica_url: string;
+  config_path?: string;
+  retention?: string;
+  sync_interval?: string;
+}
+
 export interface LoreConfig {
   /** Stable identity of the project, independent of any git remote. */
   repo_id: string;
   remote?: RemoteConfig;
+  litestream?: LitestreamConfig;
   /** Last remote main commit seen by fetch/push, used for the ahead/behind line. */
   remote_main?: string | null;
   [key: string]: unknown;

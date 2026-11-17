@@ -401,3 +401,5 @@ export function fetchFromDir(db: DB, root: string, dir: string, repoId: string, 
   if (!existsSync(file)) throw new Error(`no bundle at ${file} (push one first, or check the remote path)`);
   return importBundle(db, root, readBundle(file), { author });
 }
+
+export * from './sync/litestream.js';
