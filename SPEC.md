@@ -442,6 +442,7 @@ No LLM judge. Outcome metrics on real repositories:
 | CLI has static config | `lore setup` auto-wires MCP for agents (agy, claude, cursor, codex, gemini) and `lore config` manages settings | manual JSON/TOML editing was error-prone and missed session branch isolation |
 | UI has flat triple table only | Knowledge Hub defaults to Entity Dossier view with bulleted facts, and modal provides memory presets with live agent preview | raw triples dump and 1-line cards fragmented memory and confused users about how agents retrieve facts |
 | sync carries commits only | `lore replicate` enables continuous SQLite WAL streaming via Litestream to S3/R2/GCS | distributed multi-agent clusters require real-time streaming replication without manual batch export/import |
+| search couples valid-time and transaction-time | decoupled bi-temporal search (`--valid-at`, `--tx-at`, `lore timeline`, `src/canon/temporal.ts`) | audit, incident replay, and multi-agent conflict inspection require querying past beliefs about past or current reality independently |
 
 ## Glossary
 

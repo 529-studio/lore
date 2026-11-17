@@ -44,7 +44,7 @@ stale, then accept the new reality with `verify --accept`.*
 
 **Canon demo:** [memory stops being injected after npm → pnpm](scripts/demo/canon-pnpm.sh).
 
-**GUI:** `lore ui` serves a local dashboard — Health, Review, Undo, Settings. See [docs/desktop.md](docs/desktop.md).
+**GUI:** `lore ui` serves a local dashboard (Health, Review, Undo). See [docs/desktop.md](docs/desktop.md).
 
 ![Lore dashboard](docs/assets/dashboard.png)
 
@@ -165,10 +165,11 @@ Agents never write to `main`; you decide what gets promoted. Full details: [docs
 lore init                      initialise .lore/ and the ontology
 lore ingest [--dry-run]        derive claims from deterministic extractors
 lore write                     write one claim (draft for agent/human evidence); --valid-from <iso>
-lore search "<query>"          score active+canonical claims; --as-of reads history
+lore search "<query>"          score active+canonical claims; --valid-at, --tx-at, --as-of
 lore explain <claim|key>       why a claim is injected: trust, provenance, evidence
 lore canon status|decay|confirm|resolve|metrics  trust, decay, re-confirm, resolve, metrics
 lore blame <subject>           provenance: author, evidence, branch membership
+lore timeline <subject>       bi-temporal revisions across valid-time and tx-time
 lore status [--strict]         health: active, draft, stale, conflicts, GC candidates
 lore diff <from>..<to>         claims added/removed between revisions
 lore merge <branch>           3-way merge; exit 2 on real conflicts
