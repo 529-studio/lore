@@ -593,6 +593,27 @@ const HTML = String.raw`<!doctype html>
 
 <script>
 const CSRF = '__CSRF__';
+
+const eventSource = new EventSource('/api/events');
+eventSource.addEventListener('message', (e) => {
+  console.log('SSE message:', e.data);
+});
+eventSource.addEventListener('memory:changed', () => {
+  loadHealth();
+  refreshKnowledge();
+});
+eventSource.addEventListener('claim:written', () => {
+  loadHealth();
+  refreshKnowledge();
+});
+eventSource.addEventListener('claim:approved', () => {
+  loadHealth();
+  refreshKnowledge();
+  loadReview();
+});
+eventSource.addEventListener('repo:switched', () => {
+  location.reload();
+});
 const $ = (id) => document.getElementById(id);
 const el = (tag, text, cls) => { const n = document.createElement(tag); if (text !== undefined) n.textContent = text; if (cls) n.className = cls; return n; };
 
@@ -2201,6 +2222,20 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
         return;
       }
 
+      if (url.pathname === '/api/events') {
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+        });
+        sseClients.add(res);
+        res.write('event: connected\ndata: {"status":"connected"}\n\n');
+        res.on('close', () => {
+          sseClients.delete(res);
+        });
+        return;
+      }
+      
       if (url.pathname === '/') {
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
         res.end(HTML.replace('__CSRF__', csrf));
