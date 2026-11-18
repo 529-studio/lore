@@ -203,6 +203,16 @@ CREATE TABLE IF NOT EXISTS token_revocation (
 );
 CREATE INDEX IF NOT EXISTS token_revocation_sub ON token_revocation(sub);
 
+CREATE TABLE IF NOT EXISTS agent_action_log (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_id       TEXT,
+  action         TEXT NOT NULL,
+  table_name     TEXT NOT NULL,
+  row_id         TEXT,
+  ts             TEXT NOT NULL,
+  previous_state TEXT,
+  new_state      TEXT
+);
 `;
 
 export const ONTOLOGY_TEMPLATE = `# Lore ontology — decides which predicates may hold several values.
