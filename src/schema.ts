@@ -193,6 +193,16 @@ CREATE TABLE IF NOT EXISTS resolution (
   applied    INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (subject_id, predicate)
 );
+
+CREATE TABLE IF NOT EXISTS token_revocation (
+  jti        TEXT PRIMARY KEY,
+  sub        TEXT NOT NULL,
+  reason     TEXT,
+  revoked_by TEXT NOT NULL,
+  revoked_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS token_revocation_sub ON token_revocation(sub);
+
 `;
 
 export const ONTOLOGY_TEMPLATE = `# Lore ontology — decides which predicates may hold several values.

@@ -529,7 +529,7 @@ set -e
 
 # a machine may approve a gated T1 claim
 TEAM_SECRET="smoke-team-secret-0123456789"
-GATED="$(LORE_TEAM_SECRET=$TEAM_SECRET lore write --subject env:MACHINE_T1 --predicate read_by --object README.md --kind file --ref README.md | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+GATED="$(LORE_TEAM_SECRET=$TEAM_SECRET LORE_MACHINE=1 lore write --subject env:MACHINE_T1 --predicate read_by --object README.md --kind file --ref README.md | grep -oE 'c_[a-f0-9]{32}' | head -1)"
 expect_contains "$(LORE_TEAM_SECRET=$TEAM_SECRET lore blame env:MACHINE_T1)" "draft"
 LORE_TEAM_SECRET=$TEAM_SECRET LORE_MACHINE=1 lore approve "$GATED" >/dev/null
 expect_contains "$(lore blame env:MACHINE_T1)" "active"

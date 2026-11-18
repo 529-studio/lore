@@ -4,7 +4,7 @@ import { authorityOf, inBranch, makeCommit, upsertClaim, type EvidenceKind } fro
 import { hashCache } from '../hash-cache.js';
 import { loadOntology } from '../ontology.js';
 import { gitHead } from '../util/git.js';
-import { gateTier } from '../policy.js';
+import { gateTier, requireAction } from '../policy.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
 
 export interface WriteOptions {
@@ -23,6 +23,7 @@ export interface WriteOptions {
 
 export function writeCommand(opts: WriteOptions): void {
   const root = requireRoot();
+  requireAction(root, 'write', { subject: opts.subject, tier: authorityOf(opts.kind) });
   const db = openDb(root);
   const session = ensureSession(db, root, opts.session);
   const ref = branchFor(session);
