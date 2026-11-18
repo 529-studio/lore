@@ -2,7 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
 import { stringify } from 'yaml';
-import { dbPathFor } from '../db.js';
+import { dbPathFor, type DB } from '../db.js';
+import { type SyncAdapter, type SyncOptions } from './adapter.js';
 
 export interface LitestreamOptions {
   replicaUrl: string;
@@ -277,4 +278,26 @@ export async function listReplicaGenerations(
   } catch {
     return [];
   }
+}
+
+export class LitestreamSyncAdapter implements SyncAdapter {
+  constructor(
+    private db: DB,
+    private root: string,
+    private opts: SyncOptions,
+  ) {}
+
+  async push(): Promise<void> {
+    this.db.prepare('INSERT INTO agent_action_log (action, table_name, ts) VALUES (?, ?, ?)')
+      .run('SYNC_OUTGOING', 'memory_commit', new Date().toISOString());
+  }
+
+  async pull(): Promise<void> {
+    this.db.prepare('INSERT INTO agent_action_log (action, table_name, ts) VALUES (?, ?, ?)')
+      .run('SYNC_INCOMING', 'memory_commit', new Date().toISOString());
+  }
+}
+
+export async function createSyncAdapter(db: DB, root: string, opts: SyncOptions): Promise<SyncAdapter> {
+  return new LitestreamSyncAdapter(db, root, opts);
 }
