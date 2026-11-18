@@ -31,6 +31,7 @@
     "eval": "node scripts/eval.mjs",
     "demo:cli": "node scripts/demo/record-cli.mjs",
     "docs:lint": "node scripts/docs-lint.mjs",
+    "auth:smoke": "node scripts/auth-smoke.mjs",
     "check:public": "bash scripts/check-public-safe.sh",
     "prepublishOnly": "npm run build && npm run smoke"
   },
@@ -65,6 +66,7 @@
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.6",
     "@types/pg": "^8.23.1",
+    "playwright": "^1.65.1",
     "sharp": "^0.35.5",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"

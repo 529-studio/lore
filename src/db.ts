@@ -96,6 +96,17 @@ function migrate(db: DB): void {
   if (!decisionCols.some((c) => c.name === 'actor')) {
     db.exec('ALTER TABLE merge_decision ADD COLUMN actor TEXT');
   }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS token_revocation (
+      jti        TEXT PRIMARY KEY,
+      sub        TEXT NOT NULL,
+      reason     TEXT,
+      revoked_by TEXT NOT NULL,
+      revoked_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS token_revocation_sub ON token_revocation(sub);
+  `);
 }
 
 export function openDb(root: string): DB {

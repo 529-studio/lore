@@ -293,13 +293,25 @@ program
   .action((opts) => uiCommand({ port: opts.port, host: opts.host, open: opts.open }));
 
 program
-  .command('identity [action]')
-  .description('show the current identity, or issue a team token')
+  .command('identity [action] [target]')
+  .description('show the current identity, issue tokens, or manage token revocations')
   .option('--user <email>', 'identity to issue a token for')
   .option('--role <role>', 'maintainer | contributor', 'maintainer')
   .option('--days <n>', 'token lifetime in days', '30')
-  .action((action, opts) =>
-    identityCommand({ action, user: opts.user, role: opts.role, days: opts.days }),
+  .option('--jti <id>', 'explicit unique token identifier')
+  .option('--reason <text>', 'revocation reason')
+  .option('--json', 'output in JSON format')
+  .action((action, target, opts) =>
+    identityCommand({
+      action,
+      target,
+      user: opts.user,
+      role: opts.role,
+      days: opts.days,
+      jti: opts.jti,
+      reason: opts.reason,
+      json: opts.json,
+    }),
   );
 
 program

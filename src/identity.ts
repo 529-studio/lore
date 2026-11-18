@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 
@@ -8,12 +8,14 @@ export interface Principal {
   id: string;
   role: Role;
   source: 'local' | 'token' | 'assertion';
+  jti?: string;
 }
 
 interface TokenPayload {
   sub: string;
   role: Role;
   exp: number;
+  jti?: string;
 }
 
 function b64url(input: string): string {
@@ -24,8 +26,9 @@ function sign(payload: string, secret: string): string {
   return createHmac('sha256', secret).update(payload).digest('base64url');
 }
 
-export function issueToken(sub: string, role: Role, secret: string, days = 30): string {
-  const payload: TokenPayload = { sub, role, exp: Date.now() + days * 86_400_000 };
+export function issueToken(sub: string, role: Role, secret: string, days = 30, jti?: string): string {
+  const tokenId = jti ?? randomBytes(12).toString('hex');
+  const payload: TokenPayload = { sub, role, exp: Date.now() + days * 86_400_000, jti: tokenId };
   const encoded = b64url(JSON.stringify(payload));
   return `${encoded}.${sign(encoded, secret)}`;
 }
@@ -69,7 +72,7 @@ export function resolvePrincipal(): Principal {
   if (token) {
     if (!secret) throw new Error('LORE_TOKEN is set but LORE_TEAM_SECRET is missing; cannot verify it');
     const payload = verifyToken(token, secret);
-    return { id: payload.sub, role: payload.role, source: 'token' };
+    return { id: payload.sub, role: payload.role, source: 'token', jti: payload.jti };
   }
 
   const asserted = process.env.LORE_OIDC_EMAIL;
