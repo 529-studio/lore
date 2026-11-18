@@ -46,6 +46,7 @@ jobs:
         env:
           WINDOWS_SIGNING_CERT: ${{ secrets.WINDOWS_SIGNING_CERT }}
           WINDOWS_SIGNING_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
+          IS_RELEASE: ${{ startsWith(github.ref, 'refs/tags/') }}
         run: |
           if ($env:WINDOWS_SIGNING_CERT -and $env:WINDOWS_SIGNING_PASSWORD) {
             Write-Host "Decoding Windows signing certificate..."
@@ -61,8 +62,13 @@ jobs:
             Remove-Item -Force $certPath
             Write-Host "[OK] Windows Authenticode signing complete."
           } else {
-            Write-Host "[WARN] WINDOWS_SIGNING_CERT is not configured; generating unsigned installer."
-            Write-Host "Unsigned binaries will trigger Windows SmartScreen prompts on first run."
+            if ($env:IS_RELEASE -eq 'true') {
+              Write-Error "[ERR] WINDOWS_SIGNING_CERT/PASSWORD are not configured for a release build. Failing."
+              exit 1
+            } else {
+              Write-Host "[WARN] WINDOWS_SIGNING_CERT is not configured; generating unsigned installer."
+              Write-Host "Unsigned binaries will trigger Windows SmartScreen prompts on first run."
+            }
           }
 
       - name: Compute SHA256 integrity checksums
