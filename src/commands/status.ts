@@ -6,6 +6,7 @@ import { activeAt, head } from '../model.js';
 import { claimFreshness } from '../merge.js';
 import { readConfig } from '../config.js';
 import { isAncestor } from '../sync.js';
+import { isPermissiveTrust } from '../policy.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
 import { canonStatus } from '../canon/status.js';
 
@@ -85,7 +86,8 @@ export function statusCommand(opts: StatusOptions = {}): void {
       `${canon.trust.stale ? pc.red(`${canon.trust.stale} stale`) : pc.dim('0 stale')}  ` +
       `${canon.trust.retracted ? pc.red(`${canon.trust.retracted} retracted`) : pc.dim('0 retracted')}`,
   );
-  console.log(`  branch     ${ref}  ${pc.dim(`${branchActive} claims in the active set`)}`);
+  const permissive = isPermissiveTrust(root);
+  console.log(`  branch     ${ref}  ${pc.dim(`${branchActive} claims in the active set`)}  ${pc.dim(`[mode: ${permissive ? 'permissive' : 'strict'}]`)}`);
   console.log(`  commits    ${commits}   branches ${branches}`);
 
   const config = readConfig(root);

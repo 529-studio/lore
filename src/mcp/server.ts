@@ -10,7 +10,7 @@ import { openDb, requireRoot, type DB } from '../db.js';
 import { hashCache } from '../hash-cache.js';
 import { gitHead } from '../util/git.js';
 import { authorityOf } from '../model.js';
-import { gateTier, requireAction } from '../policy.js';
+import { gateTier, isPermissiveTrust, requireAction } from '../policy.js';
 import {
   activeAt,
   evidenceFor,
@@ -220,6 +220,7 @@ function toolWrite(args: WriteArgs): ToolResult {
         // Never writes to `main` — the commit always lands on agent/<session>.
         evidence: [{ kind, ref: evidenceRef, hash, commit: gitHead(ctx.root) }],
         forceDraft: gateTier(ctx.root, authorityOf(kind)),
+        forceActive: isPermissiveTrust(ctx.root),
         writtenBy: 'agent',
         agentId: 'mcp',
         sessionId: ctx.session,
@@ -322,6 +323,7 @@ function toolStatus(_args: Record<string, never>): ToolResult {
       if (freshness === 'stale') stale++;
       if (freshness === 'ahead') ahead++;
     }
+    const permissive = isPermissiveTrust(ctx.root);
     const summary = {
       branch: ctx.branch,
       session: ctx.session,
@@ -329,12 +331,13 @@ function toolStatus(_args: Record<string, never>): ToolResult {
       drafts,
       stale,
       ahead,
+      trust_mode: permissive ? 'permissive' : 'strict',
     };
     return {
       content: [
         {
           type: 'text',
-          text: `branch ${summary.branch} — ${summary.active_set} active, ${drafts} draft, ${stale} stale, ${ahead} ahead of checkout`,
+          text: `branch ${summary.branch} — ${summary.active_set} active, ${drafts} draft, ${stale} stale, ${ahead} ahead of checkout (trust mode: ${summary.trust_mode})`,
         },
       ],
       structuredContent: summary,
@@ -692,6 +695,7 @@ const OUTPUT_SCHEMAS: Record<string, Record<string, unknown>> = {
       drafts: { type: 'integer', minimum: 0 },
       stale: { type: 'integer', minimum: 0 },
       ahead: { type: 'integer', minimum: 0 },
+      trust_mode: { type: 'string' },
     },
   },
   memory_diff: {

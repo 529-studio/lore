@@ -13,7 +13,7 @@ import { branchFor, currentSession } from '../session.js';
 import { readConfig } from '../config.js';
 import { ActionError, approveDrafts, attestClaim, rejectDraft, revertCommit } from '../actions.js';
 import { resolvePrincipal, teamMode } from '../identity.js';
-import { describePolicy } from '../policy.js';
+import { describePolicy, isPermissiveTrust } from '../policy.js';
 import { installCanon } from '../canon/index.js';
 import { explainClaim } from '../canon/explain.js';
 import { gitHead } from '../util/git.js';
@@ -2088,6 +2088,7 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
               return;
             }
             const author = `human:${resolvePrincipal()?.id ?? 'ui'}`;
+            const permissive = isPermissiveTrust(root);
             const run = db.transaction(() => {
               const result = upsertClaim(db, {
                 subject,
@@ -2095,6 +2096,7 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
                 object,
                 author,
                 sessionId: session,
+                forceActive: permissive,
                 evidence: [{ kind: 'human', ref: subject, commit: gitHead(root) }],
               });
               if (result.state === 'active' && !inBranch(db, ref, result.id)) {

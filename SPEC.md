@@ -447,6 +447,7 @@ No LLM judge. Outcome metrics on real repositories:
 | UI graph is uniform radial scatter | semantic visual clustering, predicate relationship filtering, and directional markers | complex knowledge graphs with heterogeneous predicates need architectural domain grouping and relationship isolation |
 | Windows installer built without code signing or checksums | dedicated `.github/workflows/desktop-windows.yml` with Authenticode signtool step and SHA256 integrity verification | Windows users need verifiable binary integrity and code-signing automation for official releases |
 | identity tokens are immutable for 30d | token revocation registry and JTI-based validation (`lore identity revoke`) | identity compromise requires revocation without re-keying the entire team |
+| agent/human writes are draft only | permissive trust mode (`trust_mode: permissive` in `.lore/config.json` or `lore init --solo`) auto-promotes writes to active in solo mode | solo developers working locally need immediate retrieval without draft approval overhead; team mode remains strictly gated |
 
 
 

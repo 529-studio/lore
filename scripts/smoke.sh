@@ -632,4 +632,9 @@ node "$LORE_BIN" timeline doc:README.md | grep -q "Bi-temporal Timeline" || fail
 node "$LORE_BIN" timeline doc:README.md --json | grep -q "claimId" || fail "timeline --json must output valid JSON"
 node "$LORE_BIN" search "Smoke" --valid-at 2026-11-15T00:00:00Z | grep -q "Smoke" || fail "search --valid-at must find valid claims"
 
-echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge, identity, policy, machine, attest, entities, alias, rename, reject, review, onboard, litestream, temporal"
+# --- permissive trust mode --------------------------------------------------
+node "$LORE_BIN" config set trust_mode permissive >/dev/null
+node "$LORE_BIN" write --subject sym:smoke.js#solo --predicate enforces_invariant --object "solo invariant" --kind agent | grep -q "active" || fail "permissive trust mode must create active claim"
+node "$LORE_BIN" config set trust_mode strict >/dev/null
+
+echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge, identity, policy, machine, attest, entities, alias, rename, reject, review, onboard, litestream, temporal, permissive-trust"

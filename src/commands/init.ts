@@ -3,17 +3,26 @@ import path from 'node:path';
 import { createDb } from '../db.js';
 import { makeCommit, head } from '../model.js';
 import { ONTOLOGY_TEMPLATE } from '../schema.js';
-import { ensureConfig } from '../config.js';
+import { ensureConfig, writeConfig } from '../config.js';
 
 export interface InitOptions {
   root?: string;
   gitignore?: boolean;
+  trustMode?: 'strict' | 'permissive';
+  solo?: boolean;
 }
 
 export function initCommand(opts: InitOptions = {}): void {
   const root = path.resolve(opts.root ?? process.cwd());
   const db = createDb(root);
-  ensureConfig(root);
+  const config = ensureConfig(root);
+  if (opts.solo || opts.trustMode === 'permissive') {
+    config.trust_mode = 'permissive';
+    writeConfig(root, config);
+  } else if (opts.trustMode === 'strict') {
+    config.trust_mode = 'strict';
+    writeConfig(root, config);
+  }
   const created: string[] = [];
 
   if (!existsSync(path.join(root, '.lore'))) created.push('.lore/');

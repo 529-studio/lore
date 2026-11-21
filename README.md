@@ -162,7 +162,7 @@ Agents never write to `main`; you decide what gets promoted. Full details: [docs
 ### Command reference
 
 ```
-lore init                      initialise .lore/ and the ontology
+lore init [--solo]             initialise .lore/ (solo: permissive trust)
 lore ingest [--dry-run]        derive claims from deterministic extractors
 lore write                     write one claim (draft for agent/human evidence); --valid-from <iso>
 lore search "<query>"          score active+canonical claims; --valid-at, --tx-at, --as-of
@@ -210,7 +210,7 @@ Exit codes: `0` ok · `2` unresolved merge conflict · `3` stale above threshold
 |---|---|---|
 | `not inside a lore repo` | no `.lore/` above cwd | `lore init` at the repo root |
 | `search` returns nothing | empty branch | `lore ingest`, or `lore promote` from the session that has memory |
-| claim is `draft` forever | agent inference needs approval | `lore approve <id>` or `lore approve --all-drafts` |
+| claim is `draft` forever | agent inference needs approval | `lore approve <id>` or set `trust_mode permissive` |
 | everything is `stale` | files changed since ingest | `lore ingest`, then `lore verify --all` |
 | merge exits 2 | genuine conflict | `lore resolve ... --take ours\|theirs\|both`, then re-run merge |
 

@@ -4,7 +4,7 @@ import { authorityOf, inBranch, makeCommit, upsertClaim, type EvidenceKind } fro
 import { hashCache } from '../hash-cache.js';
 import { loadOntology } from '../ontology.js';
 import { gitHead } from '../util/git.js';
-import { gateTier, requireAction } from '../policy.js';
+import { gateTier, isPermissiveTrust, requireAction } from '../policy.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
 
 export interface WriteOptions {
@@ -41,6 +41,7 @@ export function writeCommand(opts: WriteOptions): void {
     hash = hashCache(db, root).hash(evidenceRef);
   }
 
+  const permissive = isPermissiveTrust(root);
   const run = db.transaction(() => {
     const result = upsertClaim(db, {
       subject: opts.subject,
@@ -50,6 +51,7 @@ export function writeCommand(opts: WriteOptions): void {
       author: opts.author ?? 'human:cli',
       validFrom: opts.validFrom,
       forceDraft: gateTier(root, authorityOf(opts.kind)),
+      forceActive: permissive,
       sessionId: session,
       ttlDays: opts.ttlDays !== undefined ? Number(opts.ttlDays) : loadOntology(root).ttlDays(opts.predicate),
       evidence: [{ kind: opts.kind, ref: evidenceRef, hash, commit: gitHead(root) }],
