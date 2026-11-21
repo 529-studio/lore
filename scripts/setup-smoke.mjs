@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -89,6 +89,20 @@ try {
   if (!detected.ruleFiles.includes('AGENTS.md')) throw new Error('detectWorkspaceAgents failed to detect AGENTS.md');
   if (!detected.configuredAgents.includes('cursor')) throw new Error('detectWorkspaceAgents failed to detect cursor');
   if (!detected.configuredAgents.includes('claude')) throw new Error('detectWorkspaceAgents failed to detect claude');
+
+  // Test lore onboard --yes on a repo with .cursor/
+  const tmpOnboard = mkdtempSync(path.join(tmpdir(), 'lore-onboard-smoke-'));
+  try {
+    writeFileSync(path.join(tmpOnboard, 'package.json'), JSON.stringify({ name: 'onboard-test' }), 'utf8');
+    mkdirSync(path.join(tmpOnboard, '.cursor'), { recursive: true });
+    execFileSync('node', [cli, 'onboard', '--yes', '--path', tmpOnboard]);
+    const cursorFile = path.join(tmpOnboard, '.cursor', 'mcp.json');
+    if (!existsSync(cursorFile)) throw new Error('onboard did not configure cursor mcp');
+    const cursorJson = JSON.parse(readFileSync(cursorFile, 'utf8'));
+    if (!cursorJson.mcpServers?.lore) throw new Error('onboard cursor mcp missing lore entry');
+  } finally {
+    rmSync(tmpOnboard, { recursive: true, force: true });
+  }
 
   console.log('[OK] setup-smoke: config get/set/unset, setup agy/claude/cursor/codex/gemini/opencode, and agent rules injection passed');
 } finally {

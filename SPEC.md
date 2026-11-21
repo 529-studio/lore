@@ -451,6 +451,7 @@ No LLM judge. Outcome metrics on real repositories:
 | static 3-bullet agent rules | rich ontology guidelines (`lore rules [--update]`) with entity prefixes and evidence tiers | agents hallucinated arbitrary predicates without explicit entity namespaces and schema guidance |
 | manual review and promote commands | unified 1-step session wrapup (`lore wrapup [--yes]`, `lore session [status|rotate]`) | multi-agent sessions left unreviewed drafts behind when running promote, requiring disjoint approval steps |
 | bare init creates store only | `lore init --full` and smart detection discover workspace agents, inject rules, ingest codebase, and configure agent MCPs non-destructively | developers initializing Lore in pre-existing AI repositories need immediate zero-friction memory activation without manual multi-step configuration |
+| onboard prints hardcoded Claude command | `lore onboard` auto-detects workspace agents and wires MCP configs directly via `setupCommand` | multi-agent repositories use Cursor, Antigravity, OpenCode, Codex, or Gemini and require dynamic agent wiring |
 
 
 

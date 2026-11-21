@@ -268,7 +268,16 @@ program
   .option('--path <dir>', 'repository to onboard (default: cwd)')
   .option('--template <name>', 'code | product | content | support')
   .option('--yes', 'no prompts (CI)')
-  .action((opts) => onboardCommand({ path: opts.path, template: opts.template, yes: opts.yes }));
+  .option('--setup [agent]', 'automatically configure MCP for detected coding agents (or specify agent name)')
+  .option('--no-setup', 'skip configuring agent MCP servers')
+  .action((opts) =>
+    onboardCommand({
+      path: opts.path,
+      template: opts.template,
+      yes: opts.yes,
+      setup: opts.setup,
+    }),
+  );
 
 program
   .command('review')

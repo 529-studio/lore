@@ -7,11 +7,13 @@ import pc from 'picocolors';
 import { initCommand } from './init.js';
 import { ingestCommand } from './ingest.js';
 import { installAgentRules } from './rules.js';
+import { detectWorkspaceAgents, setupCommand } from './setup.js';
 
 export interface OnboardOptions {
   path?: string;
   template?: string;
   yes?: boolean;
+  setup?: string | boolean;
 }
 
 const TEMPLATES = ['code', 'product', 'content', 'support'] as const;
@@ -57,8 +59,11 @@ export async function onboardCommand(opts: OnboardOptions = {}): Promise<void> {
     throw new Error(`unknown template "${template}"; choose ${TEMPLATES.join(', ')}`);
   }
 
+  const agentDetection = detectWorkspaceAgents(root);
+  const detectedAgents = [...new Set([...agentDetection.configuredAgents, ...agentDetection.installedAgents])];
   const interactive = Boolean(process.stdin.isTTY) && !opts.yes;
   let doIngest = true;
+  let doSetup = opts.setup !== false;
 
   if (interactive) {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -68,6 +73,11 @@ export async function onboardCommand(opts: OnboardOptions = {}): Promise<void> {
       if (!TEMPLATES.includes(template)) throw new Error(`unknown template "${template}"`);
       const answer = (await rl.question('ingest the repository now? [Y/n] ')).trim().toLowerCase();
       doIngest = answer !== 'n' && answer !== 'no';
+      if (opts.setup === undefined) {
+        const agentNames = detectedAgents.length ? detectedAgents.join(', ') : 'standard agents';
+        const setupAnswer = (await rl.question(`configure MCP for coding agents (${agentNames}) now? [Y/n] `)).trim().toLowerCase();
+        doSetup = setupAnswer !== 'n' && setupAnswer !== 'no';
+      }
     } finally {
       rl.close();
     }
@@ -84,20 +94,26 @@ export async function onboardCommand(opts: OnboardOptions = {}): Promise<void> {
     if (!ontologyExisted) {
       mkdirSync(path.dirname(ontologyPath), { recursive: true });
       copyFileSync(path.join(templateRoot, template, 'lore.ontology.yml'), ontologyPath);
-      console.log(`${pc.green('✓')} ontology from template ${pc.bold(template)}`);
+      console.log(`${pc.green('[OK]')} ontology from template ${pc.bold(template)}`);
     } else {
       console.log(pc.dim('keeping the existing lore.ontology.yml'));
     }
     installAgentRules(root);
     if (doIngest) ingestCommand({});
+    if (doSetup) {
+      const target = typeof opts.setup === 'string' ? opts.setup : 'all';
+      setupCommand(target, { root, scope: 'project', rules: false });
+    }
   } finally {
     process.chdir(previous);
   }
 
-  const cli = process.argv[1] ?? 'lore';
   console.log(`\n${pc.bold('Next')}`);
-  console.log(`  connect an agent`);
-  console.log(pc.dim(`    claude mcp add lore --scope project --env LORE_SESSION=claude -- node ${cli} mcp`));
+  console.log(`  agent memory setup`);
+  console.log(`    run ${pc.cyan('lore setup --all')} to configure detected agents (Cursor, Claude, Antigravity, OpenCode, Codex, Gemini)`);
+  if (detectedAgents.length) {
+    console.log(pc.dim(`    detected agents: ${detectedAgents.join(', ')}`));
+  }
   console.log(`  open the dashboard   ${pc.cyan('lore ui')}`);
   console.log(`  review drafts        ${pc.cyan('lore review')}`);
   console.log(`  share with a team    ${pc.cyan('lore remote <shared-directory>')}`);
