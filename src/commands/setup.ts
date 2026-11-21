@@ -135,7 +135,10 @@ const AGENTS: Record<AgentName, AgentDefinition> = {
       scope === 'global'
         ? path.join(homedir(), '.gemini', 'config', 'mcp_config.json')
         : path.join(root, '.agents', 'mcp_config.json'),
-    isInstalled: () => existsSync(path.join(homedir(), '.gemini')) || isBinaryOnPath('agy'),
+    isInstalled: (root) =>
+      existsSync(path.join(homedir(), '.gemini')) ||
+      existsSync(path.join(root, '.agents')) ||
+      isBinaryOnPath('agy'),
     applyConfig: (filePath, cmd, session) => {
       updateJsonMcpConfig(filePath, 'lore', {
         command: cmd.command,
@@ -150,7 +153,11 @@ const AGENTS: Record<AgentName, AgentDefinition> = {
     defaultSession: 'claude',
     getConfigFile: (root, scope) =>
       scope === 'global' ? path.join(homedir(), '.claude', 'settings.json') : path.join(root, '.mcp.json'),
-    isInstalled: () => existsSync(path.join(homedir(), '.claude')) || isBinaryOnPath('claude'),
+    isInstalled: (root) =>
+      existsSync(path.join(homedir(), '.claude')) ||
+      existsSync(path.join(root, '.mcp.json')) ||
+      existsSync(path.join(root, 'CLAUDE.md')) ||
+      isBinaryOnPath('claude'),
     applyConfig: (filePath, cmd, session) => {
       updateJsonMcpConfig(filePath, 'lore', {
         command: cmd.command,
@@ -168,6 +175,7 @@ const AGENTS: Record<AgentName, AgentDefinition> = {
     isInstalled: (root) =>
       existsSync(path.join(homedir(), '.cursor')) ||
       existsSync(path.join(root, '.cursor')) ||
+      existsSync(path.join(root, '.cursorrules')) ||
       existsSync('/Applications/Cursor.app'),
     applyConfig: (filePath, cmd, session) => {
       updateJsonMcpConfig(filePath, 'lore', {
@@ -183,7 +191,10 @@ const AGENTS: Record<AgentName, AgentDefinition> = {
     defaultSession: 'codex',
     getConfigFile: (root, scope) =>
       scope === 'global' ? path.join(homedir(), '.codex', 'config.toml') : path.join(root, '.codex', 'config.toml'),
-    isInstalled: () => existsSync(path.join(homedir(), '.codex')) || isBinaryOnPath('codex'),
+    isInstalled: (root) =>
+      existsSync(path.join(homedir(), '.codex')) ||
+      existsSync(path.join(root, '.codex')) ||
+      isBinaryOnPath('codex'),
     applyConfig: (filePath, cmd, session) => {
       updateTomlMcpConfig(filePath, 'lore', cmd.command, cmd.args, { LORE_SESSION: session });
     },
@@ -194,7 +205,10 @@ const AGENTS: Record<AgentName, AgentDefinition> = {
     defaultSession: 'gemini',
     getConfigFile: (root, scope) =>
       scope === 'global' ? path.join(homedir(), '.gemini', 'settings.json') : path.join(root, '.gemini', 'settings.json'),
-    isInstalled: () => existsSync(path.join(homedir(), '.gemini')) || isBinaryOnPath('gemini'),
+    isInstalled: (root) =>
+      existsSync(path.join(homedir(), '.gemini')) ||
+      existsSync(path.join(root, '.gemini')) ||
+      isBinaryOnPath('gemini'),
     applyConfig: (filePath, cmd, session) => {
       updateJsonMcpConfig(filePath, 'lore', {
         command: cmd.command,
@@ -213,12 +227,75 @@ const AGENTS: Record<AgentName, AgentDefinition> = {
             ? path.join(homedir(), '.config', 'opencode', 'opencode.jsonc')
             : path.join(homedir(), '.config', 'opencode', 'opencode.json'))
         : (existsSync(path.join(root, 'opencode.jsonc')) ? path.join(root, 'opencode.jsonc') : path.join(root, 'opencode.json')),
-    isInstalled: () => existsSync(path.join(homedir(), '.config', 'opencode')) || isBinaryOnPath('opencode'),
+    isInstalled: (root) =>
+      existsSync(path.join(homedir(), '.config', 'opencode')) ||
+      existsSync(path.join(root, 'opencode.json')) ||
+      existsSync(path.join(root, 'opencode.jsonc')) ||
+      isBinaryOnPath('opencode'),
     applyConfig: (filePath, cmd, session) => {
       updateOpencodeMcpConfig(filePath, 'lore', [cmd.command, ...cmd.args], { LORE_SESSION: session });
     },
   },
 };
+
+export interface WorkspaceAgentDetection {
+  installedAgents: AgentName[];
+  configuredAgents: AgentName[];
+  ruleFiles: string[];
+  hasCode: boolean;
+  codeSignals: string[];
+}
+
+export function detectWorkspaceAgents(root: string): WorkspaceAgentDetection {
+  const has = (rel: string) => existsSync(path.join(root, rel));
+
+  const ruleCandidates = [
+    'AGENTS.md',
+    'CLAUDE.md',
+    '.cursorrules',
+    '.cursor/rules',
+    '.github/copilot-instructions.md',
+    '.windsurfrules',
+  ];
+  const ruleFiles = ruleCandidates.filter(has);
+
+  const configuredAgents: AgentName[] = [];
+  if (has('.cursor/mcp.json') || has('.cursorrules') || has('.cursor')) configuredAgents.push('cursor');
+  if (has('.mcp.json') || has('CLAUDE.md') || has('.claude')) configuredAgents.push('claude');
+  if (has('.agents/mcp_config.json') || has('.agents')) configuredAgents.push('agy');
+  if (has('.codex/config.toml') || has('.codex')) configuredAgents.push('codex');
+  if (has('.gemini/settings.json') || has('.gemini')) configuredAgents.push('gemini');
+  if (has('opencode.json') || has('opencode.jsonc')) configuredAgents.push('opencode');
+
+  const installedAgents: AgentName[] = [];
+  for (const name of SUPPORTED_AGENTS) {
+    if (AGENTS[name].isInstalled(root)) {
+      installedAgents.push(name);
+    }
+  }
+
+  const codeFiles = [
+    'package.json',
+    'pyproject.toml',
+    'go.mod',
+    'Cargo.toml',
+    'pom.xml',
+    'build.gradle',
+    'composer.json',
+  ];
+  const codeHits = codeFiles.filter(has);
+  const dirHits = ['src', 'app', 'lib'].filter(has);
+  const codeSignals = [...codeHits, ...dirHits.map((d) => `${d}/`)];
+  const hasCode = codeSignals.length > 0;
+
+  return {
+    installedAgents: [...new Set(installedAgents)],
+    configuredAgents: [...new Set(configuredAgents)],
+    ruleFiles,
+    hasCode,
+    codeSignals,
+  };
+}
 
 export function setupCommand(target?: string, opts: SetupOptions = {}): void {
   const root = path.resolve(opts.root ?? process.cwd());

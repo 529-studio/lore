@@ -34,6 +34,7 @@
     "auth:smoke": "node scripts/auth-smoke.mjs",
     "trust:smoke": "node scripts/permissive-trust-smoke.mjs",
     "rules:smoke": "node scripts/rules-smoke.mjs",
+    "init:smoke": "node scripts/init-existing-repo-smoke.mjs",
     "wrapup:smoke": "node scripts/wrapup-smoke.mjs",
     "check:public": "bash scripts/check-public-safe.sh",
     "prepublishOnly": "npm run build && npm run smoke"

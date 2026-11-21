@@ -1,15 +1,24 @@
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import process from 'node:process';
+import pc from 'picocolors';
 import { createDb } from '../db.js';
 import { makeCommit, head } from '../model.js';
 import { ONTOLOGY_TEMPLATE } from '../schema.js';
 import { ensureConfig, writeConfig } from '../config.js';
+import { detectWorkspaceAgents, setupCommand } from './setup.js';
+import { installAgentRules } from './rules.js';
+import { ingestCommand } from './ingest.js';
 
 export interface InitOptions {
   root?: string;
   gitignore?: boolean;
   trustMode?: 'strict' | 'permissive';
   solo?: boolean;
+  full?: boolean;
+  setup?: string | boolean;
+  rules?: boolean;
+  ingest?: boolean;
 }
 
 export function initCommand(opts: InitOptions = {}): void {
@@ -55,4 +64,65 @@ export function initCommand(opts: InitOptions = {}): void {
   db.close();
   console.log(`lore initialised in ${root}`);
   if (created.length) console.log(`  ${created.join('\n  ')}`);
+
+  const detection = detectWorkspaceAgents(root);
+
+  if (opts.rules || opts.full) {
+    console.log(`\n${pc.bold('Agent memory directives:')}`);
+    const ruleResults = installAgentRules(root);
+    for (const r of ruleResults) {
+      if (r.action === 'created') {
+        console.log(`  ${pc.green('[OK]')} Created ${pc.bold(r.file)} with autonomous memory protocol`);
+      } else if (r.action === 'appended') {
+        console.log(`  ${pc.green('[OK]')} Injected autonomous memory protocol into ${pc.bold(r.file)}`);
+      } else if (r.action === 'updated') {
+        console.log(`  ${pc.green('[OK]')} Updated autonomous memory protocol in ${pc.bold(r.file)}`);
+      } else {
+        console.log(`  ${pc.dim('[OK]')} ${pc.dim(r.file)}: memory protocol already up to date`);
+      }
+    }
+  }
+
+  if (opts.ingest || opts.full) {
+    console.log(`\n${pc.bold('Ingesting codebase facts:')}`);
+    const previous = process.cwd();
+    try {
+      process.chdir(root);
+      ingestCommand({ root });
+    } finally {
+      process.chdir(previous);
+    }
+  }
+
+  if (opts.setup || opts.full) {
+    console.log(`\n${pc.bold('Configuring agent MCP:')}`);
+    const setupTarget = typeof opts.setup === 'string' ? opts.setup : 'all';
+    setupCommand(setupTarget, { root, scope: 'project', rules: false });
+  }
+
+  if (!opts.full && !opts.rules && !opts.ingest && !opts.setup) {
+    if (detection.hasCode || detection.ruleFiles.length > 0 || detection.configuredAgents.length > 0) {
+      console.log(`\n${pc.cyan('[NOTE] Detected pre-existing project:')}`);
+      if (detection.ruleFiles.length) {
+        console.log(`  Agent rules: ${detection.ruleFiles.join(', ')}`);
+      }
+      if (detection.configuredAgents.length || detection.installedAgents.length) {
+        const detected = [...new Set([...detection.configuredAgents, ...detection.installedAgents])];
+        console.log(`  Coding agents: ${detected.join(', ')}`);
+      }
+      if (detection.codeSignals.length) {
+        console.log(`  Code signals: ${detection.codeSignals.join(', ')}`);
+      }
+      console.log(`\nTo auto-inject memory protocol, ingest codebase facts, and configure MCP in one step:`);
+      console.log(`  ${pc.bold('lore init --full')}${opts.solo ? ' --solo' : ''}`);
+      console.log(`Or run individually:`);
+      console.log(`  lore rules`);
+      console.log(`  lore ingest`);
+      console.log(`  lore setup --all`);
+    }
+  }
+
+  if (opts.full) {
+    console.log(`\n${pc.green('[OK]')} Full workspace onboarding complete.`);
+  }
 }

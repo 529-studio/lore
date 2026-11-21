@@ -83,6 +83,13 @@ try {
   const printed = execFileSync('node', [cli, 'rules', '--print'], { encoding: 'utf8' });
   if (!printed.includes('memory_search')) throw new Error('rules --print failed');
 
+  // Test detectWorkspaceAgents
+  const { detectWorkspaceAgents } = await import('../dist/commands/setup.js');
+  const detected = detectWorkspaceAgents(tmp);
+  if (!detected.ruleFiles.includes('AGENTS.md')) throw new Error('detectWorkspaceAgents failed to detect AGENTS.md');
+  if (!detected.configuredAgents.includes('cursor')) throw new Error('detectWorkspaceAgents failed to detect cursor');
+  if (!detected.configuredAgents.includes('claude')) throw new Error('detectWorkspaceAgents failed to detect claude');
+
   console.log('[OK] setup-smoke: config get/set/unset, setup agy/claude/cursor/codex/gemini/opencode, and agent rules injection passed');
 } finally {
   rmSync(tmp, { recursive: true, force: true });
