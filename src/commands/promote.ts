@@ -7,9 +7,9 @@ import { loadOntology } from '../ontology.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
 import { requireAction } from '../policy.js';
 
-const SEP = '\u0000';
+export const SEP = '\u0000';
 
-function loadPending(db: DB): Map<string, 'ours' | 'theirs' | 'both'> {
+export function loadPending(db: DB): Map<string, 'ours' | 'theirs' | 'both'> {
   const rows = db
     .prepare('SELECT subject_id, predicate, take FROM resolution WHERE applied = 0')
     .all() as Array<{ subject_id: string; predicate: string; take: 'ours' | 'theirs' | 'both' }>;

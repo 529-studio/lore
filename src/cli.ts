@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { createRequire } from 'node:module';
+import path from 'node:path';
 import { Command } from 'commander';
 import pc from 'picocolors';
 import { approveCommand } from './commands/approve.js';
@@ -44,6 +45,8 @@ import { setupCommand } from './commands/setup.js';
 import { rulesCommand } from './commands/rules.js';
 import { configCommand } from './commands/config.js';
 import { checkUpdateCommand } from './commands/update.js';
+import { wrapupCommand } from './commands/wrapup.js';
+import { branchFor, currentSession, rotateSession } from './session.js';
 import type { EvidenceKind } from './model.js';
 import { installCanon } from './canon/index.js';
 
@@ -573,6 +576,52 @@ program
       root: opts.root,
     }),
   );
+
+program
+  .command('wrapup')
+  .alias('close')
+  .description('audit session drafts, review diffs, approve, and promote into main')
+  .option('--root <path>', 'repository root (default: cwd)')
+  .option('--session <id>', 'target session (default: active session)')
+  .option('--into <branch>', 'target branch to merge into (default: main)')
+  .option('--yes', 'approve all drafts and promote without interactive prompt')
+  .option('--no-rotate', 'do not rotate session ID after promotion')
+  .option('--dry-run', 'preview changes without modifying database')
+  .action((opts) => wrapupCommand(opts));
+
+const sessionCmd = program.command('session').description('manage agent memory sessions and lifecycle');
+
+sessionCmd
+  .command('wrapup')
+  .alias('close')
+  .description('audit session drafts, review diffs, approve, and promote into main')
+  .option('--root <path>', 'repository root (default: cwd)')
+  .option('--session <id>', 'target session (default: active session)')
+  .option('--into <branch>', 'target branch to merge into (default: main)')
+  .option('--yes', 'approve all drafts and promote without interactive prompt')
+  .option('--no-rotate', 'do not rotate session ID after promotion')
+  .option('--dry-run', 'preview changes without modifying database')
+  .action((opts) => wrapupCommand(opts));
+
+sessionCmd
+  .command('status')
+  .description('show active session id and session branch')
+  .option('--root <path>', 'repository root (default: cwd)')
+  .action((opts) => {
+    const root = path.resolve(opts.root ?? process.cwd());
+    const ses = currentSession(root);
+    console.log(`session: ${ses}\nbranch:  ${branchFor(ses)}`);
+  });
+
+sessionCmd
+  .command('rotate')
+  .description('rotate to a fresh session id in .lore/session')
+  .option('--root <path>', 'repository root (default: cwd)')
+  .action((opts) => {
+    const root = path.resolve(opts.root ?? process.cwd());
+    const newSes = rotateSession(root);
+    console.log(`[OK] rotated session to ${newSes}`);
+  });
 
 program
   .command('mcp')

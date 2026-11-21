@@ -18,6 +18,14 @@ export function currentSession(root: string, override?: string): string {
   return id;
 }
 
+/** Rotate the active session to a fresh ID in .lore/session. */
+export function rotateSession(root: string): string {
+  const file = path.join(root, SESSION_FILE);
+  const id = `ses_${Date.now().toString(36)}`;
+  writeFileSync(file, `${id}\n`);
+  return id;
+}
+
 /** Register the current session so GC can count how many ran after a draft was created. */
 export function ensureSession(db: DB, root: string, override?: string): string {
   const id = currentSession(root, override);
