@@ -65,7 +65,28 @@ conversations lose context and start repeating mistakes.
 ## 11. Persistent memory protocol (Lore)
 
 This project uses Lore for shared memory across all AI agents and sessions.
+
+### Protocol Actions
 - **Task start**: Before proposing or editing code, invoke MCP tool `memory_search` with relevant file paths, symbols, or feature keywords to retrieve active architectural decisions, conventions, and environment variables.
 - **Definition of Done**: When introducing or modifying environment variables, API endpoints, module dependencies, or architectural rules, invoke `memory_write` with evidence.
 - **Provenance & drift**: Use `memory_blame` to verify authority, author, and evidence before overwriting an established pattern.
+
+### Entity ID Conventions (subject)
+- Files: `file:<relative-path>` (e.g. `file:src/config.ts`)
+- Symbols: `sym:<relative-path>#<name>` (e.g. `sym:src/policy.ts#isPermissiveTrust`)
+- Environment variables: `env:<NAME>` (e.g. `env:LORE_TEAM_SECRET`)
+- Packages: `pkg:<name>` (e.g. `pkg:@529studio/lore`)
+- Documents: `doc:<relative-path>` (e.g. `doc:AGENTS.md`)
+- Architectural decisions: `adr:<NNN>` (e.g. `adr:001`)
+- Rules & Guardrails: `rule:<ID>` or `lesson:L<NN>` (e.g. `rule:MCP-001`, `lesson:L04`)
+
+### Standard Predicates
+- Rules & Invariants: `enforces_invariant`, `defines_rule`, `has_guardrail`, `has_constraint`
+- Architecture & Routes: `decides`, `imports_module`, `exposes_route`, `read_by`, `entrypoint`
+- Dependencies: `declared_dependency`, `uses_library`, `package_name`
+- Project predicates: `enforces_invariant`, `defines_rule`, `has_guardrail`, `has_constraint`, `decides`, `imports_module`, `exposes_route`, `read_by`, `declared_dependency`, `defines_script`
+
+### Evidence & Trust Tiers (kind & ref)
+- Code / Tests: Use `kind: "file"` or `kind: "test"` with `ref: "<relative-path>"`. SHA-256 hashes ensure freshness; if file changes, claims auto-decay to stale.
+- Inferences: Use `kind: "agent"`. Writes remain `draft` until reviewed via `lore approve` (or active in solo permissive mode).
 <!-- lore:memory-protocol:end -->

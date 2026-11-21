@@ -560,6 +560,8 @@ program
   .description('install or preview autonomous memory protocol rules in AGENTS.md / CLAUDE.md')
   .option('--root <path>', 'repository root (default: cwd)')
   .option('--print', 'print the rules snippet to stdout without writing')
+  .option('--update', 'update existing memory protocol snippet to latest schema')
+  .option('--force', 'alias for --update')
   .action((opts) => rulesCommand(opts));
 
 program
