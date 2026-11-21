@@ -20,6 +20,8 @@ export interface LoreConfig {
   litestream?: LitestreamConfig;
   /** Last remote main commit seen by fetch/push, used for the ahead/behind line. */
   remote_main?: string | null;
+  trust_mode?: 'strict' | 'permissive';
+  auto_approve?: boolean | number[];
   [key: string]: unknown;
 }
 

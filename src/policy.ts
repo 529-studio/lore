@@ -9,11 +9,24 @@ import {
   type GranularPolicyFile,
   type TokenRevocationRecord,
 } from './policy/auth.js';
+import { readConfig } from './config.js';
 
 export type Action = AuthAction;
 export type PolicyFile = GranularPolicyFile;
 export type { TokenRevocationRecord, GranularPolicyFile };
 export { revokeToken, isTokenRevoked, listRevocations, matchSubject, policyPath } from './policy/auth.js';
+
+/**
+ * Returns true if permissive trust mode is enabled for local solo development.
+ * In team mode (when LORE_TEAM_SECRET is set), this always returns false (fail-closed).
+ */
+export function isPermissiveTrust(root: string): boolean {
+  if (teamMode()) return false;
+  if (process.env.LORE_TRUST_MODE === 'permissive') return true;
+  if (process.env.LORE_TRUST_MODE === 'strict') return false;
+  const config = readConfig(root);
+  return config?.trust_mode === 'permissive' || Boolean(config?.auto_approve);
+}
 
 export function loadPolicy(root: string): GranularPolicyFile | null {
   const file = policyPath(root);

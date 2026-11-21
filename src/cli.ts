@@ -69,7 +69,16 @@ program
   .description('initialise .lore/ in the current repository')
   .option('--root <path>', 'repository root (default: cwd)')
   .option('--no-gitignore', 'do not add .lore/ to .gitignore')
-  .action((opts) => initCommand({ root: opts.root, gitignore: opts.gitignore }));
+  .option('--trust-mode <mode>', 'trust mode: strict or permissive (default: strict)')
+  .option('--solo', 'shorthand for --trust-mode permissive')
+  .action((opts) =>
+    initCommand({
+      root: opts.root,
+      gitignore: opts.gitignore,
+      trustMode: opts.trustMode,
+      solo: opts.solo,
+    }),
+  );
 
 program
   .command('write')

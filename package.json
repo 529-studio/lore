@@ -32,6 +32,7 @@
     "demo:cli": "node scripts/demo/record-cli.mjs",
     "docs:lint": "node scripts/docs-lint.mjs",
     "auth:smoke": "node scripts/auth-smoke.mjs",
+    "trust:smoke": "node scripts/permissive-trust-smoke.mjs",
     "check:public": "bash scripts/check-public-safe.sh",
     "prepublishOnly": "npm run build && npm run smoke"
   },
