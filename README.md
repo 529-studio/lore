@@ -162,7 +162,7 @@ Agents never write to `main`; you decide what gets promoted. Full details: [docs
 ### Command reference
 
 ```
-lore init [--solo]             initialise .lore/ (solo: permissive trust)
+lore init [--solo] [--full]    initialise .lore/ (--full: rules, ingest, MCP)
 lore ingest [--dry-run]        derive claims from deterministic extractors
 lore write                     write one claim (draft for agent/human evidence); --valid-from <iso>
 lore search "<query>"          score active+canonical claims; --valid-at, --tx-at, --as-of

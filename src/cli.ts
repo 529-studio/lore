@@ -74,12 +74,20 @@ program
   .option('--no-gitignore', 'do not add .lore/ to .gitignore')
   .option('--trust-mode <mode>', 'trust mode: strict or permissive (default: strict)')
   .option('--solo', 'shorthand for --trust-mode permissive')
+  .option('--full', 'complete onboarding: init, inject rules, ingest codebase, and configure agent MCPs')
+  .option('--setup [agent]', 'configure MCP for detected coding agents (or specify agent name)')
+  .option('--rules', 'inject memory protocol into existing agent instruction files')
+  .option('--ingest', 'extract and ingest AST facts from codebase into active memory')
   .action((opts) =>
     initCommand({
       root: opts.root,
       gitignore: opts.gitignore,
       trustMode: opts.trustMode,
       solo: opts.solo,
+      full: opts.full,
+      setup: opts.setup,
+      rules: opts.rules,
+      ingest: opts.ingest,
     }),
   );
 

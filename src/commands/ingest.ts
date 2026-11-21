@@ -1,3 +1,4 @@
+import path from 'node:path';
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { extractAll, type Candidate } from '../extract/index.js';
@@ -18,8 +19,8 @@ function evidenceRef(c: Candidate): string {
   return c.subject;
 }
 
-export function ingestCommand(opts: { author?: string; session?: string; dryRun?: boolean; quiet?: boolean }): void {
-  const root = requireRoot();
+export function ingestCommand(opts: { root?: string; author?: string; session?: string; dryRun?: boolean; quiet?: boolean } = {}): void {
+  const root = opts.root ? path.resolve(opts.root) : requireRoot();
   const db = openDb(root);
   const session = ensureSession(db, root, opts.session);
   const ref = branchFor(session);
