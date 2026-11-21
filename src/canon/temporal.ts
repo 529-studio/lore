@@ -160,6 +160,23 @@ export function queryBiTemporal(
 }
 
 /**
+ * Convenience helper for "as-of" queries:
+ * Shorthand for querying both effective time and transaction time at the same instant.
+ */
+export function queryAsOf(
+  db: DB,
+  root: string,
+  instant: string | number,
+  query: Omit<BiTemporalQuery, 'validAt' | 'txAt'> = {},
+): ClaimRow[] {
+  return queryBiTemporal(db, root, {
+    ...query,
+    validAt: instant,
+    txAt: instant,
+  });
+}
+
+/**
  * Reconstructs the 2D bi-temporal timeline of an entity (or specific predicate).
  */
 export function reconstructTimeline(

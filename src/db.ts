@@ -109,6 +109,67 @@ function migrate(db: DB): void {
   `);
 }
 
+function setupTriggers(db: DB): void {
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS audit_claim_insert
+    AFTER INSERT ON claim
+    BEGIN
+      INSERT INTO agent_action_log (agent_id, action, table_name, row_id, ts, new_state)
+      VALUES (
+        NEW.author,
+        'INSERT',
+        'claim',
+        NEW.id,
+        datetime('now'),
+        json_object('subject_id', NEW.subject_id, 'predicate', NEW.predicate, 'object', NEW.object_json)
+      );
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS audit_claim_update
+    AFTER UPDATE ON claim
+    BEGIN
+      INSERT INTO agent_action_log (agent_id, action, table_name, row_id, ts, previous_state, new_state)
+      VALUES (
+        NEW.author,
+        'UPDATE',
+        'claim',
+        NEW.id,
+        datetime('now'),
+        json_object('subject_id', OLD.subject_id, 'predicate', OLD.predicate, 'object', OLD.object_json),
+        json_object('subject_id', NEW.subject_id, 'predicate', NEW.predicate, 'object', NEW.object_json)
+      );
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS audit_claim_delete
+    AFTER DELETE ON claim
+    BEGIN
+      INSERT INTO agent_action_log (agent_id, action, table_name, row_id, ts, previous_state)
+      VALUES (
+        OLD.author,
+        'DELETE',
+        'claim',
+        OLD.id,
+        datetime('now'),
+        json_object('subject_id', OLD.subject_id, 'predicate', OLD.predicate, 'object', OLD.object_json)
+      );
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS audit_commit_insert
+    AFTER INSERT ON memory_commit
+    BEGIN
+      INSERT INTO agent_action_log (agent_id, action, table_name, row_id, ts, new_state)
+      VALUES (
+        NEW.author,
+        'INSERT',
+        'memory_commit',
+        NEW.id,
+        datetime('now'),
+        json_object('message', NEW.message, 'kind', NEW.kind)
+      );
+    END;
+  `);
+}
+
 export function openDb(root: string): DB {
   const file = dbPathFor(root);
   if (!existsSync(file)) {
@@ -120,6 +181,7 @@ export function openDb(root: string): DB {
   db.pragma('busy_timeout = 5000');
   db.exec(SCHEMA);
   migrate(db);
+  setupTriggers(db);
   stateRoots.set(db, root);
   return db;
 }
@@ -132,6 +194,7 @@ export function createDb(root: string): DB {
   db.pragma('busy_timeout = 5000');
   db.exec(SCHEMA);
   migrate(db);
+  setupTriggers(db);
   stateRoots.set(db, root);
   return db;
 }
