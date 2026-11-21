@@ -449,6 +449,7 @@ No LLM judge. Outcome metrics on real repositories:
 | identity tokens are immutable for 30d | token revocation registry and JTI-based validation (`lore identity revoke`) | identity compromise requires revocation without re-keying the entire team |
 | agent/human writes are draft only | permissive trust mode (`trust_mode: permissive` in `.lore/config.json` or `lore init --solo`) auto-promotes writes to active in solo mode | solo developers working locally need immediate retrieval without draft approval overhead; team mode remains strictly gated |
 | static 3-bullet agent rules | rich ontology guidelines (`lore rules [--update]`) with entity prefixes and evidence tiers | agents hallucinated arbitrary predicates without explicit entity namespaces and schema guidance |
+| manual review and promote commands | unified 1-step session wrapup (`lore wrapup [--yes]`, `lore session [status|rotate]`) | multi-agent sessions left unreviewed drafts behind when running promote, requiring disjoint approval steps |
 
 
 

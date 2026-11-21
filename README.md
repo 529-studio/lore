@@ -175,6 +175,7 @@ lore diff <from>..<to>         claims added/removed between revisions
 lore merge <branch>           3-way merge; exit 2 on real conflicts
 lore resolve <subject> <pred>  record a human decision for one conflict
 lore promote                   merge current branch into main
+lore wrapup [--yes]            audit session drafts, approve and promote
 lore revert <commit>           inverse commit, history preserved
 lore verify <claim> | --all    re-hash evidence; --accept stores a legitimate change
 lore guard [--staged]         scan for secrets before they enter a claim
@@ -190,14 +191,14 @@ lore ui                       read-only dashboard on localhost (health, claims, 
 lore remote <dir>             point fetch/push at a shared directory
 lore fetch | push             exchange commits with that directory
 lore bundle export|import     air-gapped exchange of commits
-lore replicate [action]       streaming SQLite WAL replication via Litestream (check, config, start, restore, status)
+lore replicate [action]       Litestream streaming replication (check, config, start, restore, status)
 lore redact <claim>           replace the object with [redacted], keep id and audit
 lore purge <claim> --yes      remove the row permanently, keep an audit entry
 lore gc [--ttl-sessions 3]     retract unreviewed drafts (rows are kept)
 lore export --md               deterministic markdown projection
-lore supersede <claim>         replace a claim, keeping the old version in history
-lore setup [agent]             configure MCP for agents (agy, claude, cursor, codex, gemini)
-lore rules [--update]          install or update agent rules in AGENTS.md
+lore supersede <claim>         replace a claim, preserving history
+lore setup [agent]             configure MCP for agents
+lore rules [--update]          install or update agent rules
 lore config [action]           view or edit project configuration (list, get, set, unset)
 lore check-update              check npm registry for newer versions of lore
 lore mcp                       MCP server over stdio

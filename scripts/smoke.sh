@@ -642,4 +642,8 @@ node "$LORE_BIN" rules --print | grep -q "Entity ID Conventions" || fail "rules 
 node "$LORE_BIN" rules --update >/dev/null
 grep -q "Standard Predicates" AGENTS.md || fail "rules --update must update AGENTS.md"
 
-echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge, identity, policy, machine, attest, entities, alias, rename, reject, review, onboard, litestream, temporal, permissive-trust, agent-rules"
+# --- session wrapup & lifecycle ---------------------------------------------
+node "$LORE_BIN" session status | grep -q "session:" || fail "session status must show session"
+node "$LORE_BIN" wrapup --yes >/dev/null || fail "wrapup must succeed on clean session"
+
+echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge, identity, policy, machine, attest, entities, alias, rename, reject, review, onboard, litestream, temporal, permissive-trust, agent-rules, session-wrapup"
