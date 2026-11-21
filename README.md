@@ -197,6 +197,7 @@ lore gc [--ttl-sessions 3]     retract unreviewed drafts (rows are kept)
 lore export --md               deterministic markdown projection
 lore supersede <claim>         replace a claim, keeping the old version in history
 lore setup [agent]             configure MCP for agents (agy, claude, cursor, codex, gemini)
+lore rules [--update]          install or update agent rules in AGENTS.md
 lore config [action]           view or edit project configuration (list, get, set, unset)
 lore check-update              check npm registry for newer versions of lore
 lore mcp                       MCP server over stdio

@@ -281,6 +281,8 @@ export function setupCommand(target?: string, opts: SetupOptions = {}): void {
         console.log(`  ${pc.green('[OK]')} Created ${pc.bold(r.file)} with autonomous memory protocol`);
       } else if (r.action === 'appended') {
         console.log(`  ${pc.green('[OK]')} Injected autonomous memory protocol into ${pc.bold(r.file)}`);
+      } else if (r.action === 'updated') {
+        console.log(`  ${pc.green('[OK]')} Updated autonomous memory protocol in ${pc.bold(r.file)}`);
       } else {
         console.log(`  ${pc.dim('[OK]')} ${pc.dim(r.file)}: memory protocol already present`);
       }

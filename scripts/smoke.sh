@@ -637,4 +637,9 @@ node "$LORE_BIN" config set trust_mode permissive >/dev/null
 node "$LORE_BIN" write --subject sym:smoke.js#solo --predicate enforces_invariant --object "solo invariant" --kind agent | grep -q "active" || fail "permissive trust mode must create active claim"
 node "$LORE_BIN" config set trust_mode strict >/dev/null
 
-echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge, identity, policy, machine, attest, entities, alias, rename, reject, review, onboard, litestream, temporal, permissive-trust"
+# --- rich agent rules & update ----------------------------------------------
+node "$LORE_BIN" rules --print | grep -q "Entity ID Conventions" || fail "rules --print must output entity conventions"
+node "$LORE_BIN" rules --update >/dev/null
+grep -q "Standard Predicates" AGENTS.md || fail "rules --update must update AGENTS.md"
+
+echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge, identity, policy, machine, attest, entities, alias, rename, reject, review, onboard, litestream, temporal, permissive-trust, agent-rules"
