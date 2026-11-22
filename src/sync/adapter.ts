@@ -11,7 +11,7 @@ export interface SyncPullResult {
 export interface SyncPushResult {
   walCheckpointed: boolean;
   tip: string | null;
-  actionId?: number;
+  actionId: number;
 }
 
 export interface SyncOptions {
