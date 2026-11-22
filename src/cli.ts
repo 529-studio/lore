@@ -24,6 +24,7 @@ import { purgeCommand } from './commands/purge.js';
 import { redactCommand } from './commands/redact.js';
 import { remoteCommand } from './commands/remote.js';
 import { replicateCommand } from './commands/replicate.js';
+import { syncCommand } from './commands/sync.js';
 import { exportCommand } from './commands/export.js';
 import { ingestCommand } from './commands/ingest.js';
 import { initCommand } from './commands/init.js';
@@ -372,6 +373,14 @@ program
       timestamp: opts.timestamp,
     }),
   );
+
+program
+  .command('sync')
+  .description('bi-directional synchronization with remote replica or storage target')
+  .option('--replica <url>', 'override replica target URL')
+  .option('--author <id>', 'author identity for sync operations')
+  .option('--config <path>', 'path to litestream.yml configuration')
+  .action((opts) => syncCommand(opts));
 
 program
   .command('fetch')
