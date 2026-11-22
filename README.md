@@ -74,7 +74,7 @@ lore verify --all --strict      # exit 3 — memory health is a CI gate
 
 ## Who this is for
 
-Developers and teams using coding agents on a repository. Operates as a CLI and MCP server requiring Node 22+, git, and a terminal. Non-terminal users can follow [Track B](#track-b--non-terminal-setup).
+Developers and teams using coding agents on a repository. CLI and MCP server requiring Node 22+ and git. Non-terminal users: see [Track B](#track-b--non-terminal-setup).
 
 ---
 
@@ -84,8 +84,7 @@ Developers and teams using coding agents on a repository. Operates as a CLI and 
 
 - **Node.js 22 or newer** (`node --version`)
 - **git** (the extractor uses `git ls-files`, and `lore` stores memory next to the repo)
-- An MCP-capable client if you want agents to use it automatically: Claude Code, Codex CLI,
-  Gemini CLI, Cursor, or anything else that speaks MCP over stdio.
+- An MCP-capable client: Claude Code, Codex CLI, Gemini CLI, Cursor, or anything speaking MCP over stdio.
 
 ### Install
 
@@ -192,6 +191,7 @@ lore remote <dir>             point fetch/push at a shared directory
 lore fetch | push             exchange commits with that directory
 lore bundle export|import     air-gapped exchange of commits
 lore replicate [action]       Litestream streaming replication (check, config, start, restore, status)
+lore sync                   Bi-directional synchronization with remote replica or storage target (pull, CRDT merge, push)
 lore redact <claim>           replace the object with [redacted], keep id and audit
 lore purge <claim> --yes      remove the row permanently, keep an audit entry
 lore gc [--ttl-sessions 3]     retract unreviewed drafts (rows are kept)
@@ -267,9 +267,10 @@ asserted by a trusted launcher. See [docs/team-mode.md](docs/team-mode.md).
 
 **Internal or offline repositories.** Memory does not depend on a git host: `lore remote`
 plus `fetch`/`push` shares commits with a team directory, Postgres remote uses a database,
-and `lore bundle` moves commits across an air gap. Continuous replication to S3/R2/GCS runs via `lore replicate start`
-(Litestream WAL streaming). A claim observed on newer code than your checkout is reported as *ahead of checkout*, not
-stale; `--trust-remote` includes it. See [docs/team-mode.md](docs/team-mode.md).
+`lore bundle` moves commits across an air gap, and `lore replicate` streams SQLite WAL frames
+to S3/R2/GCS. Multi-agent nodes synchronize bi-directionally via `lore sync` and the `memory_sync`
+MCP tool. Claims observed on newer code than checkout are reported as *ahead of checkout*, not
+stale; `--trust-remote` includes them. See [docs/team-mode.md](docs/team-mode.md).
 
 **CI integration.** The GitHub Action comments on every pull request with what it teaches the agent
 and which claims it invalidates. See [docs/github-action.md](docs/github-action.md).
@@ -306,9 +307,8 @@ npm run mcp:smoke    # real MCP handshake, tools, draft gating, approve
 npm run eval         # outcome metrics, no LLM judge
 ```
 
-Latest `npm run eval` on the shipped sample fixture: 20 replayed sessions, plus the fixture's own
-test suite before and after a revert. Set `LORE_EVAL_FIXTURES=/path/a,/path/b` to run against your
-own repositories; details in [docs/eval.md](docs/eval.md).
+Latest `npm run eval`: 20 replayed sessions plus test suite before and after revert.
+Set `LORE_EVAL_FIXTURES` to evaluate against your repositories; details in [docs/eval.md](docs/eval.md).
 
 | Metric | Result | Threshold |
 |---|---|---|
@@ -319,8 +319,7 @@ own repositories; details in [docs/eval.md](docs/eval.md).
 | token_savings | 72.3% | > 30% |
 | time_to_first_useful | 3 invocations | < 10 |
 
-These numbers are proxies (chars/4 for tokens; one generated fixture). They are reported as measured;
-the harness fails the build when a scenario check fails.
+These numbers are measured proxies; the harness fails the build when a scenario check fails.
 
 ## Limitations (v0.1)
 

@@ -30,6 +30,8 @@ import { branchFor, currentSession, recordReads } from '../session.js';
 import { installCanon } from '../canon/index.js';
 import { loadOntology } from '../ontology.js';
 import { oneLine } from '../util/text.js';
+import { createSyncAdapter } from '../sync/adapter.js';
+import { ensureConfig } from '../config.js';
 
 const SERVER_VERSION = '0.0.1';
 // Newest first. A client asking for an unknown version is negotiated down to the
@@ -468,6 +470,54 @@ function toolCommit(args: CommitArgs): ToolResult {
   }
 }
 
+interface SyncArgs {
+  replica?: string;
+  replica_url?: string;
+  author?: string;
+}
+
+async function toolSync(args: SyncArgs): Promise<ToolResult> {
+  const ctx = context();
+  try {
+    const config = ensureConfig(ctx.root);
+    const replicaUrl =
+      args.replica ??
+      args.replica_url ??
+      config.litestream?.replica_url ??
+      (config.remote?.type === 'dir' ? config.remote.path : undefined);
+
+    if (!replicaUrl) {
+      throw new Error(
+        'replica URL is required (specify replica_url or configure via lore replicate config --replica <url>)',
+      );
+    }
+
+    const adapter = await createSyncAdapter(ctx.db, ctx.root, {
+      replicaUrl,
+      configPath: config.litestream?.config_path,
+    });
+    const author = args.author ?? 'agent:mcp';
+    const pullRes = await adapter.pull({ author });
+    const pushRes = await adapter.push({ author });
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `synced with ${replicaUrl}: pulled ${pullRes.commits} commit(s), ${pullRes.claims} claim(s) (merge: ${pullRes.merge}); pushed tip ${pushRes.tip ? pushRes.tip.slice(0, 7) : 'empty'} (checkpointed: ${pushRes.walCheckpointed})`,
+        },
+      ],
+      structuredContent: {
+        replica_url: replicaUrl,
+        pull: pullRes,
+        push: pushRes,
+      },
+    };
+  } finally {
+    ctx.db.close();
+  }
+}
+
 // --- tool registry -----------------------------------------------------------------
 
 interface ToolDef {
@@ -475,7 +525,7 @@ interface ToolDef {
   description: string;
   inputSchema: Record<string, unknown>;
   outputSchema?: Record<string, unknown>;
-  run: (args: Record<string, unknown>) => ToolResult;
+  run: (args: Record<string, unknown>) => ToolResult | Promise<ToolResult>;
 }
 
 const ARGS = (args: Record<string, unknown> | undefined): Record<string, unknown> => args ?? {};
@@ -574,6 +624,20 @@ const TOOLS: ToolDef[] = [
       properties: { message: { type: 'string' } },
     },
     run: (args) => toolCommit(ARGS(args) as unknown as CommitArgs),
+  },
+  {
+    name: 'memory_sync',
+    description:
+      'Bi-directionally synchronize memory with a remote replica or storage target (pulls remote changes and pushes local tip).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        replica: { type: 'string', description: 'override replica target URL' },
+        replica_url: { type: 'string', description: 'override replica target URL (alias for replica)' },
+        author: { type: 'string', description: 'author identity for sync operations' },
+      },
+    },
+    run: (args) => toolSync(ARGS(args) as unknown as SyncArgs),
   },
 ];
 
@@ -718,6 +782,32 @@ const OUTPUT_SCHEMAS: Record<string, Record<string, unknown>> = {
     required: ['commit', 'branch'],
     properties: { commit: { type: 'string' }, branch: { type: 'string' } },
   },
+  memory_sync: {
+    type: 'object',
+    required: ['replica_url', 'pull', 'push'],
+    properties: {
+      replica_url: { type: 'string' },
+      pull: {
+        type: 'object',
+        required: ['entities', 'claims', 'commits', 'merge'],
+        properties: {
+          entities: { type: 'integer' },
+          claims: { type: 'integer' },
+          commits: { type: 'integer' },
+          merge: { type: 'string' },
+        },
+      },
+      push: {
+        type: 'object',
+        required: ['walCheckpointed', 'actionId'],
+        properties: {
+          walCheckpointed: { type: 'boolean' },
+          tip: { type: ['string', 'null'] },
+          actionId: { type: 'integer' },
+        },
+      },
+    },
+  },
 };
 
 for (const tool of TOOLS) {
@@ -726,7 +816,7 @@ for (const tool of TOOLS) {
 
 // --- method dispatch -----------------------------------------------------------------
 
-function dispatchToolCall(id: JsonId, params: Record<string, unknown> | undefined): void {
+async function dispatchToolCall(id: JsonId, params: Record<string, unknown> | undefined): Promise<void> {
   const name = params?.name;
   const tool = TOOLS.find((t) => t.name === name);
   if (typeof name !== 'string' || !tool) {
@@ -739,7 +829,8 @@ function dispatchToolCall(id: JsonId, params: Record<string, unknown> | undefine
     return;
   }
   try {
-    ok(id, tool.run(args as Record<string, unknown>));
+    const result = await tool.run(args as Record<string, unknown>);
+    ok(id, result);
   } catch (error) {
     // Tool execution failure: MCP wants this inside the result, not as a protocol error.
     const message = error instanceof Error ? error.message : String(error);
@@ -751,7 +842,7 @@ function dispatchToolCall(id: JsonId, params: Record<string, unknown> | undefine
   }
 }
 
-function handleRequest(id: JsonId, method: string, params: Record<string, unknown> | undefined): void {
+async function handleRequest(id: JsonId, method: string, params: Record<string, unknown> | undefined): Promise<void> {
   switch (method) {
     case 'initialize': {
       const requested = typeof params?.protocolVersion === 'string' ? params.protocolVersion : null;
@@ -779,7 +870,7 @@ function handleRequest(id: JsonId, method: string, params: Record<string, unknow
       });
       return;
     case 'tools/call':
-      dispatchToolCall(id, params);
+      await dispatchToolCall(id, params);
       return;
     case 'ping':
       ok(id, {});
@@ -789,7 +880,7 @@ function handleRequest(id: JsonId, method: string, params: Record<string, unknow
   }
 }
 
-function handleLine(line: string): void {
+async function handleLine(line: string): Promise<void> {
   const raw = line.trim();
   if (!raw) return;
 
@@ -817,7 +908,7 @@ function handleLine(line: string): void {
       fail(id, -32601, `method not found: ${message.method}`);
       return;
     }
-    handleRequest(id, message.method, params);
+    await handleRequest(id, message.method, params);
   } catch (error) {
     // Last-resort guard: the loop must survive anything.
     const msg = error instanceof Error ? error.message : String(error);
@@ -830,6 +921,8 @@ export function runMcpServer(): void {
   installCanon();
   log(`lore mcp v${SERVER_VERSION} — ${TOOLS.length} tools — protocol on stdout, logs on stderr`);
   const rl = createInterface({ input: process.stdin, terminal: false });
-  rl.on('line', (line) => handleLine(line));
+  rl.on('line', (line) => {
+    void handleLine(line);
+  });
   rl.on('close', () => process.exit(0));
 }

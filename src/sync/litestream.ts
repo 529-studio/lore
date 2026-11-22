@@ -1,9 +1,21 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { stringify } from 'yaml';
-import { dbPathFor, type DB } from '../db.js';
-import { type SyncAdapter, type SyncOptions } from './adapter.js';
+import { dbPathFor, openDb, type DB } from '../db.js';
+import { head } from '../model.js';
+import { buildBundle, fastForwardSession, importBundle, mergeTip } from '../sync.js';
+import { readConfig } from '../config.js';
+import { type SyncAdapter, type SyncOptions, type SyncPullResult, type SyncPushResult } from './adapter.js';
 
 export interface LitestreamOptions {
   replicaUrl: string;
@@ -287,14 +299,108 @@ export class LitestreamSyncAdapter implements SyncAdapter {
     private opts: SyncOptions,
   ) {}
 
-  async push(): Promise<void> {
-    this.db.prepare('INSERT INTO agent_action_log (action, table_name, ts) VALUES (?, ?, ?)')
-      .run('SYNC_OUTGOING', 'memory_commit', new Date().toISOString());
+  async push(opts?: { author?: string }): Promise<SyncPushResult> {
+    const tip = head(this.db, 'main');
+    const res = this.db
+      .prepare(
+        'INSERT INTO agent_action_log (agent_id, action, table_name, row_id, ts) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(
+        opts?.author ?? 'sync:push',
+        'SYNC_OUTGOING',
+        'memory_commit',
+        tip,
+        new Date().toISOString(),
+      );
+    const actionId = Number(res.lastInsertRowid);
+    this.db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').run();
+    return {
+      walCheckpointed: true,
+      tip,
+      actionId,
+    };
   }
 
-  async pull(): Promise<void> {
-    this.db.prepare('INSERT INTO agent_action_log (action, table_name, ts) VALUES (?, ?, ?)')
-      .run('SYNC_INCOMING', 'memory_commit', new Date().toISOString());
+  async pull(opts?: { author?: string }): Promise<SyncPullResult> {
+    const bin = this.opts?.execPath ?? findLitestreamBinary();
+    if (!bin || !existsSync(bin)) throw new LitestreamNotFoundError();
+
+    const scratchDir = mkdtempSync(path.join(tmpdir(), 'lore-sync-pull-'));
+    const scratchDbPath = path.join(scratchDir, '.lore', 'lore.db');
+
+    try {
+      try {
+        await restoreFromReplica(this.root, this.opts.replicaUrl, {
+          outputPath: scratchDbPath,
+          execPath: this.opts.execPath,
+          configPath: this.opts.configPath,
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!msg.includes('no generations') && !msg.includes('not found') && !msg.includes('empty')) {
+          console.warn(`[WARN] litestream pull restore warning: ${msg}`);
+        }
+        return { entities: 0, claims: 0, commits: 0, merge: 'up-to-date' };
+      }
+
+      if (!existsSync(scratchDbPath) || statSync(scratchDbPath).size === 0) {
+        return { entities: 0, claims: 0, commits: 0, merge: 'up-to-date' };
+      }
+
+      let scratchDb: DB | undefined;
+      try {
+        scratchDb = openDb(scratchDir);
+      } catch {
+        return { entities: 0, claims: 0, commits: 0, merge: 'up-to-date' };
+      }
+
+      try {
+        const remoteTip = head(scratchDb, 'main');
+        if (!remoteTip) {
+          return { entities: 0, claims: 0, commits: 0, merge: 'up-to-date' };
+        }
+
+        const repoId = readConfig(this.root)?.repo_id ?? 'default';
+        const remoteBundle = buildBundle(scratchDb, repoId, ['main']);
+        const importRes = importBundle(this.db, this.root, remoteBundle, {
+          author: opts?.author ?? 'sync:pull',
+        });
+        const mergeRes =
+          importRes.merge !== 'none'
+            ? importRes.merge
+            : mergeTip(this.db, this.root, 'main', remoteTip, opts?.author ?? 'sync:pull');
+        fastForwardSession(this.db, this.root);
+
+        this.db
+          .prepare(
+            'INSERT INTO agent_action_log (agent_id, action, table_name, row_id, ts, new_state) VALUES (?, ?, ?, ?, ?, ?)',
+          )
+          .run(
+            opts?.author ?? 'sync:pull',
+            'SYNC_INCOMING',
+            'memory_commit',
+            remoteTip,
+            new Date().toISOString(),
+            JSON.stringify({
+              entities: importRes.entities,
+              claims: importRes.claims,
+              commits: importRes.commits,
+              merge: mergeRes,
+            }),
+          );
+
+        return {
+          entities: importRes.entities,
+          claims: importRes.claims,
+          commits: importRes.commits,
+          merge: mergeRes,
+        };
+      } finally {
+        scratchDb.close();
+      }
+    } finally {
+      rmSync(scratchDir, { recursive: true, force: true });
+    }
   }
 }
 

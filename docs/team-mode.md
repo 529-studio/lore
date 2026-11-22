@@ -54,6 +54,78 @@ read the local store.
 - **Streaming SQLite replication with Litestream.** For distributed multi-agent swarms and continuous backups,
   `lore replicate` streams SQLite WAL frames in real time to S3, Cloudflare R2, Azure Blob, or GCS without
   locking reads or writes. `lore replicate restore` restores a pristine local SQLite store from the replica.
+- **Bi-directional synchronization (`lore sync`, `memory_sync`).** Distributed multi-agent nodes
+  synchronize bi-directionally without database lock contention or file corruption: the sync adapter restores
+  the remote replica into an isolated scratch DB, reconciles incoming claims via the CRDT 3-way merge
+  ladder, fast-forwards the session branch, issues an atomic WAL checkpoint flush (`PRAGMA wal_checkpoint(TRUNCATE)`),
+  and writes `SYNC_INCOMING` and `SYNC_OUTGOING` audit logs.
+
+## Bi-directional synchronization workflow
+
+When multiple autonomous agents or distributed nodes run in parallel, continuous streaming replication via Litestream requires safe bi-directional coordination. Modifying or restoring active SQLite database files while other agents hold locks leads to `SQLITE_BUSY` errors or database corruption.
+
+The `LitestreamSyncAdapter` (invoked via `lore sync` in the CLI or `memory_sync` in MCP) coordinates multi-node synchronization in two phases: pull and push.
+
+```
+Remote Replica (S3/R2/GCS)
+       │  1. Litestream restore into isolated scratch DB
+       ▼
+Scratch DB (/tmp/lore-sync-pull-*)
+       │  2. Build bundle from remote main tip
+       ▼
+Local Lore DB (.lore/lore.db)
+       │  3. CRDT 3-way merge ladder (T0 > T1 > T2 > T4, verified > stale)
+       │  4. Fast-forward session branch & log SYNC_INCOMING
+       │  5. Unlink scratch DB
+       │  6. WAL checkpoint flush: PRAGMA wal_checkpoint(TRUNCATE)
+       │  7. Log SYNC_OUTGOING
+       ▼
+Litestream Replication Stream ──► Remote Replica
+```
+
+### 1. Isolated scratch database restore (Pull)
+1. **Isolated scratch space**: Creates a unique temporary scratch directory (`/tmp/lore-sync-pull-*`).
+2. **Restore**: Invokes Litestream restore to populate `.lore/lore.db` inside the scratch directory directly from the remote replica without touching the live local database file or acquiring local locks.
+3. **Bundle extraction**: Opens the scratch database in isolation, retrieves the remote `main` branch tip, and generates an in-memory commit bundle.
+4. **Cleanup**: Closes the scratch database and recursively removes the temporary directory.
+
+### 2. CRDT 3-way merge ladder
+1. Passes the remote commit bundle to `importBundle` and `mergeTip`.
+2. Evaluates claims according to Lore's deterministic merge ladder:
+   - Authority precedence: `T0 test` > `T1 file/tool` > `T2 human` > `T4 inference`.
+   - Staleness: verified evidence prevails over stale claims.
+   - Deletions: retract/delete operations take precedence over edits.
+   - Cardinality: single-cardinality conflicts without an authority winner are marked contested rather than corrupting memory.
+3. Automatically fast-forwards the agent's current working session branch (`agent/<session>`) so newly merged canonical facts are immediately available for retrieval.
+
+### 3. WAL checkpoint flush (Push)
+1. Executes `PRAGMA wal_checkpoint(TRUNCATE)` on the local SQLite connection.
+2. Flushes all WAL pages into the database file, ensuring Litestream's replication daemon immediately detects and streams newly committed transactions to the remote replica.
+
+### 4. Audit logging
+Every synchronization event is recorded in `agent_action_log` for complete multi-agent traceability:
+- **`SYNC_INCOMING`**: Records the sync author (`sync:pull` or agent ID), remote tip commit hash, timestamp, and a JSON payload with entity, claim, and commit counts along with merge strategy (`fast-forward`, `merge`, or `up-to-date`).
+- **`SYNC_OUTGOING`**: Records the sync author (`sync:push` or agent ID), local tip commit hash, timestamp, and confirms the WAL checkpoint.
+
+### CLI and MCP usage
+
+CLI invocation:
+```bash
+lore sync                                 # sync with configured replica URL
+lore sync --replica s3://my-bucket/lore   # explicit replica URL
+lore sync --author agent:gemini           # attribute sync action
+```
+
+MCP invocation (autonomous agent tool):
+```json
+{
+  "name": "memory_sync",
+  "arguments": {
+    "replica": "s3://my-bucket/lore",
+    "author": "agent:claude"
+  }
+}
+```
 
 ### Two kinds of freshness
 
