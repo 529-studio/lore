@@ -589,15 +589,17 @@ export function printReport(result) {
 }
 
 async function main() {
-  const workers = Number(process.env.LORE_SOAK_WORKERS ?? 4);
-  const opsPerWorker = Number(process.env.LORE_SOAK_OPS ?? 25);
+  const isQuick = process.argv.includes('--quick') || process.env.LORE_SOAK_QUICK === '1';
+  const DEFAULT_WORKERS = isQuick ? 4 : 8;
+  const DEFAULT_OPS = isQuick ? 25 : 125;
+
+  const WORKERS = Number(process.env.LORE_SOAK_WORKERS ?? DEFAULT_WORKERS);
+  const OPS_PER_WORKER = Number(process.env.LORE_SOAK_OPS ?? DEFAULT_OPS);
 
   console.log(
-    pc.green(
-      `[OK] starting concurrency benchmark: ${workers} workers x ${opsPerWorker} ops (${workers * opsPerWorker} total)`,
-    ),
+    `${pc.green('[OK]')} starting concurrency soak benchmark${isQuick ? ' (quick mode)' : ''}: ${WORKERS} workers x ${OPS_PER_WORKER} ops (${WORKERS * OPS_PER_WORKER} total)`,
   );
-  const result = await runBenchmark({ workers, opsPerWorker });
+  const result = await runBenchmark({ workers: WORKERS, opsPerWorker: OPS_PER_WORKER });
   printReport(result);
 
   if (result.records.some((r) => !r.success)) {
