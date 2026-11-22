@@ -34,8 +34,19 @@ const draftA = claimId(lore(['write', '--subject', 'env:UI_A', '--predicate', 'r
 const draftB = claimId(lore(['write', '--subject', 'env:UI_B', '--predicate', 'read_by', '--object', 'README.md', '--kind', 'agent', '--author', 'agent:ui']));
 
 const handle = await startUi(work, { port: 0 });
-const token = (await (await fetch(handle.url)).text()).match(/const CSRF = '([^']+)'/)?.[1];
+const pageHtml = await (await fetch(handle.url)).text();
+const token = pageHtml.match(/const CSRF = '([^']+)'/)?.[1];
 if (!token) throw new Error('CSRF token not found in the page');
+
+// Verify client-side JavaScript syntax
+const scriptMatch = pageHtml.match(/<script>([\s\S]*?)<\/script>/);
+if (!scriptMatch) throw new Error('No script tag found in UI HTML');
+const vm = await import('node:vm');
+try {
+  new vm.Script(scriptMatch[1]);
+} catch (err) {
+  throw new Error(`client-side UI script syntax error: ${err.message}`);
+}
 
 const write = (route, body, headers = {}) =>
   fetch(`${handle.url}${route}`, {
