@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -198,16 +198,23 @@ export class BenchmarkClient {
       this.chunks.push(c);
       this._pump();
     });
-    this.child.stderr.on('data', () => {});
+    this.stderrChunks = [];
+    this.child.stderr.on('data', (c) => {
+      this.stderrChunks.push(c);
+      if (this.stderrChunks.length > 50) this.stderrChunks.shift();
+    });
     this.child.on('error', (err) => {
       for (const [id, { reject }] of this.pending) {
         reject(err);
       }
       this.pending.clear();
     });
-    this.child.on('exit', (code) => {
+    this.child.on('exit', (code, signal) => {
       if (this.pending.size > 0) {
-        const err = new Error(`MCP client ${this.session} exited prematurely with code ${code}`);
+        const reason = code !== null ? `code ${code}` : `signal ${signal}`;
+        const stderrTail = Buffer.concat(this.stderrChunks).toString('utf8').trim();
+        const detail = stderrTail ? `\nStderr:\n${stderrTail}` : '';
+        const err = new Error(`MCP client ${this.session} exited prematurely with ${reason}${detail}`);
         for (const [id, { reject }] of this.pending) {
           reject(err);
         }
@@ -278,7 +285,7 @@ export class BenchmarkClient {
       // ignore
     }
 
-    if (this.child.exitCode !== null) return;
+    if (this.child.exitCode !== null || this.child.signalCode !== null) return;
 
     this.child.kill('SIGTERM');
 
@@ -291,7 +298,7 @@ export class BenchmarkClient {
       };
 
       const termTimer = setTimeout(() => {
-        if (this.child.exitCode === null) {
+        if (this.child.exitCode === null && this.child.signalCode === null) {
           try {
             this.child.kill('SIGKILL');
           } catch {
@@ -589,6 +596,11 @@ export function printReport(result) {
 }
 
 async function main() {
+  if (!existsSync(CLI)) {
+    console.error(pc.red(`[ERR] dist/cli.js not found. Run npm run build first.`));
+    process.exit(1);
+  }
+
   const isQuick = process.argv.includes('--quick') || process.env.LORE_SOAK_QUICK === '1';
   const DEFAULT_WORKERS = isQuick ? 4 : 8;
   const DEFAULT_OPS = isQuick ? 25 : 125;
