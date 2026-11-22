@@ -2,7 +2,6 @@ import pc from 'picocolors';
 import { openDb, requireRoot, type DB } from '../db.js';
 import { ensureConfig } from '../config.js';
 import { createSyncAdapter } from '../sync/adapter.js';
-import { fastForwardSession } from '../sync.js';
 
 export interface SyncCommandOptions {
   replica?: string;
@@ -35,7 +34,6 @@ export async function syncCommand(opts: SyncCommandOptions): Promise<void> {
 
     console.log(`${pc.dim('sync:pull')} from ${pc.bold(replicaUrl)}...`);
     const pullRes = await adapter.pull({ author });
-    fastForwardSession(db, root);
     console.log(
       `${pc.green('[OK]')} pulled ${pullRes.commits} commits, ${pullRes.claims} claims (merge: ${pullRes.merge})`,
     );

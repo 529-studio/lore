@@ -300,7 +300,6 @@ export class LitestreamSyncAdapter implements SyncAdapter {
   ) {}
 
   async push(opts?: { author?: string }): Promise<SyncPushResult> {
-    this.db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').run();
     const tip = head(this.db, 'main');
     const res = this.db
       .prepare(
@@ -313,10 +312,12 @@ export class LitestreamSyncAdapter implements SyncAdapter {
         tip,
         new Date().toISOString(),
       );
+    const actionId = Number(res.lastInsertRowid);
+    this.db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').run();
     return {
       walCheckpointed: true,
       tip,
-      actionId: Number(res.lastInsertRowid),
+      actionId,
     };
   }
 
@@ -334,7 +335,11 @@ export class LitestreamSyncAdapter implements SyncAdapter {
           execPath: this.opts.execPath,
           configPath: this.opts.configPath,
         });
-      } catch {
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!msg.includes('no generations') && !msg.includes('not found') && !msg.includes('empty')) {
+          console.warn(`[WARN] litestream pull restore warning: ${msg}`);
+        }
         return { entities: 0, claims: 0, commits: 0, merge: 'up-to-date' };
       }
 
