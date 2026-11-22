@@ -3,7 +3,7 @@ import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
 import { stringify } from 'yaml';
 import { dbPathFor, type DB } from '../db.js';
-import { type SyncAdapter, type SyncOptions } from './adapter.js';
+import { type SyncAdapter, type SyncOptions, type SyncPullResult, type SyncPushResult } from './adapter.js';
 
 export interface LitestreamOptions {
   replicaUrl: string;
@@ -287,14 +287,25 @@ export class LitestreamSyncAdapter implements SyncAdapter {
     private opts: SyncOptions,
   ) {}
 
-  async push(): Promise<void> {
-    this.db.prepare('INSERT INTO agent_action_log (action, table_name, ts) VALUES (?, ?, ?)')
-      .run('SYNC_OUTGOING', 'memory_commit', new Date().toISOString());
+  async push(opts?: { author?: string }): Promise<SyncPushResult> {
+    const res = this.db.prepare('INSERT INTO agent_action_log (agent_id, action, table_name, ts) VALUES (?, ?, ?, ?)')
+      .run(opts?.author ?? null, 'SYNC_OUTGOING', 'memory_commit', new Date().toISOString());
+    return {
+      walCheckpointed: true,
+      tip: null,
+      actionId: Number(res.lastInsertRowid),
+    };
   }
 
-  async pull(): Promise<void> {
-    this.db.prepare('INSERT INTO agent_action_log (action, table_name, ts) VALUES (?, ?, ?)')
-      .run('SYNC_INCOMING', 'memory_commit', new Date().toISOString());
+  async pull(opts?: { author?: string }): Promise<SyncPullResult> {
+    this.db.prepare('INSERT INTO agent_action_log (agent_id, action, table_name, ts) VALUES (?, ?, ?, ?)')
+      .run(opts?.author ?? null, 'SYNC_INCOMING', 'memory_commit', new Date().toISOString());
+    return {
+      entities: 0,
+      claims: 0,
+      commits: 0,
+      merge: 'none',
+    };
   }
 }
 
