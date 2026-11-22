@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
 import path from 'node:path';
 import type { DB } from './db.js';
-import { head, makeCommit, type ClaimRow, type Trust } from './model.js';
+import { head, makeCommit, runClaimWriteHooks, type ClaimRow, type Trust } from './model.js';
 import { planMerge } from './merge.js';
 import { loadOntology } from './ontology.js';
 import { readConfig } from './config.js';
@@ -364,6 +364,10 @@ export function importBundle(
   });
 
   apply();
+
+  for (const row of bundle.claims) {
+    runClaimWriteHooks(db, String(row.id));
+  }
 
   const mainRef = bundle.refs.find((r) => r.name === 'main');
   if (mainRef) {

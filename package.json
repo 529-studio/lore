@@ -26,6 +26,7 @@
     "pg:smoke": "node scripts/pg-sync.mjs",
     "ui:smoke": "node scripts/ui-smoke.mjs",
     "litestream:smoke": "node scripts/litestream-smoke.mjs",
+    "smoke:sync": "node scripts/sync-adapter-smoke.mjs",
     "temporal:smoke": "node scripts/temporal-smoke.mjs",
     "setup:smoke": "node scripts/setup-smoke.mjs",
     "eval": "node scripts/eval.mjs",

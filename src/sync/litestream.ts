@@ -13,7 +13,7 @@ import path from 'node:path';
 import { stringify } from 'yaml';
 import { dbPathFor, openDb, type DB } from '../db.js';
 import { head } from '../model.js';
-import { buildBundle, importBundle, mergeTip } from '../sync.js';
+import { buildBundle, fastForwardSession, importBundle, mergeTip } from '../sync.js';
 import { readConfig } from '../config.js';
 import { type SyncAdapter, type SyncOptions, type SyncPullResult, type SyncPushResult } from './adapter.js';
 
@@ -364,6 +364,7 @@ export class LitestreamSyncAdapter implements SyncAdapter {
           importRes.merge !== 'none'
             ? importRes.merge
             : mergeTip(this.db, this.root, 'main', remoteTip, opts?.author ?? 'sync:pull');
+        fastForwardSession(this.db, this.root);
 
         this.db
           .prepare(
