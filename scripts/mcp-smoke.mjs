@@ -3,7 +3,7 @@
 // initialize → initialized → tools/list → tools/call memory_search/memory_write,
 // and asserts the write landed on an agent/<session> branch.
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -44,13 +44,16 @@ function lore(args, env = {}) {
 await lore(['init']);
 await lore(['ingest']);
 
-// --- tiny JSON-RPC client ------------------------------------------------------
+const mockBin = path.join(work, 'mock-litestream');
+writeFileSync(mockBin, '#!/usr/bin/env bash\nexit 0\n', 'utf8');
+chmodSync(mockBin, 0o755);
+
 // --- tiny JSON-RPC client ------------------------------------------------------
 // The server reads `.lore/session` (no LORE_SESSION override) so it shares the
 // session that ingest wrote to — the realistic no-env agent launch.
 const server = spawn(process.execPath, [CLI, 'mcp'], {
   cwd: work,
-  env: { ...process.env },
+  env: { ...process.env, LORE_LITESTREAM_PATH: process.env.LORE_LITESTREAM_PATH ?? mockBin },
 });
 const outChunks = [];
 server.stdout.on('data', (c) => {
@@ -113,7 +116,7 @@ try {
   // --- tools/list ------------------------------------------------------------------
   const list = await rpc('tools/list');
   const names = (list.result?.tools ?? []).map((t) => t.name).sort();
-  const expected = ['memory_approve', 'memory_blame', 'memory_commit', 'memory_diff', 'memory_search', 'memory_status', 'memory_write'];
+  const expected = ['memory_approve', 'memory_blame', 'memory_commit', 'memory_diff', 'memory_search', 'memory_status', 'memory_sync', 'memory_write'];
   if (JSON.stringify(names) !== JSON.stringify(expected)) fail(`tools/list: ${JSON.stringify(names)} != ${JSON.stringify(expected)}`);
   for (const tool of list.result?.tools ?? []) {
     if (!tool.outputSchema || tool.outputSchema.type !== 'object') {
@@ -262,6 +265,43 @@ try {
   if (!contestedFacts.some((f) => f.subject === 'env:MCP_PM' && f.claim_ids.length === 2)) {
     fail(`memory_search structuredContent.contested missing both sides: ${JSON.stringify(contestedFacts)}`);
   }
+
+  // --- memory_sync -------------------------------------------------------------
+  const syncMissing = await rpc('tools/call', {
+    name: 'memory_sync',
+    arguments: {},
+  });
+  if (syncMissing.result?.isError !== true) {
+    fail('memory_sync without replica configured should return isError:true');
+  }
+  expectContains(
+    syncMissing.result?.content?.[0]?.text,
+    'replica URL is required',
+    'memory_sync missing replica error',
+  );
+
+  const syncWithReplica = await rpc('tools/call', {
+    name: 'memory_sync',
+    arguments: { replica_url: 'file:///mock/replica/lore.db' },
+  });
+  if (syncWithReplica.result?.isError) {
+    fail(`memory_sync returned isError: ${JSON.stringify(syncWithReplica.result)}`);
+  }
+  const syncStructured = syncWithReplica.result?.structuredContent;
+  if (!syncStructured?.pull || !syncStructured?.push) {
+    fail(`memory_sync structuredContent missing pull/push: ${JSON.stringify(syncStructured)}`);
+  }
+  if (syncStructured.replica_url !== 'file:///mock/replica/lore.db') {
+    fail(`memory_sync replica_url mismatch: ${syncStructured.replica_url}`);
+  }
+  if (syncStructured.push.walCheckpointed !== true) {
+    fail('memory_sync push walCheckpointed should be true');
+  }
+  expectContains(
+    syncWithReplica.result?.content?.[0]?.text,
+    'synced with file:///mock/replica/lore.db',
+    'memory_sync text',
+  );
 
   // --- protocol robustness ---------------------------------------------------------
   const badMethod = await rpc('bogus/method');
