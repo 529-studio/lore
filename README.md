@@ -191,7 +191,7 @@ lore remote <dir>             point fetch/push at a shared directory
 lore fetch | push             exchange commits with that directory
 lore bundle export|import     air-gapped exchange of commits
 lore replicate [action]       Litestream streaming replication (check, config, start, restore, status)
-lore sync                   Bi-directional synchronization with remote replica or storage target (pull, CRDT merge, push)
+lore sync                   bi-directional sync with remote replica (pull, CRDT merge, push)
 lore redact <claim>           replace the object with [redacted], keep id and audit
 lore purge <claim> --yes      remove the row permanently, keep an audit entry
 lore gc [--ttl-sessions 3]     retract unreviewed drafts (rows are kept)
@@ -238,7 +238,7 @@ After that, you use Claude / Codex / Gemini exactly as before. What changes:
 markdown file of everything the agent knows, grouped by subject, with the evidence in comments.
 It is deterministic, so it reviews like a document in a pull request.
 
-**GUI status:** The web dashboard (`lore ui`) is live; desktop packaging is tracked in [issue #66](https://github.com/529-studio/lore/issues/66).
+**GUI:** The web dashboard (`lore ui`) is live; desktop packaging is tracked in [#66](https://github.com/529-studio/lore/issues/66).
 
 ---
 
@@ -266,10 +266,10 @@ identity and enforces `lore.policy.yml`: `LORE_TOKEN` from `lore identity issue`
 asserted by a trusted launcher. See [docs/team-mode.md](docs/team-mode.md).
 
 **Internal or offline repositories.** Memory does not depend on a git host: `lore remote`
-plus `fetch`/`push` shares commits with a team directory, Postgres remote uses a database,
+plus `fetch`/`push` shares commits with a directory, Postgres remote uses a database,
 `lore bundle` moves commits across an air gap, and `lore replicate` streams SQLite WAL frames
-to S3/R2/GCS. Multi-agent nodes synchronize bi-directionally via `lore sync` and the `memory_sync`
-MCP tool. Claims observed on newer code than checkout are reported as *ahead of checkout*, not
+to S3/R2/GCS. Nodes sync bi-directionally via `lore sync` and `memory_sync`.
+Claims observed on newer code than checkout are reported as *ahead of checkout*, not
 stale; `--trust-remote` includes them. See [docs/team-mode.md](docs/team-mode.md).
 
 **CI integration.** The GitHub Action comments on every pull request with what it teaches the agent
@@ -298,13 +298,14 @@ the way they do: [docs/adr](docs/adr/README.md).
 
 ## Evidence, not claims
 
-The repository ships three executable checks; CI runs all of them:
+Executable checks and benchmarks in the repository:
 
 ```bash
-npm run build        # TypeScript
-npm run smoke        # 20+ end-to-end assertions on a throwaway repo
-npm run mcp:smoke    # real MCP handshake, tools, draft gating, approve
-npm run eval         # outcome metrics, no LLM judge
+npm run build              # TypeScript
+npm run smoke              # 20+ end-to-end assertions on a throwaway repo
+npm run mcp:smoke          # real MCP handshake, tools, draft gating, approve
+npm run bench:concurrency  # multi-worker soak benchmark (p50/p95/p99)
+npm run eval               # outcome metrics, no LLM judge
 ```
 
 Latest `npm run eval`: 20 replayed sessions plus test suite before and after revert.
@@ -329,8 +330,8 @@ These numbers are measured proxies; the harness fails the build when a scenario 
 
 ## Contributing
 
-Issues and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), and read the
-project rules in [AGENTS.md](AGENTS.md) — they apply to humans and AI agents alike.
+Issues and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md) and
+the project rules in [AGENTS.md](AGENTS.md) — they apply to humans and AI agents alike.
 
 Security reports: [SECURITY.md](SECURITY.md), never a public issue.
 
