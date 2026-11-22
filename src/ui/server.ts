@@ -1365,7 +1365,6 @@ function renderGraphView(claims) {
     selectGraphNode(nodes.get(graphState.selectedNode), links, targetClaims);
   }
 }
-}
 
 function renderActiveView() {
   const filtered = filterClaimsList();
