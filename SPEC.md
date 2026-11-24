@@ -452,7 +452,7 @@ No LLM judge. Outcome metrics on real repositories:
 | manual review and promote commands | unified 1-step session wrapup (`lore wrapup [--yes]`, `lore session`) | multi-agent sessions left unreviewed drafts behind before promote |
 | bare init creates store only | `lore init --full` auto-discovers agents, injects rules, ingests codebase, and wires MCPs | pre-existing repositories need zero-friction activation |
 | onboard prints hardcoded Claude command | `lore onboard` auto-detects agents and wires MCP configs directly | multi-agent repositories require dynamic agent wiring |
-| sync is batch push/fetch only | bi-directional sync adapter with WAL checkpointing (`lore sync`, `memory_sync`) | nodes need atomic sync without DB corruption or lock collisions |
+| sync is batch push/fetch only | bi-directional sync adapter (`lore sync`, `memory_sync`) | nodes need atomic sync without lock collisions |
 | concurrency verified on 4x25 writes only | multi-worker concurrency benchmark (`scripts/bench-concurrency.mjs`) | clusters require soak testing for latency and WAL integrity |
 | gossip convergence untested on clusters | multi-replica gossip simulator (`scripts/bench-cluster.mjs`, `npm run bench:cluster`) | clusters require benchmarking convergence and SQLite integrity |
 | SQLite WAL uses static 1000-page autocheckpoint | adaptive WAL checkpoint auto-tuning (`src/db.ts`, `LORE_WAL_AUTOCHECKPOINT`) | high-write sessions need adaptive scaling to prevent WAL bloat |
@@ -461,6 +461,7 @@ No LLM judge. Outcome metrics on real repositories:
 | benchmark emits terminal table only | high-resolution Prometheus/OTel exporter (`scripts/bench-concurrency.mjs`, `exportPrometheusMetrics`) | pipelines and dashboards require standard metrics exposition formats |
 | UI lacks multi-agent sync indicators | real-time sync indicators and diagnostics (`src/ui/server.ts`, `/api/sync/status`, `#sync-indicator`) | multi-agent sessions need live visual indicators of replica convergence |
 | retrieval uses lexical overlap only | semantic hybrid search layer (`src/search/vector.ts`, `lore search --semantic`) | queries with synonyms or stem variants fail verbatim token matching |
+| merge aborts equal-tier inference disagreements | semantic 3-way conflict resolver (`src/merge.ts`, `lore merge --semantic`) | equal-tier inference claims aborted without confidence or vector evaluation |
 
 ## Glossary
 

@@ -171,8 +171,8 @@ lore blame <subject>           provenance: author, evidence, branch membership
 lore timeline <subject>       bi-temporal revisions across valid-time and tx-time
 lore status [--strict]         health: active, draft, stale, conflicts, GC candidates
 lore diff <from>..<to>         claims added/removed between revisions
-lore merge <branch>           3-way merge; exit 2 on real conflicts
-lore resolve <subject> <pred>  record a human decision for one conflict
+lore merge <branch>           3-way merge; --semantic, exit 2 on real conflicts
+lore resolve [s] [p]          record conflict decision; --take, --auto-semantic
 lore promote                   merge current branch into main
 lore wrapup [--yes]            audit session drafts, approve and promote
 lore revert <commit>           inverse commit, history preserved

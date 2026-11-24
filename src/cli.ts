@@ -184,26 +184,36 @@ program
   .command('merge <branch>')
   .description('3-way merge a branch into the current one; abort on conflict instead of guessing')
   .option('--session <id>')
-  .option('--strategy <s>', 'authority | recency', 'authority')
+  .option('--strategy <s>', 'authority | recency | semantic', 'authority')
+  .option('--semantic', 'enable semantic conflict resolution and payload normalization')
   .option('--strict', 'do not let recency break same-tier conflicts')
   .option('--dry-run', 'print the plan only')
   .action((branch, opts) =>
     mergeCommand({
       branch,
       session: opts.session,
-      strategy: opts.strategy === 'recency' ? 'recency' : 'authority',
+      strategy: opts.strategy === 'semantic' ? 'semantic' : opts.strategy === 'recency' ? 'recency' : 'authority',
+      semantic: Boolean(opts.semantic || opts.strategy === 'semantic'),
       strict: opts.strict,
       dryRun: opts.dryRun,
     }),
   );
 
 program
-  .command('resolve <subject> <predicate>')
-  .description('record a manual decision for one conflict')
-  .requiredOption('--take <side>', 'ours | theirs | both')
+  .command('resolve [subject] [predicate]')
+  .description('record a manual or automated decision for merge conflicts')
+  .option('--take <side>', 'ours | theirs | both')
   .option('--reason <text>')
+  .option('--auto-semantic', 'automatically resolve open conflicts using semantic analysis')
   .action((subject, predicate, opts) => {
+    if (opts.autoSemantic) {
+      resolveCommand({ autoSemantic: true });
+      return;
+    }
     const take = opts.take;
+    if (!subject || !predicate) {
+      throw new Error('subject and predicate required (or use --auto-semantic)');
+    }
     if (take !== 'ours' && take !== 'theirs' && take !== 'both') {
       throw new Error('--take must be ours | theirs | both');
     }

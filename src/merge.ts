@@ -4,6 +4,7 @@ import { gitHead, isGitAncestor } from './util/git.js';
 import type { ClaimRow } from './model.js';
 import { activeAt } from './model.js';
 import type { Cardinality, Ontology } from './ontology.js';
+import { cosineSimilarity, generateLocalEmbedding } from './search/vector.js';
 
 export interface Decision {
   subject: string;
@@ -172,11 +173,49 @@ export function lca(db: DB, a: string | null, b: string | null): string | null {
   return best?.id ?? null;
 }
 
+export function canonicalizeJsonValue(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(canonicalizeJsonValue);
+  }
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  const sorted: Record<string, unknown> = {};
+  for (const k of keys) {
+    sorted[k] = canonicalizeJsonValue(obj[k]);
+  }
+  return sorted;
+}
+
+export function normalizeJsonPayload(raw: string): string {
+  try {
+    let parsed: unknown = JSON.parse(raw);
+    if (typeof parsed === 'string') {
+      try {
+        parsed = JSON.parse(parsed);
+      } catch {
+        // keep string
+      }
+    }
+    return JSON.stringify(canonicalizeJsonValue(parsed));
+  } catch {
+    return raw.trim();
+  }
+}
+
+export function isSemanticallyEquivalent(aJson: string, bJson: string): boolean {
+  if (aJson === bJson) return true;
+  return normalizeJsonPayload(aJson) === normalizeJsonPayload(bJson);
+}
+
 export interface MergeOptions {
-  strategy: 'authority' | 'recency';
+  strategy: 'authority' | 'recency' | 'semantic';
   strict: boolean;
   pendingResolution: Map<string, 'ours' | 'theirs' | 'both'>;
   ontology: Ontology;
+  semantic?: boolean;
 }
 
 export function planMerge(
@@ -294,6 +333,54 @@ export function planMerge(
       return;
     }
 
+    // R5.5 — Semantic three-way conflict resolver (when strategy is semantic or opts.semantic)
+    if (o && t && (opts.strategy === 'semantic' || opts.semantic)) {
+      if (Math.abs(o.confidence - t.confidence) >= 0.05) {
+        const [w, l] = o.confidence > t.confidence ? [o, t] : [t, o];
+        result.set(key, [w.id]);
+        plan.decisions.push({
+          subject,
+          predicate,
+          winner: w.id,
+          loser: l.id,
+          rule: 'semantic_confidence',
+          reason: `confidence ${w.confidence.toFixed(2)} beats ${l.confidence.toFixed(2)}`,
+        });
+        return;
+      }
+
+      const contextText = `${subject} ${predicate} ${b ? b.object_json : ''}`;
+      const simO = cosineSimilarity(generateLocalEmbedding(contextText), generateLocalEmbedding(o.object_json));
+      const simT = cosineSimilarity(generateLocalEmbedding(contextText), generateLocalEmbedding(t.object_json));
+      if (Math.abs(simO - simT) >= 0.05) {
+        const [w, l] = simO > simT ? [o, t] : [t, o];
+        result.set(key, [w.id]);
+        plan.decisions.push({
+          subject,
+          predicate,
+          winner: w.id,
+          loser: l.id,
+          rule: 'semantic_similarity',
+          reason: `semantic alignment ${(w === o ? simO : simT).toFixed(2)} beats ${(l === o ? simO : simT).toFixed(2)}`,
+        });
+        return;
+      }
+
+      if (o.tx_from !== t.tx_from) {
+        const [w, l] = o.tx_from > t.tx_from ? [o, t] : [t, o];
+        result.set(key, [w.id]);
+        plan.decisions.push({
+          subject,
+          predicate,
+          winner: w.id,
+          loser: l.id,
+          rule: 'semantic_recency',
+          reason: 'equal semantic confidence, newer timestamp wins',
+        });
+        return;
+      }
+    }
+
     // R6 — do not guess.
     plan.conflicts.push({
       subject,
@@ -324,6 +411,25 @@ export function planMerge(
     }
     if (ti === bi) {
       if (oi) result.set(key, [oi]);
+      continue;
+    }
+    // R1.5 — Semantic equivalence: identical normalized JSON payload
+    if (o && t && isSemanticallyEquivalent(o.object_json, t.object_json)) {
+      const [w, l] =
+        o.authority !== t.authority
+          ? o.authority < t.authority ? [o, t] : [t, o]
+          : o.confidence !== t.confidence
+            ? o.confidence > t.confidence ? [o, t] : [t, o]
+            : o.tx_from >= t.tx_from ? [o, t] : [t, o];
+      result.set(key, [w.id]);
+      plan.decisions.push({
+        subject: o.subject_id,
+        predicate: o.predicate,
+        winner: w.id,
+        loser: l.id,
+        rule: 'semantic_identity',
+        reason: 'semantically equivalent object payload',
+      });
       continue;
     }
     resolve(key, b, o, t);
