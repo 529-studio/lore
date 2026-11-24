@@ -68,6 +68,49 @@ try {
   dbReopened.close();
 
   console.log('[OK] tuneWalCheckpoint hierarchy assertions passed');
+
+  console.log('[TEST] Checking burst writes and TRUNCATE checkpoint recovery...');
+  const dbBurst = openDb(work);
+  tuneWalCheckpoint(dbBurst, work, { autocheckpointPages: 25 });
+
+  const insertEntity = dbBurst.prepare(`
+    INSERT OR IGNORE INTO entity (id, kind, canonical, created_at)
+    VALUES (?, 'symbol', ?, datetime('now'))
+  `);
+
+  const insertStmt = dbBurst.prepare(`
+    INSERT INTO claim (id, subject_id, predicate, object_json, tx_from, authority, confidence, author, state, trust, written_by)
+    VALUES (?, ?, 'defines_rule', '"wal test"', datetime('now'), 1, 1.0, 'test', 'active', 'canonical', 'agent')
+  `);
+
+  const burstTx = dbBurst.transaction((count) => {
+    for (let i = 0; i < count; i++) {
+      const subject = `sym:burst_${i}`;
+      insertEntity.run(subject, subject);
+      insertStmt.run(`c_burst_${i}_${Date.now()}`, subject);
+    }
+  });
+
+  burstTx(500);
+
+  const statsDuring = getWalStats(dbBurst, work);
+  assert.ok(statsDuring.walFrames > 0, `Expected walFrames > 0 during writes, got ${statsDuring.walFrames}`);
+  assert.ok(statsDuring.walSizeBytes > 0, `Expected walSizeBytes > 0 during writes, got ${statsDuring.walSizeBytes}`);
+
+  // TRUNCATE checkpoint flushes WAL and resets the WAL file size to 0 bytes
+  const truncateRes = checkpointWal(dbBurst, 'TRUNCATE');
+  assert.equal(truncateRes.busy, false);
+
+  const statsAfter = getWalStats(dbBurst, work);
+  assert.equal(statsAfter.walFrames, 0, `Expected 0 walFrames after TRUNCATE, got ${statsAfter.walFrames}`);
+  assert.equal(statsAfter.walSizeBytes, 0, `Expected 0 walSizeBytes after TRUNCATE, got ${statsAfter.walSizeBytes}`);
+
+  const integrityCheck = dbBurst.prepare('PRAGMA integrity_check').all();
+  assert.equal(integrityCheck.length, 1);
+  assert.equal(integrityCheck[0].integrity_check, 'ok');
+
+  dbBurst.close();
+  console.log('[OK] Burst writes and checkpoint recovery assertions passed');
 } finally {
   rmSync(work, { recursive: true, force: true });
 }
