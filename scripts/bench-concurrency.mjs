@@ -559,6 +559,219 @@ export function formatLatencyTable(records) {
 }
 
 /**
+ * Formats benchmark results into Prometheus exposition text format.
+ */
+export function exportPrometheusMetrics(result, options = {}) {
+  const lines = [];
+  const opTypes = ['write', 'search', 'sync', 'commit', 'approve'];
+
+  lines.push('# HELP lore_bench_ops_total Total operations executed in concurrency benchmark');
+  lines.push('# TYPE lore_bench_ops_total counter');
+  for (const op of opTypes) {
+    const opRecords = result.records.filter((r) => r.op === op);
+    const successCount = opRecords.filter((r) => r.success).length;
+    const failureCount = opRecords.filter((r) => !r.success).length;
+    lines.push(`lore_bench_ops_total{op="${op}",status="success"} ${successCount}`);
+    lines.push(`lore_bench_ops_total{op="${op}",status="failure"} ${failureCount}`);
+  }
+
+  lines.push('# HELP lore_bench_latency_seconds Latency summary of benchmark operations in seconds');
+  lines.push('# TYPE lore_bench_latency_seconds summary');
+  for (const op of opTypes) {
+    const opRecords = result.records.filter((r) => r.op === op);
+    if (!opRecords.length) continue;
+    const latenciesSec = opRecords.map((r) => r.durationMs / 1000);
+    const p = calculatePercentiles(latenciesSec);
+    const sum = latenciesSec.reduce((acc, v) => acc + v, 0);
+    lines.push(`lore_bench_latency_seconds{op="${op}",quantile="0.5"} ${p.p50.toFixed(4)}`);
+    lines.push(`lore_bench_latency_seconds{op="${op}",quantile="0.95"} ${p.p95.toFixed(4)}`);
+    lines.push(`lore_bench_latency_seconds{op="${op}",quantile="0.99"} ${p.p99.toFixed(4)}`);
+    lines.push(`lore_bench_latency_seconds_sum{op="${op}"} ${sum.toFixed(4)}`);
+    lines.push(`lore_bench_latency_seconds_count{op="${op}"} ${opRecords.length}`);
+  }
+
+  const durationSec = result.durationMs / 1000;
+  const throughput = (result.totalOps / result.durationMs) * 1000;
+
+  lines.push('# HELP lore_bench_duration_seconds Total benchmark execution duration in seconds');
+  lines.push('# TYPE lore_bench_duration_seconds gauge');
+  lines.push(`lore_bench_duration_seconds ${durationSec.toFixed(3)}`);
+
+  lines.push('# HELP lore_bench_throughput_ops_per_second Benchmark throughput in operations per second');
+  lines.push('# TYPE lore_bench_throughput_ops_per_second gauge');
+  lines.push(`lore_bench_throughput_ops_per_second ${throughput.toFixed(1)}`);
+
+  if (result.audit) {
+    lines.push('# HELP lore_bench_sqlite_integrity SQLite database integrity check result (1 = ok, 0 = failed)');
+    lines.push('# TYPE lore_bench_sqlite_integrity gauge');
+    lines.push(`lore_bench_sqlite_integrity ${result.audit.integrityOk ? 1 : 0}`);
+
+    lines.push('# HELP lore_bench_sqlite_writes_persisted Persisted claim writes verified in SQLite database');
+    lines.push('# TYPE lore_bench_sqlite_writes_persisted gauge');
+    lines.push(`lore_bench_sqlite_writes_persisted ${result.audit.totalWrites}`);
+
+    lines.push('# HELP lore_bench_sqlite_branches_persisted Agent branches verified in SQLite database');
+    lines.push('# TYPE lore_bench_sqlite_branches_persisted gauge');
+    lines.push(`lore_bench_sqlite_branches_persisted ${result.audit.branchCount}`);
+
+    lines.push('# HELP lore_bench_sqlite_sync_actions_logged Sync actions recorded in agent_action_log');
+    lines.push('# TYPE lore_bench_sqlite_sync_actions_logged gauge');
+    lines.push(`lore_bench_sqlite_sync_actions_logged ${result.audit.syncLogs}`);
+  }
+
+  return lines.join('\n') + '\n';
+}
+
+/**
+ * Formats benchmark results into an OpenTelemetry (OTel) metrics JSON object.
+ */
+export function exportOtelMetrics(result, options = {}) {
+  const nowNano = String(BigInt(Date.now()) * 1_000_000n);
+  const durationSec = result.durationMs / 1000;
+  const throughput = (result.totalOps / result.durationMs) * 1000;
+
+  const opTypes = ['write', 'search', 'sync', 'commit', 'approve'];
+  const opsDataPoints = [];
+  const latencyDataPoints = [];
+
+  for (const op of opTypes) {
+    const opRecords = result.records.filter((r) => r.op === op);
+    const successCount = opRecords.filter((r) => r.success).length;
+    const failureCount = opRecords.filter((r) => !r.success).length;
+
+    opsDataPoints.push({
+      attributes: [
+        { key: 'op', value: { stringValue: op } },
+        { key: 'status', value: { stringValue: 'success' } },
+      ],
+      timeUnixNano: nowNano,
+      asInt: successCount,
+    });
+    opsDataPoints.push({
+      attributes: [
+        { key: 'op', value: { stringValue: op } },
+        { key: 'status', value: { stringValue: 'failure' } },
+      ],
+      timeUnixNano: nowNano,
+      asInt: failureCount,
+    });
+
+    if (opRecords.length > 0) {
+      const latenciesMs = opRecords.map((r) => r.durationMs);
+      const p = calculatePercentiles(latenciesMs);
+      for (const [quantile, val] of Object.entries(p)) {
+        latencyDataPoints.push({
+          attributes: [
+            { key: 'op', value: { stringValue: op } },
+            { key: 'quantile', value: { stringValue: quantile } },
+          ],
+          timeUnixNano: nowNano,
+          asDouble: val,
+        });
+      }
+    }
+  }
+
+  const metrics = [
+    {
+      name: 'lore.bench.ops.total',
+      description: 'Total operations executed in concurrency benchmark',
+      unit: '{operations}',
+      sum: {
+        dataPoints: opsDataPoints,
+        aggregationTemporality: 2, // CUMULATIVE
+        isMonotonic: true,
+      },
+    },
+    {
+      name: 'lore.bench.duration',
+      description: 'Total benchmark execution duration',
+      unit: 's',
+      gauge: {
+        dataPoints: [{ timeUnixNano: nowNano, asDouble: durationSec }],
+      },
+    },
+    {
+      name: 'lore.bench.throughput',
+      description: 'Benchmark throughput',
+      unit: '{ops}/s',
+      gauge: {
+        dataPoints: [{ timeUnixNano: nowNano, asDouble: throughput }],
+      },
+    },
+    {
+      name: 'lore.bench.latency',
+      description: 'Operation latencies by quantile',
+      unit: 'ms',
+      gauge: {
+        dataPoints: latencyDataPoints,
+      },
+    },
+  ];
+
+  if (result.audit) {
+    metrics.push(
+      {
+        name: 'lore.bench.sqlite.integrity',
+        description: 'SQLite database integrity check result (1 = ok, 0 = failed)',
+        unit: '1',
+        gauge: {
+          dataPoints: [{ timeUnixNano: nowNano, asInt: result.audit.integrityOk ? 1 : 0 }],
+        },
+      },
+      {
+        name: 'lore.bench.sqlite.writes_persisted',
+        description: 'Persisted claim writes verified in SQLite database',
+        unit: '{claims}',
+        gauge: {
+          dataPoints: [{ timeUnixNano: nowNano, asInt: result.audit.totalWrites }],
+        },
+      },
+      {
+        name: 'lore.bench.sqlite.branches_persisted',
+        description: 'Agent branches verified in SQLite database',
+        unit: '{branches}',
+        gauge: {
+          dataPoints: [{ timeUnixNano: nowNano, asInt: result.audit.branchCount }],
+        },
+      },
+      {
+        name: 'lore.bench.sqlite.sync_actions_logged',
+        description: 'Sync actions recorded in agent_action_log',
+        unit: '{events}',
+        gauge: {
+          dataPoints: [{ timeUnixNano: nowNano, asInt: result.audit.syncLogs }],
+        },
+      },
+    );
+  }
+
+  return {
+    resourceMetrics: [
+      {
+        resource: {
+          attributes: [
+            { key: 'service.name', value: { stringValue: 'lore-benchmark' } },
+            { key: 'service.version', value: { stringValue: '0.5.0' } },
+            { key: 'benchmark.workers', value: { intValue: result.workers } },
+            { key: 'benchmark.ops_per_worker', value: { intValue: result.opsPerWorker } },
+          ],
+        },
+        scopeMetrics: [
+          {
+            scope: {
+              name: 'lore.bench.concurrency',
+              version: '0.5.0',
+            },
+            metrics,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+/**
  * Prints comprehensive benchmark performance and invariant verification report.
  */
 export function printReport(result) {
@@ -595,11 +808,41 @@ export function printReport(result) {
   }
 }
 
+/**
+ * Exports benchmark metrics to Prometheus or OpenTelemetry files if configured.
+ */
+export function handleExports(result, options = {}) {
+  const promPath = options.exportPrometheus ?? process.env.LORE_BENCH_EXPORT_PROMETHEUS;
+  const otelPath = options.exportOtel ?? process.env.LORE_BENCH_EXPORT_OTEL;
+
+  if (promPath) {
+    const content = exportPrometheusMetrics(result);
+    mkdirSync(path.dirname(path.resolve(promPath)), { recursive: true });
+    writeFileSync(promPath, content, 'utf8');
+    console.log(pc.green(`[OK] exported Prometheus metrics to ${promPath}`));
+  }
+
+  if (otelPath) {
+    const payload = exportOtelMetrics(result);
+    mkdirSync(path.dirname(path.resolve(otelPath)), { recursive: true });
+    writeFileSync(otelPath, JSON.stringify(payload, null, 2), 'utf8');
+    console.log(pc.green(`[OK] exported OpenTelemetry metrics to ${otelPath}`));
+  }
+}
+
 async function main() {
   if (!existsSync(CLI)) {
     console.error(pc.red(`[ERR] dist/cli.js not found. Run npm run build first.`));
     process.exit(1);
   }
+
+  const getArgValue = (arg) => {
+    const idx = process.argv.indexOf(arg);
+    if (idx !== -1 && idx + 1 < process.argv.length) {
+      return process.argv[idx + 1];
+    }
+    return undefined;
+  };
 
   const isQuick = process.argv.includes('--quick') || process.env.LORE_SOAK_QUICK === '1';
   const DEFAULT_WORKERS = isQuick ? 4 : 8;
@@ -607,12 +850,15 @@ async function main() {
 
   const WORKERS = Number(process.env.LORE_SOAK_WORKERS ?? DEFAULT_WORKERS);
   const OPS_PER_WORKER = Number(process.env.LORE_SOAK_OPS ?? DEFAULT_OPS);
+  const exportPrometheus = getArgValue('--export-prometheus');
+  const exportOtel = getArgValue('--export-otel');
 
   console.log(
     `${pc.green('[OK]')} starting concurrency soak benchmark${isQuick ? ' (quick mode)' : ''}: ${WORKERS} workers x ${OPS_PER_WORKER} ops (${WORKERS * OPS_PER_WORKER} total)`,
   );
   const result = await runBenchmark({ workers: WORKERS, opsPerWorker: OPS_PER_WORKER });
   printReport(result);
+  handleExports(result, { exportPrometheus, exportOtel });
 
   if (result.records.some((r) => !r.success)) {
     process.exitCode = 1;

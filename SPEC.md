@@ -454,10 +454,11 @@ No LLM judge. Outcome metrics on real repositories:
 | onboard prints hardcoded Claude command | `lore onboard` auto-detects agents and wires MCP configs directly | multi-agent repositories require dynamic agent wiring |
 | sync is batch push/fetch only | bi-directional sync adapter with scratch DB restore and WAL checkpointing (`lore sync`, `memory_sync`) | multi-agent nodes need atomic sync without database corruption or lock collisions |
 | concurrency verified on 4 clients x 25 writes only | multi-worker concurrency soak benchmark (`scripts/bench-concurrency.mjs`, `npm run bench:concurrency`) | clusters require soak testing for latency percentiles and WAL integrity under saturation |
-| gossip convergence untested across multi-replica topologies | multi-replica gossip topology simulator (`scripts/bench-cluster.mjs`, `npm run bench:cluster`) | multi-replica clusters require benchmarking convergence rounds and SQLite integrity |
-| SQLite WAL uses static 1000-page autocheckpoint | adaptive WAL checkpoint auto-tuning (`src/db.ts`, `LORE_WAL_AUTOCHECKPOINT`, `checkpointWal`, `getWalStats`) | high-write sessions need adaptive scaling and configurable thresholds to prevent WAL bloat |
-| temporal query requires absolute ISO timestamps | natural language relative temporal parsing (`src/canon/temporal.ts`, `parseRelativeTemporal`, `parseTemporalInstant`) | users and agents query memory with relative expressions ("yesterday", "3 days ago", "-2h") |
-| GC only soft-retracts drafts | GC compaction policy and tombstone purging (`src/gc.ts`, `tombstoneCandidates`, `purgeTombstones`, `compactDatabase`) | long-running multi-agent stores accumulate retracted tombstones and fragmented SQLite pages |
+| gossip convergence untested on clusters | multi-replica gossip simulator (`scripts/bench-cluster.mjs`, `npm run bench:cluster`) | clusters require benchmarking convergence and SQLite integrity |
+| SQLite WAL uses static 1000-page autocheckpoint | adaptive WAL checkpoint auto-tuning (`src/db.ts`, `LORE_WAL_AUTOCHECKPOINT`) | high-write sessions need adaptive scaling to prevent WAL bloat |
+| temporal query requires absolute ISO timestamps | relative temporal query parsing (`src/canon/temporal.ts`, `parseRelativeTemporal`) | agents query memory with relative expressions ("yesterday", "-2h") |
+| GC only soft-retracts drafts | GC compaction policy and tombstone purging (`src/gc.ts`, `purgeTombstones`, `compactDatabase`) | stores accumulate retracted tombstones and fragmented SQLite pages |
+| benchmark emits terminal table only | high-resolution Prometheus and OpenTelemetry exporter (`scripts/bench-concurrency.mjs`, `exportPrometheusMetrics`, `exportOtelMetrics`) | CI/CD pipelines and dashboards require standard metrics exposition formats |
 
 ## Glossary
 
