@@ -5,7 +5,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { parse } from 'yaml';
-import { openDb } from '../db.js';
+import { openDb, type DB } from '../db.js';
 import { initCommand } from '../commands/init.js';
 import { claimFreshness } from '../merge.js';
 import { activeAt, head, inBranch, makeCommit, supersedeClaim, upsertClaim, type ClaimRow } from '../model.js';
@@ -17,6 +17,7 @@ import { describePolicy, isPermissiveTrust } from '../policy.js';
 import { installCanon } from '../canon/index.js';
 import { explainClaim } from '../canon/explain.js';
 import { gitHead } from '../util/git.js';
+import { isAncestor } from '../sync.js';
 
 export interface UiOptions {
   port?: number;
@@ -27,6 +28,72 @@ export interface UiHandle {
   url: string;
   server: Server;
   close: () => Promise<void>;
+}
+
+export interface SyncStatusPayload {
+  remoteStatus: 'in sync' | 'ahead' | 'behind' | 'diverged' | 'not synced yet' | 'standalone';
+  remoteType: string | null;
+  remotePath: string | null;
+  activeAgents: number;
+  agentBranches: string[];
+  lastSyncAt: string | null;
+  lastSyncAction: string | null;
+}
+
+export function getSyncStatus(db: DB, root: string): SyncStatusPayload {
+  const activeSessions = db.prepare(`
+    SELECT id, started_at, last_seen_at FROM session
+    WHERE last_seen_at >= datetime('now', '-10 minutes')
+    ORDER BY last_seen_at DESC
+  `).all() as Array<{ id: string; started_at: string; last_seen_at: string }>;
+
+  const agentBranches = db.prepare(`
+    SELECT name FROM ref WHERE name LIKE 'agent/%'
+  `).all() as Array<{ name: string }>;
+
+  const config = readConfig(root);
+  let remoteStatus: SyncStatusPayload['remoteStatus'] = 'standalone';
+  let remoteType: string | null = null;
+  let remotePath: string | null = null;
+
+  if (config?.remote) {
+    remoteType = config.remote.type;
+    remotePath =
+      config.remote.type === 'dir'
+        ? config.remote.path
+        : config.remote.url_env
+          ? `$${config.remote.url_env}`
+          : 'postgres';
+    const local = head(db, 'main');
+    const remote = config.remote_main;
+    if (!local || !remote) {
+      remoteStatus = 'not synced yet';
+    } else if (local === remote) {
+      remoteStatus = 'in sync';
+    } else if (isAncestor(db, remote, local)) {
+      remoteStatus = 'ahead';
+    } else if (isAncestor(db, local, remote)) {
+      remoteStatus = 'behind';
+    } else {
+      remoteStatus = 'diverged';
+    }
+  }
+
+  const lastSync = db.prepare(`
+    SELECT action, agent_id, ts FROM agent_action_log
+    WHERE action IN ('SYNC_OUTGOING', 'SYNC_INCOMING')
+    ORDER BY ts DESC LIMIT 1
+  `).get() as { action: string; agent_id: string; ts: string } | undefined;
+
+  return {
+    remoteStatus,
+    remoteType,
+    remotePath,
+    activeAgents: Math.max(activeSessions.length, agentBranches.length),
+    agentBranches: agentBranches.map((b) => b.name),
+    lastSyncAt: lastSync?.ts ?? null,
+    lastSyncAction: lastSync?.action ?? null,
+  };
 }
 
 const HTML = String.raw`<!doctype html>
@@ -67,6 +134,17 @@ const HTML = String.raw`<!doctype html>
   .live-dot { width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 6px var(--green); }
   .live-indicator.offline { background:rgba(218, 54, 51, 0.15); border-color:rgba(218, 54, 51, 0.35); color:var(--muted); }
   .live-indicator.offline .live-dot { background:var(--red); box-shadow:none; }
+  .sync-indicator { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:600; padding:3px 8px; border-radius:12px; font-family:ui-monospace,monospace; user-select:none; border:1px solid var(--line); background:var(--bg); color:var(--muted); }
+  .sync-dot { width:7px; height:7px; border-radius:50%; background:var(--muted); }
+  .sync-indicator.synced { background:rgba(35, 134, 54, 0.15); border-color:rgba(46, 160, 67, 0.35); color:var(--ok); }
+  .sync-indicator.synced .sync-dot { background:var(--ok); box-shadow:0 0 6px var(--ok); }
+  .sync-indicator.ahead { background:rgba(88, 166, 255, 0.15); border-color:rgba(88, 166, 255, 0.35); color:var(--accent); }
+  .sync-indicator.ahead .sync-dot { background:var(--accent); }
+  .sync-indicator.behind { background:rgba(210, 153, 34, 0.15); border-color:rgba(210, 153, 34, 0.35); color:var(--warn); }
+  .sync-indicator.behind .sync-dot { background:var(--warn); box-shadow:0 0 6px var(--warn); }
+  .sync-indicator.diverged { background:rgba(248, 81, 73, 0.15); border-color:rgba(248, 81, 73, 0.35); color:var(--err); }
+  .sync-indicator.diverged .sync-dot { background:var(--err); }
+  .agent-badge { font-size:10px; padding:1px 5px; border-radius:8px; background:rgba(188, 140, 255, 0.2); color:var(--purple); border:1px solid rgba(188, 140, 255, 0.3); }
 
   /* Skeleton Loading Shimmer */
   .skeleton-line { height:12px; border-radius:4px; background:rgba(255,255,255,0.07); margin-bottom:8px; }
@@ -236,6 +314,11 @@ const HTML = String.raw`<!doctype html>
     <button data-tab="settings">Settings</button>
   </nav>
   <div class="hdr-right">
+    <span id="sync-indicator" class="sync-indicator" title="Multi-agent sync status">
+      <span class="sync-dot"></span>
+      <span id="sync-text">Standalone</span>
+      <span id="agent-count-badge" class="agent-badge" style="display:none">0 agents</span>
+    </span>
     <span id="live-indicator" class="live-indicator" title="Live real-time stream active">
       <span class="live-dot"></span> LIVE
     </span>
@@ -674,6 +757,40 @@ function show(tab) {
 async function loadHealth() {
   const h = await (await fetch('/api/health')).json();
   $('branch').textContent = 'branch ' + h.branch;
+  if (h.sync) {
+    const syncEl = $('sync-indicator');
+    const textEl = $('sync-text');
+    const agentBadge = $('agent-count-badge');
+    if (syncEl && textEl && agentBadge) {
+      syncEl.className = 'sync-indicator';
+      if (h.sync.remoteStatus === 'in sync') {
+        syncEl.classList.add('synced');
+        textEl.textContent = 'In sync';
+      } else if (h.sync.remoteStatus === 'ahead') {
+        syncEl.classList.add('ahead');
+        textEl.textContent = 'Local ahead';
+      } else if (h.sync.remoteStatus === 'behind') {
+        syncEl.classList.add('behind');
+        textEl.textContent = 'Behind';
+      } else if (h.sync.remoteStatus === 'diverged') {
+        syncEl.classList.add('diverged');
+        textEl.textContent = 'Diverged';
+      } else {
+        textEl.textContent = 'Standalone';
+      }
+
+      if (h.sync.activeAgents > 0) {
+        agentBadge.style.display = 'inline-block';
+        agentBadge.textContent = h.sync.activeAgents + (h.sync.activeAgents === 1 ? ' agent' : ' agents');
+      } else {
+        agentBadge.style.display = 'none';
+      }
+
+      syncEl.title = 'Remote: ' + (h.sync.remoteType || 'none') + ' (' + h.sync.remoteStatus + ')' +
+        ' | Active agents: ' + h.sync.activeAgents +
+        ' | Last sync: ' + (h.sync.lastSyncAt || 'never');
+    }
+  }
   if (h.repo) {
     const nameEl = $('repo-name');
     if (nameEl) nameEl.textContent = h.repo.name;
@@ -2398,6 +2515,11 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
         return;
       }
 
+      if (url.pathname === '/api/sync/status') {
+        json(res, getSyncStatus(db, root));
+        return;
+      }
+
       if (url.pathname === '/api/health') {
         const tip = head(db, ref) ?? head(db, 'main');
         const counts = db.prepare('SELECT state, COUNT(*) n FROM claim GROUP BY state').all() as Array<{ state: string; n: number }>;
@@ -2422,6 +2544,7 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
           stale,
           ahead,
           conflicts,
+          sync: getSyncStatus(db, root),
           repo: {
             name: path.basename(root),
             path: root,
