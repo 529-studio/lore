@@ -113,6 +113,8 @@ interface SearchArgs {
   valid_at?: string;
   tx_at?: string;
   trust_remote?: boolean;
+  semantic?: boolean;
+  vector_weight?: number;
 }
 
 function toolSearch(args: SearchArgs): ToolResult {
@@ -128,6 +130,8 @@ function toolSearch(args: SearchArgs): ToolResult {
       validAt: args.valid_at,
       txAt: args.tx_at,
       trustRemote: args.trust_remote,
+      semantic: args.semantic,
+      vectorWeight: args.vector_weight,
     });
     const warnings = contested.map(contestedWarning);
 
@@ -547,6 +551,8 @@ const TOOLS: ToolDef[] = [
         valid_at: { type: 'string', description: 'ISO instant: read memory valid in the world at this instant' },
         tx_at: { type: 'string', description: 'ISO instant: read memory recorded by the system at this instant' },
         trust_remote: { type: 'boolean', description: 'include claims observed on newer code than this checkout' },
+        semantic: { type: 'boolean', description: 'enable vector embeddings and semantic hybrid search' },
+        vector_weight: { type: 'number', minimum: 0, maximum: 1, description: 'weight of vector similarity in hybrid search (default 0.5)' },
       },
     },
     run: (args) => toolSearch(ARGS(args) as unknown as SearchArgs),

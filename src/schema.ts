@@ -213,6 +213,16 @@ CREATE TABLE IF NOT EXISTS agent_action_log (
   previous_state TEXT,
   new_state      TEXT
 );
+
+CREATE TABLE IF NOT EXISTS vector_cache (
+  claim_id   TEXT NOT NULL,
+  model      TEXT NOT NULL,
+  dims       INTEGER NOT NULL,
+  vector     TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (claim_id, model)
+);
+CREATE INDEX IF NOT EXISTS vector_cache_model ON vector_cache(model);
 `;
 
 export const ONTOLOGY_TEMPLATE = `# Lore ontology — decides which predicates may hold several values.

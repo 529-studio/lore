@@ -16,6 +16,8 @@ export interface SearchCommandOptions {
   txAt?: string;
   noCache?: boolean;
   trustRemote?: boolean;
+  semantic?: boolean;
+  vectorWeight?: string;
   json?: boolean;
 }
 
@@ -41,6 +43,8 @@ export function searchCommand(opts: SearchCommandOptions): void {
     validAt: opts.validAt,
     txAt: opts.txAt,
     trustRemote: opts.trustRemote,
+    semantic: opts.semantic,
+    vectorWeight: opts.vectorWeight !== undefined ? Number(opts.vectorWeight) : undefined,
   });
   const warnings = contested.map(contestedWarning);
 

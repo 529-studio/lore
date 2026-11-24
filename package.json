@@ -30,6 +30,8 @@
     "litestream:smoke": "node scripts/litestream-smoke.mjs",
     "smoke:sync": "node scripts/sync-adapter-smoke.mjs",
     "temporal:smoke": "node scripts/temporal-smoke.mjs",
+    "vector:smoke": "node scripts/test-vector-search.mjs",
+    "test:vector": "node scripts/test-vector-search.mjs",
     "setup:smoke": "node scripts/setup-smoke.mjs",
     "eval": "node scripts/eval.mjs",
     "demo:cli": "node scripts/demo/record-cli.mjs",

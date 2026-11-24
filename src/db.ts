@@ -107,6 +107,16 @@ function migrate(db: DB): void {
       revoked_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS token_revocation_sub ON token_revocation(sub);
+
+    CREATE TABLE IF NOT EXISTS vector_cache (
+      claim_id   TEXT NOT NULL,
+      model      TEXT NOT NULL,
+      dims       INTEGER NOT NULL,
+      vector     TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (claim_id, model)
+    );
+    CREATE INDEX IF NOT EXISTS vector_cache_model ON vector_cache(model);
   `);
 }
 
