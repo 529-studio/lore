@@ -454,6 +454,7 @@ No LLM judge. Outcome metrics on real repositories:
 | onboard prints hardcoded Claude command | `lore onboard` auto-detects workspace agents and wires MCP configs directly via `setupCommand` | multi-agent repositories use Cursor, Antigravity, OpenCode, Codex, or Gemini and require dynamic agent wiring |
 | sync is batch push/fetch only | bi-directional sync adapter with isolated scratch DB restore and WAL checkpointing (lore sync, memory_sync) | distributed multi-agent nodes need atomic bi-directional synchronization without database file corruption or lock collisions |
 | concurrency verified on 4 clients x 25 writes only | multi-worker concurrency soak benchmark (scripts/bench-concurrency.mjs, npm run bench:concurrency) | distributed multi-agent clusters require sustained multi-agent soak testing measuring latency percentiles (p50/p95/p99) and verifying SQLite WAL integrity under saturation |
+| gossip convergence untested across multi-replica topologies | distributed multi-replica gossip topology simulator (scripts/bench-cluster.mjs, npm run bench:cluster) | decentralized multi-agent deployments require empirical benchmarking of rounds-to-convergence, payload overhead, and multi-node SQLite integrity |
 
 ## Glossary
 

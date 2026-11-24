@@ -267,8 +267,8 @@ asserted by a trusted launcher. See [docs/team-mode.md](docs/team-mode.md).
 
 **Internal or offline repositories.** Memory does not depend on a git host: `lore remote`
 plus `fetch`/`push` shares commits with a directory, Postgres remote uses a database,
-`lore bundle` moves commits across an air gap, and `lore replicate` streams SQLite WAL frames
-to S3/R2/GCS. Nodes sync bi-directionally via `lore sync` and `memory_sync`.
+`lore bundle` moves commits across an air gap, and `lore replicate` streams WAL frames
+to S3/R2/GCS. Replicas converge bi-directionally via `lore sync` and gossip meshes.
 Claims observed on newer code than checkout are reported as *ahead of checkout*, not
 stale; `--trust-remote` includes them. See [docs/team-mode.md](docs/team-mode.md).
 
@@ -305,6 +305,7 @@ npm run build              # TypeScript
 npm run smoke              # 20+ end-to-end assertions on a throwaway repo
 npm run mcp:smoke          # real MCP handshake, tools, draft gating, approve
 npm run bench:concurrency  # multi-worker soak benchmark (p50/p95/p99)
+npm run bench:cluster      # multi-replica gossip topology simulator
 npm run eval               # outcome metrics, no LLM judge
 ```
 
