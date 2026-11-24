@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { buildTopology, ClusterNode } from './bench-cluster.mjs';
+import { buildTopology, ClusterNode, runClusterSimulation } from './bench-cluster.mjs';
 
 console.log('[TEST] Checking topology generator...');
 
@@ -81,3 +81,43 @@ try {
 } finally {
   rmSync(work, { recursive: true, force: true });
 }
+
+console.log('[TEST] Checking runClusterSimulation on ring topology...');
+const simRing = await runClusterSimulation({
+  nodeCount: 3,
+  topology: 'ring',
+  mutationRounds: 1,
+  claimsPerNode: 1,
+  maxGossipRounds: 5,
+  cleanup: true,
+});
+
+assert.equal(simRing.converged, true);
+assert.equal(simRing.totalClaims, 3);
+assert.equal(simRing.nodeCount, 3);
+assert.ok(simRing.roundsToConvergence >= 1);
+assert.ok(simRing.totalBytesTransferred > 0);
+assert.ok(simRing.totalMessagesExchanged > 0);
+assert.equal(simRing.audit.allIntegrityOk, true);
+assert.equal(simRing.audit.verifiedNodes, 3);
+assert.equal(simRing.audit.claimCount, 3);
+console.log(`[OK] Ring simulation converged in ${simRing.roundsToConvergence} rounds (${simRing.durationMs.toFixed(1)}ms)`);
+
+console.log('[TEST] Checking runClusterSimulation on line topology...');
+const simLine = await runClusterSimulation({
+  nodeCount: 4,
+  topology: 'line',
+  mutationRounds: 1,
+  claimsPerNode: 1,
+  maxGossipRounds: 6,
+  cleanup: true,
+});
+
+assert.equal(simLine.converged, true);
+assert.equal(simLine.totalClaims, 4);
+assert.equal(simLine.nodeCount, 4);
+assert.ok(simLine.roundsToConvergence >= 2, `Line of 4 nodes should take >=2 rounds to converge across diameter 3, took ${simLine.roundsToConvergence}`);
+assert.equal(simLine.audit.allIntegrityOk, true);
+console.log(`[OK] Line simulation converged in ${simLine.roundsToConvergence} rounds (${simLine.durationMs.toFixed(1)}ms)`);
+
+console.log('[OK] All cluster test assertions passed');

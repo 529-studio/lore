@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import process from 'node:process';
@@ -215,6 +216,183 @@ export class ClusterNode {
       };
     } finally {
       db.close();
+    }
+  }
+}
+
+/**
+ * Validates SQLite database integrity and data invariants across all cluster replica nodes.
+ */
+export function auditClusterInvariants(nodes, expectedClaimCount, expectedClaimIds) {
+  for (const node of nodes) {
+    const audit = node.auditIntegrity();
+    if (!audit.integrityOk) {
+      throw new Error(`Node ${node.nodeId}: PRAGMA integrity_check failed`);
+    }
+    if (audit.claimCount !== expectedClaimCount) {
+      throw new Error(
+        `Node ${node.nodeId}: claim count mismatch: expected ${expectedClaimCount}, found ${audit.claimCount}`,
+      );
+    }
+    if (expectedClaimIds && expectedClaimIds.size > 0) {
+      const stats = node.getClaimStats();
+      for (const id of expectedClaimIds) {
+        if (!stats.claimIds.has(id)) {
+          throw new Error(`Node ${node.nodeId}: missing claim ${id}`);
+        }
+      }
+    }
+  }
+
+  return {
+    allIntegrityOk: true,
+    verifiedNodes: nodes.length,
+    claimCount: expectedClaimCount,
+  };
+}
+
+/**
+ * Executes a full multi-replica cluster gossip simulation across a specified topology.
+ *
+ * @param {object} [options]
+ * @param {number} [options.nodeCount=5]
+ * @param {'ring' | 'line' | 'star' | 'mesh'} [options.topology='ring']
+ * @param {number} [options.mutationRounds=2]
+ * @param {number} [options.claimsPerNode=1]
+ * @param {number} [options.maxGossipRounds=10]
+ * @param {string} [options.workDir]
+ * @param {boolean} [options.cleanup=true]
+ */
+export async function runClusterSimulation(options = {}) {
+  const nodeCount = options.nodeCount ?? 5;
+  const topologyType = options.topology ?? 'ring';
+  const mutationRounds = options.mutationRounds ?? 2;
+  const claimsPerNode = options.claimsPerNode ?? 1;
+  const maxGossipRounds = options.maxGossipRounds ?? 10;
+  const cleanup = options.cleanup ?? true;
+
+  const workDir = options.workDir ?? mkdtempSync(path.join(tmpdir(), 'lore-bench-cluster-'));
+  const bundlesDir = path.join(workDir, 'bundles');
+  mkdirSync(bundlesDir, { recursive: true });
+
+  const nodes = [];
+  try {
+    for (let i = 0; i < nodeCount; i++) {
+      const node = new ClusterNode(i, workDir);
+      await node.init();
+      nodes.push(node);
+    }
+
+    const topology = buildTopology(topologyType, nodeCount);
+    const globalClaimIds = new Set();
+    const roundsSummary = [];
+    let totalBytesTransferred = 0;
+    let totalMessagesExchanged = 0;
+    let converged = false;
+    let roundsToConvergence = 0;
+
+    const simStart = performance.now();
+
+    for (let r = 1; r <= maxGossipRounds; r++) {
+      const roundStart = performance.now();
+      let newClaimsThisRound = 0;
+
+      // 1. Mutation Phase: Nodes generate local claims during active mutation rounds
+      if (r <= mutationRounds) {
+        for (const node of nodes) {
+          const created = await node.createClaims(r, claimsPerNode);
+          newClaimsThisRound += created.length;
+        }
+
+        for (const node of nodes) {
+          const stats = node.getClaimStats();
+          for (const id of stats.claimIds) {
+            globalClaimIds.add(id);
+          }
+        }
+      }
+
+      // 2. Export Phase: Nodes export state bundles for the current round
+      const bundlePaths = new Map();
+      for (const node of nodes) {
+        const bundleFile = path.join(bundlesDir, `node-${node.nodeId}-r${r}.lorebundle`);
+        await node.exportBundle(bundleFile);
+        bundlePaths.set(node.nodeId, bundleFile);
+      }
+
+      // 3. Gossip Exchange Phase: Nodes import bundles from connected peers
+      // Different destination nodes run in parallel; per destination node, peer imports are sequential.
+      await Promise.all(
+        nodes.map(async (node) => {
+          const peers = topology.get(node.nodeId) || [];
+          for (const peerId of peers) {
+            const peerBundle = bundlePaths.get(peerId);
+            if (peerBundle && existsSync(peerBundle)) {
+              await node.importBundle(peerBundle);
+              totalBytesTransferred += statSync(peerBundle).size;
+              totalMessagesExchanged += 1;
+            }
+          }
+        }),
+      );
+
+      // 4. Convergence Check
+      let fullyConvergedNodes = 0;
+      for (const node of nodes) {
+        const stats = node.getClaimStats();
+        if (stats.totalClaims === globalClaimIds.size) {
+          let hasAll = true;
+          for (const id of globalClaimIds) {
+            if (!stats.claimIds.has(id)) {
+              hasAll = false;
+              break;
+            }
+          }
+          if (hasAll) fullyConvergedNodes++;
+        }
+      }
+
+      const roundDurationMs = performance.now() - roundStart;
+      roundsSummary.push({
+        round: r,
+        newClaims: newClaimsThisRound,
+        convergedNodes: fullyConvergedNodes,
+        totalNodes: nodeCount,
+        durationMs: roundDurationMs,
+      });
+
+      if (fullyConvergedNodes === nodeCount) {
+        converged = true;
+        roundsToConvergence = r;
+        break;
+      }
+    }
+
+    const totalDurationMs = performance.now() - simStart;
+
+    // 5. Invariant Audit across all nodes
+    const audit = auditClusterInvariants(nodes, globalClaimIds.size, globalClaimIds);
+
+    return {
+      converged,
+      roundsToConvergence,
+      totalRounds: roundsSummary.length,
+      totalClaims: globalClaimIds.size,
+      totalBytesTransferred,
+      totalMessagesExchanged,
+      durationMs: totalDurationMs,
+      roundsSummary,
+      audit,
+      nodeCount,
+      topology: topologyType,
+    };
+  } finally {
+    if (cleanup) {
+      try {
+        rmSync(workDir, { recursive: true, force: true });
+      } catch {
+        // ignore teardown cleanup failure
+      }
     }
   }
 }
