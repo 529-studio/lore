@@ -23,6 +23,7 @@
     "mcp:smoke": "node scripts/mcp-smoke.mjs",
     "mcp:concurrency": "node scripts/mcp-concurrency.mjs",
     "bench:concurrency": "node scripts/bench-concurrency.mjs",
+    "bench:cluster": "node scripts/bench-cluster.mjs",
     "canon:smoke": "node scripts/canon-smoke.mjs",
     "pg:smoke": "node scripts/pg-sync.mjs",
     "ui:smoke": "node scripts/ui-smoke.mjs",
