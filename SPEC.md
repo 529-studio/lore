@@ -464,6 +464,7 @@ No LLM judge. Outcome metrics on real repositories:
 | merge aborts equal-tier inference disagreements | semantic 3-way conflict resolver (`src/merge.ts`, `lore merge --semantic`) | equal-tier inference claims aborted without confidence or vector evaluation |
 | MCP supports tools only | MCP resource subscription protocol (`resources/list`, `read`, `subscribe`, notifications) | agents need event-driven updates on memory changes without polling |
 | secret detection throws only | secret scrubbing and ZK claim attestations (`src/security/scrub.ts`, `lore attest --zk`) | pipelines need credential auto-redaction and verifiable ZK proofs |
+| UI graph runs layout on main thread | Web Worker force simulation and spatial quadtree index (`src/ui/server.ts`, `/graph-worker.js`) | high-density graphs (> 1,000 nodes) freeze main UI thread without worker offloading |
 
 ## Glossary
 

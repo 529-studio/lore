@@ -30,6 +30,193 @@ export interface UiHandle {
   close: () => Promise<void>;
 }
 
+export const GRAPH_WORKER_SCRIPT = `
+self.onmessage = function(e) {
+  const data = e.data;
+  if (!data || data.type !== 'simulate') return;
+
+  const start = Date.now();
+  const width = data.width || 920;
+  const height = data.height || 580;
+  const nodes = data.nodes || [];
+  const links = data.links || [];
+  const clustered = data.clustered !== false;
+  const iterations = data.iterations || (nodes.length > 500 ? 50 : 80);
+  const clusterCentroids = data.clusterCentroids || {
+    file: { x: width * 0.42, y: height * 0.46 },
+    env:  { x: width * 0.82, y: height * 0.28 },
+    pkg:  { x: width * 0.18, y: height * 0.72 },
+    doc:  { x: width * 0.80, y: height * 0.75 },
+    obj:  { x: width * 0.50, y: height * 0.58 },
+  };
+
+  const total = nodes.length;
+  const nodeMap = new Map();
+  for (let i = 0; i < total; i++) nodeMap.set(nodes[i].id, nodes[i]);
+
+  for (let idx = 0; idx < total; idx++) {
+    const n = nodes[idx];
+    if (clustered) {
+      const cCenter = clusterCentroids[n.type] || clusterCentroids.file;
+      const angle = (idx / (total || 1)) * 2 * Math.PI;
+      const jitter = 40 + (idx % 6) * 16;
+      n.x = cCenter.x + Math.cos(angle) * jitter;
+      n.y = cCenter.y + Math.sin(angle) * jitter;
+    } else {
+      const angle = (idx / (total || 1)) * 2 * Math.PI;
+      const r = 110 + (idx % 4) * 55;
+      n.x = width / 2 + Math.cos(angle) * r;
+      n.y = height / 2 + Math.sin(angle) * r;
+    }
+  }
+
+  const cellSize = 100;
+  for (let iter = 0; iter < iterations; iter++) {
+    const decay = 1 - (iter / iterations) * 0.7;
+    if (total <= 250) {
+      for (let i = 0; i < total; i++) {
+        const a = nodes[i];
+        for (let j = i + 1; j < total; j++) {
+          const b = nodes[j];
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const minDist = 110 + Math.min(25, Math.max(a.degree, b.degree)) * 6;
+          const dSq = dx * dx + dy * dy;
+          if (dSq < minDist * minDist) {
+            const dist = Math.sqrt(dSq) || 1;
+            const f = ((minDist - dist) / dist) * 0.35 * decay;
+            a.x -= dx * f; a.y -= dy * f;
+            b.x += dx * f; b.y += dy * f;
+          }
+        }
+      }
+    } else {
+      const grid = new Map();
+      for (let i = 0; i < total; i++) {
+        const n = nodes[i];
+        const gx = Math.floor(n.x / cellSize);
+        const gy = Math.floor(n.y / cellSize);
+        const k = (gx << 16) ^ gy;
+        let bucket = grid.get(k);
+        if (!bucket) { bucket = []; grid.set(k, bucket); }
+        bucket.push(n);
+      }
+      for (let i = 0; i < total; i++) {
+        const a = nodes[i];
+        const gx = Math.floor(a.x / cellSize);
+        const gy = Math.floor(a.y / cellSize);
+        for (let ox = -1; ox <= 1; ox++) {
+          for (let oy = -1; oy <= 1; oy++) {
+            const k = ((gx + ox) << 16) ^ (gy + oy);
+            const bucket = grid.get(k);
+            if (!bucket) continue;
+            for (let bIdx = 0; bIdx < bucket.length; bIdx++) {
+              const b = bucket[bIdx];
+              if (b.id <= a.id) continue;
+              const dx = b.x - a.x;
+              const dy = b.y - a.y;
+              const minDist = 90 + Math.min(20, Math.max(a.degree, b.degree)) * 4;
+              const dSq = dx * dx + dy * dy;
+              if (dSq < minDist * minDist) {
+                const dist = Math.sqrt(dSq) || 1;
+                const f = ((minDist - dist) / dist) * 0.30 * decay;
+                a.x -= dx * f; a.y -= dy * f;
+                b.x += dx * f; b.y += dy * f;
+              }
+            }
+          }
+        }
+      }
+    }
+    for (let l = 0; l < links.length; l++) {
+      const link = links[l];
+      const src = typeof link.source === 'object' ? link.source : nodeMap.get(link.source);
+      const tgt = typeof link.target === 'object' ? link.target : nodeMap.get(link.target);
+      if (!src || !tgt) continue;
+      const dx = tgt.x - src.x;
+      const dy = tgt.y - src.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const hubBonus = Math.min(25, Math.max(src.degree, tgt.degree)) * 6;
+      const targetDist = 95 + hubBonus;
+      const f = (dist - targetDist) * 0.04 * decay;
+      src.x += (dx / dist) * f;
+      src.y += (dy / dist) * f;
+      tgt.x -= (dx / dist) * f;
+      tgt.y -= (dy / dist) * f;
+    }
+    if (clustered) {
+      for (let i = 0; i < total; i++) {
+        const n = nodes[i];
+        const cCenter = clusterCentroids[n.type] || clusterCentroids.file;
+        n.x += (cCenter.x - n.x) * 0.045 * decay;
+        n.y += (cCenter.y - n.y) * 0.045 * decay;
+      }
+    } else {
+      for (let i = 0; i < total; i++) {
+        const n = nodes[i];
+        n.x += (width / 2 - n.x) * 0.025 * decay;
+        n.y += (height / 2 - n.y) * 0.025 * decay;
+      }
+    }
+  }
+
+  if (total > 0) {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (let i = 0; i < total; i++) {
+      const n = nodes[i];
+      if (n.x < minX) minX = n.x;
+      if (n.x > maxX) maxX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.y > maxY) maxY = n.y;
+    }
+    const rangeX = maxX - minX || 1;
+    const rangeY = maxY - minY || 1;
+    const padX = 75;
+    const padY = 55;
+    const targetW = width - padX * 2;
+    const targetH = height - padY * 2;
+    for (let i = 0; i < total; i++) {
+      const n = nodes[i];
+      n.x = padX + ((n.x - minX) / rangeX) * targetW;
+      n.y = padY + ((n.y - minY) / rangeY) * targetH;
+    }
+  }
+
+  function createQuadtree(pts, x0, y0, x1, y1, depth) {
+    if (depth > 8 || pts.length <= 4) return { x0, y0, x1, y1, points: pts };
+    const midX = (x0 + x1) / 2;
+    const midY = (y0 + y1) / 2;
+    const q0 = [], q1 = [], q2 = [], q3 = [];
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      if (p.x < midX) {
+        if (p.y < midY) q0.push(p); else q2.push(p);
+      } else {
+        if (p.y < midY) q1.push(p); else q3.push(p);
+      }
+    }
+    return {
+      x0, y0, x1, y1,
+      children: [
+        createQuadtree(q0, x0, y0, midX, midY, depth + 1),
+        createQuadtree(q1, midX, y0, x1, midY, depth + 1),
+        createQuadtree(q2, x0, midY, midX, y1, depth + 1),
+        createQuadtree(q3, midX, midY, x1, y1, depth + 1),
+      ]
+    };
+  }
+
+  const quadtree = createQuadtree(nodes.map(n => ({ id: n.id, x: n.x, y: n.y })), 0, 0, width, height, 0);
+
+  self.postMessage({
+    type: 'complete',
+    nodes: nodes,
+    durationMs: Date.now() - start,
+    quadtree: quadtree,
+  });
+};
+`;
+
 export interface SyncStatusPayload {
   remoteStatus: 'in sync' | 'ahead' | 'behind' | 'diverged' | 'not synced yet' | 'standalone';
   remoteType: string | null;
@@ -379,6 +566,7 @@ const HTML = String.raw`<!doctype html>
             <option value="all">All Relationships</option>
           </select>
           <button class="graph-btn pill-sm on" id="graph-cluster-mode" title="Toggle Semantic Clustering Force">Clusters: ON</button>
+          <button class="graph-btn pill-sm on" id="graph-density-toggle" title="Toggle High-Density Web Worker Mode (up to 1,200 nodes)">Density: High</button>
         </div>
 
         <div class="graph-controls">
@@ -1090,12 +1278,260 @@ let graphState = {
   typeFilter: 'all',
   predicateFilter: 'all',
   clustered: true,
+  highDensity: true,
+  quadtree: null,
+  hoveredNode: null,
   selectedNode: null,
   focusedSubgraph: null,
   isDragging: false,
   dragStartX: 0,
   dragStartY: 0,
 };
+
+let graphWorker = null;
+function getGraphWorker() {
+  if (graphWorker) return graphWorker;
+  try {
+    if (typeof Worker !== 'undefined') {
+      graphWorker = new Worker('/graph-worker.js');
+      return graphWorker;
+    }
+  } catch (err) {
+    console.warn('[graph] Web Worker unavailable, using main thread', err);
+  }
+  return null;
+}
+
+function queryQuadtree(qt, qx, qy, maxRadius) {
+  if (!qt) return null;
+  let closest = null;
+  let closestDistSq = maxRadius * maxRadius;
+
+  function search(node) {
+    if (!node) return;
+    if (
+      qx < node.x0 - maxRadius ||
+      qx > node.x1 + maxRadius ||
+      qy < node.y0 - maxRadius ||
+      qy > node.y1 + maxRadius
+    ) {
+      return;
+    }
+    if (node.points) {
+      for (let i = 0; i < node.points.length; i++) {
+        const p = node.points[i];
+        const dx = p.x - qx;
+        const dy = p.y - qy;
+        const dSq = dx * dx + dy * dy;
+        if (dSq < closestDistSq) {
+          closestDistSq = dSq;
+          closest = p;
+        }
+      }
+      return;
+    }
+    if (node.children) {
+      for (let i = 0; i < node.children.length; i++) {
+        search(node.children[i]);
+      }
+    }
+  }
+
+  search(qt);
+  return closest;
+}
+
+function highlightHoveredNode(nodeId) {
+  if (graphState.selectedNode) return;
+  const vp = $('graph-viewport');
+  if (!vp) return;
+  const nodes = vp.querySelectorAll('.node');
+  const links = vp.querySelectorAll('.link');
+  if (!nodeId) {
+    for (const n of nodes) n.style.opacity = '1';
+    for (const l of links) { l.style.opacity = '0.65'; l.style.strokeWidth = '1.5'; }
+    return;
+  }
+  for (const n of nodes) {
+    n.style.opacity = n.getAttribute('data-id') === nodeId ? '1' : '0.25';
+  }
+  for (const l of links) {
+    const isConn = l.getAttribute('data-source') === nodeId || l.getAttribute('data-target') === nodeId;
+    l.style.opacity = isConn ? '1' : '0.12';
+    l.style.strokeWidth = isConn ? '2.5' : '1';
+  }
+}
+
+function runLocalSimulation(nodes, links, width, height, clustered) {
+  const start = Date.now();
+  const total = nodes.length;
+  const nodeMap = new Map();
+  for (let i = 0; i < total; i++) nodeMap.set(nodes[i].id, nodes[i]);
+
+  const clusterCentroids = {
+    file: { x: width * 0.42, y: height * 0.46 },
+    env:  { x: width * 0.82, y: height * 0.28 },
+    pkg:  { x: width * 0.18, y: height * 0.72 },
+    doc:  { x: width * 0.80, y: height * 0.75 },
+    obj:  { x: width * 0.50, y: height * 0.58 },
+  };
+
+  for (let idx = 0; idx < total; idx++) {
+    const n = nodes[idx];
+    if (clustered) {
+      const cCenter = clusterCentroids[n.type] || clusterCentroids.file;
+      const angle = (idx / (total || 1)) * 2 * Math.PI;
+      const jitter = 40 + (idx % 6) * 16;
+      n.x = cCenter.x + Math.cos(angle) * jitter;
+      n.y = cCenter.y + Math.sin(angle) * jitter;
+    } else {
+      const angle = (idx / (total || 1)) * 2 * Math.PI;
+      const r = 110 + (idx % 4) * 55;
+      n.x = width / 2 + Math.cos(angle) * r;
+      n.y = height / 2 + Math.sin(angle) * r;
+    }
+  }
+
+  const iterations = total > 500 ? 50 : 80;
+  const cellSize = 100;
+  for (let iter = 0; iter < iterations; iter++) {
+    const decay = 1 - (iter / iterations) * 0.7;
+    if (total <= 250) {
+      for (let i = 0; i < total; i++) {
+        const a = nodes[i];
+        for (let j = i + 1; j < total; j++) {
+          const b = nodes[j];
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const minDist = 110 + Math.min(25, Math.max(a.degree, b.degree)) * 6;
+          const dSq = dx * dx + dy * dy;
+          if (dSq < minDist * minDist) {
+            const dist = Math.sqrt(dSq) || 1;
+            const f = ((minDist - dist) / dist) * 0.35 * decay;
+            a.x -= dx * f; a.y -= dy * f;
+            b.x += dx * f; b.y += dy * f;
+          }
+        }
+      }
+    } else {
+      const grid = new Map();
+      for (let i = 0; i < total; i++) {
+        const n = nodes[i];
+        const gx = Math.floor(n.x / cellSize);
+        const gy = Math.floor(n.y / cellSize);
+        const k = (gx << 16) ^ gy;
+        let bucket = grid.get(k);
+        if (!bucket) { bucket = []; grid.set(k, bucket); }
+        bucket.push(n);
+      }
+      for (let i = 0; i < total; i++) {
+        const a = nodes[i];
+        const gx = Math.floor(a.x / cellSize);
+        const gy = Math.floor(a.y / cellSize);
+        for (let ox = -1; ox <= 1; ox++) {
+          for (let oy = -1; oy <= 1; oy++) {
+            const k = ((gx + ox) << 16) ^ (gy + oy);
+            const bucket = grid.get(k);
+            if (!bucket) continue;
+            for (let bIdx = 0; bIdx < bucket.length; bIdx++) {
+              const b = bucket[bIdx];
+              if (b.id <= a.id) continue;
+              const dx = b.x - a.x;
+              const dy = b.y - a.y;
+              const minDist = 90 + Math.min(20, Math.max(a.degree, b.degree)) * 4;
+              const dSq = dx * dx + dy * dy;
+              if (dSq < minDist * minDist) {
+                const dist = Math.sqrt(dSq) || 1;
+                const f = ((minDist - dist) / dist) * 0.30 * decay;
+                a.x -= dx * f; a.y -= dy * f;
+                b.x += dx * f; b.y += dy * f;
+              }
+            }
+          }
+        }
+      }
+    }
+    for (let l = 0; l < links.length; l++) {
+      const link = links[l];
+      const src = typeof link.source === 'object' ? link.source : nodeMap.get(link.source);
+      const tgt = typeof link.target === 'object' ? link.target : nodeMap.get(link.target);
+      if (!src || !tgt) continue;
+      const dx = tgt.x - src.x;
+      const dy = tgt.y - src.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const hubBonus = Math.min(25, Math.max(src.degree, tgt.degree)) * 6;
+      const targetDist = 95 + hubBonus;
+      const f = (dist - targetDist) * 0.04 * decay;
+      src.x += (dx / dist) * f;
+      src.y += (dy / dist) * f;
+      tgt.x -= (dx / dist) * f;
+      tgt.y -= (dy / dist) * f;
+    }
+    if (clustered) {
+      for (let i = 0; i < total; i++) {
+        const n = nodes[i];
+        const cCenter = clusterCentroids[n.type] || clusterCentroids.file;
+        n.x += (cCenter.x - n.x) * 0.045 * decay;
+        n.y += (cCenter.y - n.y) * 0.045 * decay;
+      }
+    } else {
+      for (let i = 0; i < total; i++) {
+        const n = nodes[i];
+        n.x += (width / 2 - n.x) * 0.025 * decay;
+        n.y += (height / 2 - n.y) * 0.025 * decay;
+      }
+    }
+  }
+
+  if (total > 0) {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (let i = 0; i < total; i++) {
+      const n = nodes[i];
+      if (n.x < minX) minX = n.x;
+      if (n.x > maxX) maxX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.y > maxY) maxY = n.y;
+    }
+    const rangeX = maxX - minX || 1;
+    const rangeY = maxY - minY || 1;
+    const padX = 75;
+    const padY = 55;
+    const targetW = width - padX * 2;
+    const targetH = height - padY * 2;
+    for (let i = 0; i < total; i++) {
+      const n = nodes[i];
+      n.x = padX + ((n.x - minX) / rangeX) * targetW;
+      n.y = padY + ((n.y - minY) / rangeY) * targetH;
+    }
+  }
+
+  function createQuadtree(pts, x0, y0, x1, y1, depth) {
+    if (depth > 8 || pts.length <= 4) return { x0, y0, x1, y1, points: pts };
+    const midX = (x0 + x1) / 2;
+    const midY = (y0 + y1) / 2;
+    const q0 = [], q1 = [], q2 = [], q3 = [];
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      if (p.x < midX) {
+        if (p.y < midY) q0.push(p); else q2.push(p);
+      } else {
+        if (p.y < midY) q1.push(p); else q3.push(p);
+      }
+    }
+    return {
+      x0, y0, x1, y1,
+      children: [
+        createQuadtree(q0, x0, y0, midX, midY, depth + 1),
+        createQuadtree(q1, midX, y0, x1, midY, depth + 1),
+        createQuadtree(q2, x0, midY, midX, y1, depth + 1),
+        createQuadtree(q3, midX, midY, x1, y1, depth + 1),
+      ]
+    };
+  }
+
+  const quadtree = createQuadtree(nodes.map(n => ({ id: n.id, x: n.x, y: n.y })), 0, 0, width, height, 0);
+  return { nodes, quadtree, durationMs: Date.now() - start, isWorker: false };
+}
 
 function updateGraphTransform() {
   const vp = $('graph-viewport');
@@ -1302,7 +1738,8 @@ function renderGraphView(claims) {
     return nodes.get(id);
   };
 
-  const sample = targetClaims.slice(0, 85);
+  const maxSample = graphState.highDensity ? 1200 : 85;
+  const sample = targetClaims.slice(0, maxSample);
   for (const c of sample) {
     let sType = 'file';
     if (c.subject.startsWith('env:')) sType = 'env';
@@ -1319,167 +1756,109 @@ function renderGraphView(claims) {
     links.push({ source: sNode, target: oNode, label: c.predicate });
   }
 
-  $('graph-stat').textContent = nodes.size + ' nodes, ' + links.length + ' relations';
+  $('graph-stat').textContent = nodes.size + ' nodes, ' + links.length + ' relations (calculating layout...)';
 
-  const clusterCentroids = {
-    file: { x: width * 0.42, y: height * 0.46 },
-    env:  { x: width * 0.82, y: height * 0.28 },
-    pkg:  { x: width * 0.18, y: height * 0.72 },
-    doc:  { x: width * 0.80, y: height * 0.75 },
-    obj:  { x: width * 0.50, y: height * 0.58 },
-  };
-
-  const nodeArr = Array.from(nodes.values());
-  const total = nodeArr.length;
-  nodeArr.forEach((n, idx) => {
-    if (graphState.clustered) {
-      const cCenter = clusterCentroids[n.type] || clusterCentroids.file;
-      const angle = (idx / (total || 1)) * 2 * Math.PI;
-      const jitter = 40 + (idx % 6) * 16;
-      n.x = cCenter.x + Math.cos(angle) * jitter;
-      n.y = cCenter.y + Math.sin(angle) * jitter;
-    } else {
-      const angle = (idx / (total || 1)) * 2 * Math.PI;
-      const r = 110 + (idx % 4) * 55;
-      n.x = width / 2 + Math.cos(angle) * r;
-      n.y = height / 2 + Math.sin(angle) * r;
-    }
-  });
-
-  const iterations = 80;
-  for (let iter = 0; iter < iterations; iter++) {
-    const decay = 1 - (iter / iterations) * 0.7;
-    for (let i = 0; i < total; i++) {
-      for (let j = i + 1; j < total; j++) {
-        const a = nodeArr[i];
-        const b = nodeArr[j];
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        const minDist = 110 + Math.min(25, Math.max(a.degree, b.degree)) * 6;
-        if (dist < minDist) {
-          const f = ((minDist - dist) / dist) * 0.35 * decay;
-          a.x -= dx * f;
-          a.y -= dy * f;
-          b.x += dx * f;
-          b.y += dy * f;
-        }
-      }
-    }
-    for (const l of links) {
-      const dx = l.target.x - l.source.x;
-      const dy = l.target.y - l.source.y;
-      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      const hubBonus = Math.min(25, Math.max(l.source.degree, l.target.degree)) * 6;
-      const targetDist = 95 + hubBonus;
-      const f = (dist - targetDist) * 0.04 * decay;
-      l.source.x += (dx / dist) * f;
-      l.source.y += (dy / dist) * f;
-      l.target.x -= (dx / dist) * f;
-      l.target.y -= (dy / dist) * f;
-    }
-    if (graphState.clustered) {
-      for (const n of nodeArr) {
-        const cCenter = clusterCentroids[n.type] || clusterCentroids.file;
-        n.x += (cCenter.x - n.x) * 0.045 * decay;
-        n.y += (cCenter.y - n.y) * 0.045 * decay;
-      }
-    } else {
-      for (const n of nodeArr) {
-        n.x += (width / 2 - n.x) * 0.025 * decay;
-        n.y += (height / 2 - n.y) * 0.025 * decay;
-      }
-    }
-  }
-
-  // Smooth auto-fit into canvas bounds without hard boundary clamping
-  if (total > 0) {
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const n of nodeArr) {
-      if (n.x < minX) minX = n.x;
-      if (n.x > maxX) maxX = n.x;
-      if (n.y < minY) minY = n.y;
-      if (n.y > maxY) maxY = n.y;
-    }
-    const rangeX = maxX - minX || 1;
-    const rangeY = maxY - minY || 1;
-    const padX = 75;
-    const padY = 55;
-    const targetW = width - padX * 2;
-    const targetH = height - padY * 2;
-    for (const n of nodeArr) {
-      n.x = padX + ((n.x - minX) / rangeX) * targetW;
-      n.y = padY + ((n.y - minY) / rangeY) * targetH;
-    }
-  }
-
-  const getLinkStyle = (predicate) => {
-    if (predicate === 'imports_module') return { color: '#bc8cff', marker: 'url(#arrow-imports)' };
-    if (predicate === 'read_by') return { color: '#d29922', marker: 'url(#arrow-read)' };
-    if (predicate === 'enforces_invariant') return { color: '#f85149', marker: 'url(#arrow-invariant)' };
-    if (predicate === 'exposes_route') return { color: '#2ea043', marker: 'url(#arrow-route)' };
-    return { color: '#58a6ff', marker: 'url(#arrow-default)' };
-  };
-
-  for (const l of links) {
-    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    const style = getLinkStyle(l.label);
-    line.setAttribute('x1', l.source.x); line.setAttribute('y1', l.source.y);
-    line.setAttribute('x2', l.target.x); line.setAttribute('y2', l.target.y);
-    line.setAttribute('class', 'link');
-    line.setAttribute('stroke', style.color);
-    line.setAttribute('stroke-opacity', '0.65');
-    line.setAttribute('stroke-width', '1.5');
-    line.setAttribute('marker-end', style.marker);
-    line.setAttribute('data-source', l.source.id);
-    line.setAttribute('data-target', l.target.id);
-    line.setAttribute('data-predicate', l.label);
-
-    const titleEl = document.createElementNS('http://www.w3.org/2000/svg', 'title');
-    titleEl.textContent = l.source.id + ' — [' + l.label + '] → ' + l.target.id;
-    line.append(titleEl);
-
-    viewport.append(line);
-  }
-
-  for (const n of nodeArr) {
-    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    g.setAttribute('class', 'node' + (graphState.selectedNode === n.id ? ' selected' : ''));
-    g.setAttribute('data-id', n.id);
-    g.setAttribute('transform', 'translate(' + n.x + ',' + n.y + ')');
-
-    const titleEl = document.createElementNS('http://www.w3.org/2000/svg', 'title');
-    titleEl.textContent = n.id + ' (' + n.degree + ' connection' + (n.degree === 1 ? '' : 's') + ')';
-    g.append(titleEl);
-
-    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    const r = Math.min(14, 7 + Math.floor(Math.sqrt(n.degree || 1) * 2));
-    circle.setAttribute('r', String(r));
-    let color = '#58a6ff';
-    if (n.type === 'env') color = '#d29922';
-    else if (n.type === 'pkg') color = '#bc8cff';
-    else if (n.type === 'doc') color = '#f85149';
-    else if (n.type === 'obj') color = '#8b949e';
-    circle.setAttribute('fill', color);
-    circle.setAttribute('stroke', '#161b22');
-    g.append(circle);
-
-    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    text.setAttribute('dx', String(r + 5));
-    text.setAttribute('dy', '4');
-    text.textContent = shortLabel(n.id);
-    g.append(text);
-
-    g.onclick = (e) => {
-      e.stopPropagation();
-      selectGraphNode(n, links, targetClaims);
+  function renderGraphElements(nodeMap, linkList) {
+    viewport.replaceChildren();
+    const getLinkStyle = (predicate) => {
+      if (predicate === 'imports_module') return { color: '#bc8cff', marker: 'url(#arrow-imports)' };
+      if (predicate === 'read_by') return { color: '#d29922', marker: 'url(#arrow-read)' };
+      if (predicate === 'enforces_invariant') return { color: '#f85149', marker: 'url(#arrow-invariant)' };
+      if (predicate === 'exposes_route') return { color: '#2ea043', marker: 'url(#arrow-route)' };
+      return { color: '#58a6ff', marker: 'url(#arrow-default)' };
     };
 
-    viewport.append(g);
+    for (const l of linkList) {
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      const style = getLinkStyle(l.label);
+      line.setAttribute('x1', l.source.x); line.setAttribute('y1', l.source.y);
+      line.setAttribute('x2', l.target.x); line.setAttribute('y2', l.target.y);
+      line.setAttribute('class', 'link');
+      line.setAttribute('stroke', style.color);
+      line.setAttribute('stroke-opacity', '0.65');
+      line.setAttribute('stroke-width', '1.5');
+      line.setAttribute('marker-end', style.marker);
+      line.setAttribute('data-source', l.source.id);
+      line.setAttribute('data-target', l.target.id);
+      line.setAttribute('data-predicate', l.label);
+
+      const titleEl = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+      titleEl.textContent = l.source.id + ' — [' + l.label + '] → ' + l.target.id;
+      line.append(titleEl);
+
+      viewport.append(line);
+    }
+
+    const nodeArr = Array.from(nodeMap.values());
+    for (const n of nodeArr) {
+      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      g.setAttribute('class', 'node' + (graphState.selectedNode === n.id ? ' selected' : ''));
+      g.setAttribute('data-id', n.id);
+      g.setAttribute('transform', 'translate(' + n.x + ',' + n.y + ')');
+
+      const titleEl = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+      titleEl.textContent = n.id + ' (' + n.degree + ' connection' + (n.degree === 1 ? '' : 's') + ')';
+      g.append(titleEl);
+
+      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      const r = Math.min(14, 7 + Math.floor(Math.sqrt(n.degree || 1) * 2));
+      circle.setAttribute('r', String(r));
+      let color = '#58a6ff';
+      if (n.type === 'env') color = '#d29922';
+      else if (n.type === 'pkg') color = '#bc8cff';
+      else if (n.type === 'doc') color = '#f85149';
+      else if (n.type === 'obj') color = '#8b949e';
+      circle.setAttribute('fill', color);
+      circle.setAttribute('stroke', '#161b22');
+      g.append(circle);
+
+      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      text.setAttribute('dx', String(r + 5));
+      text.setAttribute('dy', '4');
+      text.textContent = shortLabel(n.id);
+      g.append(text);
+
+      g.onclick = (e) => {
+        e.stopPropagation();
+        selectGraphNode(n, linkList, targetClaims);
+      };
+
+      viewport.append(g);
+    }
+
+    if (graphState.selectedNode && nodeMap.has(graphState.selectedNode)) {
+      selectGraphNode(nodeMap.get(graphState.selectedNode), linkList, targetClaims);
+    }
   }
 
-  if (graphState.selectedNode && nodes.has(graphState.selectedNode)) {
-    selectGraphNode(nodes.get(graphState.selectedNode), links, targetClaims);
+  const worker = getGraphWorker();
+  if (worker) {
+    worker.onmessage = (e) => {
+      if (e.data && e.data.type === 'complete') {
+        const posMap = new Map();
+        for (const n of e.data.nodes) posMap.set(n.id, n);
+        for (const n of nodes.values()) {
+          const p = posMap.get(n.id);
+          if (p) { n.x = p.x; n.y = p.y; }
+        }
+        graphState.quadtree = e.data.quadtree;
+        $('graph-stat').textContent = nodes.size + ' nodes, ' + links.length + ' relations (worker: ' + e.data.durationMs + 'ms, quadtree indexed)';
+        renderGraphElements(nodes, links);
+      }
+    };
+    worker.postMessage({
+      type: 'simulate',
+      nodes: Array.from(nodes.values()).map(n => ({ id: n.id, type: n.type, degree: n.degree })),
+      links: links.map(l => ({ source: l.source.id, target: l.target.id, label: l.label })),
+      width,
+      height,
+      clustered: graphState.clustered,
+    });
+  } else {
+    const res = runLocalSimulation(Array.from(nodes.values()), links, width, height, graphState.clustered);
+    graphState.quadtree = res.quadtree;
+    $('graph-stat').textContent = nodes.size + ' nodes, ' + links.length + ' relations (main: ' + res.durationMs + 'ms, quadtree indexed)';
+    renderGraphElements(nodes, links);
   }
 }
 
@@ -1853,6 +2232,24 @@ graphSvg.onclick = (e) => {
     }
   }
 };
+graphSvg.onmousemove = (e) => {
+  if (graphState.isDragging || !graphState.quadtree) return;
+  const rect = graphSvg.getBoundingClientRect();
+  const mx = (e.clientX - rect.left - graphState.panX) / graphState.zoom;
+  const my = (e.clientY - rect.top - graphState.panY) / graphState.zoom;
+  const hit = queryQuadtree(graphState.quadtree, mx, my, 22);
+  const hitId = hit ? hit.id : null;
+  if (graphState.hoveredNode !== hitId) {
+    graphState.hoveredNode = hitId;
+    highlightHoveredNode(hitId);
+  }
+};
+graphSvg.onmouseleave = () => {
+  if (graphState.hoveredNode) {
+    graphState.hoveredNode = null;
+    highlightHoveredNode(null);
+  }
+};
 
 $('graph-zoom-in').onclick = () => {
   graphState.zoom = Math.min(graphState.zoom * 1.25, 3.5);
@@ -1895,6 +2292,16 @@ if (clusterModeBtn) {
     graphState.clustered = !graphState.clustered;
     clusterModeBtn.textContent = graphState.clustered ? 'Clusters: ON' : 'Clusters: OFF';
     clusterModeBtn.classList.toggle('on', graphState.clustered);
+    renderActiveView();
+  };
+}
+
+const densityToggleBtn = $('graph-density-toggle');
+if (densityToggleBtn) {
+  densityToggleBtn.onclick = () => {
+    graphState.highDensity = !graphState.highDensity;
+    densityToggleBtn.textContent = graphState.highDensity ? 'Density: High' : 'Density: Standard';
+    densityToggleBtn.classList.toggle('on', graphState.highDensity);
     renderActiveView();
   };
 }
@@ -2357,6 +2764,15 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
       if (url.pathname === '/') {
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
         res.end(HTML.replace('__CSRF__', csrf));
+        return;
+      }
+
+      if (url.pathname === '/graph-worker.js') {
+        res.writeHead(200, {
+          'content-type': 'application/javascript; charset=utf-8',
+          'cache-control': 'public, max-age=3600',
+        });
+        res.end(GRAPH_WORKER_SCRIPT);
         return;
       }
 
