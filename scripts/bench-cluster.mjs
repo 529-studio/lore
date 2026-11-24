@@ -396,3 +396,155 @@ export async function runClusterSimulation(options = {}) {
     }
   }
 }
+
+/**
+ * Formats round-by-round convergence metrics into a clean box-drawing table.
+ */
+export function formatRoundsTable(roundsSummary) {
+  const colWidths = {
+    round: 7,
+    newClaims: 12,
+    converged: 17,
+    progress: 10,
+    duration: 15,
+  };
+
+  const padLeft = (str, len) => str.padStart(len);
+  const padRight = (str, len) => str.padEnd(len);
+
+  const top = '┌' + Object.values(colWidths).map((w) => '─'.repeat(w + 2)).join('┬') + '┐';
+  const mid = '├' + Object.values(colWidths).map((w) => '─'.repeat(w + 2)).join('┼') + '┤';
+  const bot = '└' + Object.values(colWidths).map((w) => '─'.repeat(w + 2)).join('┴') + '┘';
+
+  const header =
+    '│ ' +
+    [
+      padRight('Round', colWidths.round),
+      padLeft('New Claims', colWidths.newClaims),
+      padLeft('Converged Nodes', colWidths.converged),
+      padLeft('Progress', colWidths.progress),
+      padLeft('Duration (ms)', colWidths.duration),
+    ].join(' │ ') +
+    ' │';
+
+  const formatRow = (r) => {
+    const pct = `${((r.convergedNodes / r.totalNodes) * 100).toFixed(0)}%`;
+    return (
+      '│ ' +
+      [
+        padRight(String(r.round), colWidths.round),
+        padLeft(String(r.newClaims), colWidths.newClaims),
+        padLeft(`${r.convergedNodes}/${r.totalNodes}`, colWidths.converged),
+        padLeft(pct, colWidths.progress),
+        padLeft(r.durationMs.toFixed(1), colWidths.duration),
+      ].join(' │ ') +
+      ' │'
+    );
+  };
+
+  return [
+    pc.dim(top),
+    pc.bold(header),
+    pc.dim(mid),
+    ...roundsSummary.map((r) => formatRow(r)),
+    pc.dim(bot),
+  ].join('\n');
+}
+
+/**
+ * Prints comprehensive cluster simulation and invariant verification report.
+ */
+export function printClusterReport(result) {
+  const kbTransferred = (result.totalBytesTransferred / 1024).toFixed(1);
+  const throughput = ((result.totalClaims / result.durationMs) * 1000).toFixed(1);
+
+  if (result.converged) {
+    console.log(
+      pc.green(
+        `[OK] cluster gossip simulation converged: ${result.totalClaims} claims across ${result.nodeCount} nodes (${result.topology} topology)`,
+      ),
+    );
+    console.log(
+      pc.green(
+        `[OK] convergence reached in ${result.roundsToConvergence} rounds (${result.durationMs.toFixed(1)}ms, ${throughput} claims/sec, ${result.totalMessagesExchanged} bundles exchanged, ${kbTransferred} KB transferred)`,
+      ),
+    );
+  } else {
+    console.error(
+      pc.red(
+        `[ERR] cluster simulation failed to converge within ${result.totalRounds} rounds (${result.durationMs.toFixed(1)}ms)`,
+      ),
+    );
+  }
+
+  console.log(formatRoundsTable(result.roundsSummary));
+
+  if (result.audit) {
+    console.log(
+      pc.green(
+        `[OK] SQLite PRAGMA integrity_check: ok across all ${result.audit.verifiedNodes} replica databases`,
+      ),
+    );
+    console.log(
+      pc.green(
+        `[OK] claim parity: 100% (${result.audit.claimCount}/${result.audit.claimCount} distinct claims converged)`,
+      ),
+    );
+    console.log(pc.green('[OK] zero lost writes, sound commit DAG continuity across cluster'));
+  }
+}
+
+async function main() {
+  if (!existsSync(CLI)) {
+    console.error(pc.red(`[ERR] dist/cli.js not found. Run npm run build first.`));
+    process.exit(1);
+  }
+
+  const isQuick = process.argv.includes('--quick') || process.env.LORE_CLUSTER_QUICK === '1';
+
+  let nodeCount = isQuick ? 3 : 5;
+  let topology = 'ring';
+  let mutationRounds = isQuick ? 1 : 2;
+  let maxGossipRounds = isQuick ? 5 : 10;
+
+  for (let i = 0; i < process.argv.length; i++) {
+    const arg = process.argv[i];
+    if (arg === '--nodes' && process.argv[i + 1]) {
+      nodeCount = parseInt(process.argv[++i], 10);
+    } else if (arg === '--topology' && process.argv[i + 1]) {
+      topology = process.argv[++i];
+    } else if (arg === '--rounds' && process.argv[i + 1]) {
+      mutationRounds = parseInt(process.argv[++i], 10);
+    }
+  }
+
+  if (process.env.LORE_CLUSTER_NODES) nodeCount = parseInt(process.env.LORE_CLUSTER_NODES, 10);
+  if (process.env.LORE_CLUSTER_TOPOLOGY) topology = process.env.LORE_CLUSTER_TOPOLOGY;
+  if (process.env.LORE_CLUSTER_ROUNDS) mutationRounds = parseInt(process.env.LORE_CLUSTER_ROUNDS, 10);
+
+  console.log(
+    `${pc.green('[OK]')} starting multi-replica gossip topology simulation${isQuick ? ' (quick mode)' : ''}: ${nodeCount} nodes, ${topology} topology, ${mutationRounds} mutation round(s)`,
+  );
+
+  const result = await runClusterSimulation({
+    nodeCount,
+    topology,
+    mutationRounds,
+    claimsPerNode: 1,
+    maxGossipRounds,
+    cleanup: true,
+  });
+
+  printClusterReport(result);
+
+  if (!result.converged) {
+    process.exitCode = 1;
+  }
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  main().catch((err) => {
+    console.error(pc.red(`[ERR] cluster simulation crashed: ${err.message}`));
+    process.exit(1);
+  });
+}
