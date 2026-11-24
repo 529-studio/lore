@@ -47,8 +47,9 @@ function printDecisions(decisions: Decision[]): void {
 export interface MergeOptions {
   branch: string;
   session?: string;
-  strategy?: 'authority' | 'recency';
+  strategy?: 'authority' | 'recency' | 'semantic';
   strict?: boolean;
+  semantic?: boolean;
   dryRun?: boolean;
 }
 
@@ -64,8 +65,9 @@ export function mergeCommand(opts: MergeOptions): void {
 
   const ontology = loadOntology(root);
   const plan = planMerge(db, root, oursTip, theirs.id, {
-    strategy: opts.strategy ?? 'authority',
+    strategy: opts.strategy ?? (opts.semantic ? 'semantic' : 'authority'),
     strict: Boolean(opts.strict),
+    semantic: Boolean(opts.semantic || opts.strategy === 'semantic'),
     ontology,
     pendingResolution: loadPending(db),
   });

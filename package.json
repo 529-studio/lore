@@ -32,6 +32,7 @@
     "temporal:smoke": "node scripts/temporal-smoke.mjs",
     "vector:smoke": "node scripts/test-vector-search.mjs",
     "test:vector": "node scripts/test-vector-search.mjs",
+    "test:merge": "node scripts/test-semantic-merge.mjs",
     "setup:smoke": "node scripts/setup-smoke.mjs",
     "eval": "node scripts/eval.mjs",
     "demo:cli": "node scripts/demo/record-cli.mjs",
