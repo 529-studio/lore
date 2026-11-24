@@ -42,12 +42,137 @@ export interface TimelineResult {
   entries: TimelineEntry[];
 }
 
-export function parseTemporalInstant(value: string | number | undefined, label: string): number {
-  if (value === undefined) return Date.now();
+export interface RelativeTemporalResult {
+  timestamp: number;
+  iso: string;
+  offsetMs: number;
+  direction: 'past' | 'future' | 'now';
+}
+
+const UNIT_MS: Record<string, number> = {
+  s: 1000,
+  sec: 1000,
+  second: 1000,
+  seconds: 1000,
+  m: 60 * 1000,
+  min: 60 * 1000,
+  minute: 60 * 1000,
+  minutes: 60 * 1000,
+  h: 3600 * 1000,
+  hr: 3600 * 1000,
+  hour: 3600 * 1000,
+  hours: 3600 * 1000,
+  d: 86400 * 1000,
+  day: 86400 * 1000,
+  days: 86400 * 1000,
+  w: 7 * 86400 * 1000,
+  wk: 7 * 86400 * 1000,
+  week: 7 * 86400 * 1000,
+  weeks: 7 * 86400 * 1000,
+  mo: 30 * 86400 * 1000,
+  month: 30 * 86400 * 1000,
+  months: 30 * 86400 * 1000,
+  y: 365 * 86400 * 1000,
+  yr: 365 * 86400 * 1000,
+  year: 365 * 86400 * 1000,
+  years: 365 * 86400 * 1000,
+};
+
+/**
+ * Parses natural language relative temporal expressions into deterministic timestamps and ISO dates.
+ * Supports keywords (now, today, yesterday, tomorrow, last week/month/year), verbose offsets ("3 days ago"),
+ * future offsets ("in 2 hours"), and compact shorthands ("-3d", "+2h").
+ */
+export function parseRelativeTemporal(value: string, now: number = Date.now()): RelativeTemporalResult | null {
+  if (!value || typeof value !== 'string') return null;
+  const trimmed = value.trim().toLowerCase();
+
+  // 1. Direct keywords
+  if (trimmed === 'now' || trimmed === 'today') {
+    return { timestamp: now, iso: new Date(now).toISOString(), offsetMs: 0, direction: 'now' };
+  }
+  if (trimmed === 'yesterday') {
+    const offsetMs = 86400 * 1000;
+    const ts = now - offsetMs;
+    return { timestamp: ts, iso: new Date(ts).toISOString(), offsetMs, direction: 'past' };
+  }
+  if (trimmed === 'tomorrow') {
+    const offsetMs = 86400 * 1000;
+    const ts = now + offsetMs;
+    return { timestamp: ts, iso: new Date(ts).toISOString(), offsetMs, direction: 'future' };
+  }
+  if (trimmed === 'last week') {
+    const offsetMs = 7 * 86400 * 1000;
+    const ts = now - offsetMs;
+    return { timestamp: ts, iso: new Date(ts).toISOString(), offsetMs, direction: 'past' };
+  }
+  if (trimmed === 'last month') {
+    const offsetMs = 30 * 86400 * 1000;
+    const ts = now - offsetMs;
+    return { timestamp: ts, iso: new Date(ts).toISOString(), offsetMs, direction: 'past' };
+  }
+  if (trimmed === 'last year') {
+    const offsetMs = 365 * 86400 * 1000;
+    const ts = now - offsetMs;
+    return { timestamp: ts, iso: new Date(ts).toISOString(), offsetMs, direction: 'past' };
+  }
+
+  // 2. Verbose offset: "<N> <unit> ago"
+  const agoMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s*([a-z]+)\s+ago$/);
+  if (agoMatch) {
+    const count = parseFloat(agoMatch[1]);
+    const unit = agoMatch[2];
+    const multiplier = UNIT_MS[unit];
+    if (multiplier) {
+      const offsetMs = Math.round(count * multiplier);
+      const ts = now - offsetMs;
+      return { timestamp: ts, iso: new Date(ts).toISOString(), offsetMs, direction: 'past' };
+    }
+  }
+
+  // 3. Verbose future offset: "in <N> <unit>"
+  const inMatch = trimmed.match(/^in\s+(\d+(?:\.\d+)?)\s*([a-z]+)$/);
+  if (inMatch) {
+    const count = parseFloat(inMatch[1]);
+    const unit = inMatch[2];
+    const multiplier = UNIT_MS[unit];
+    if (multiplier) {
+      const offsetMs = Math.round(count * multiplier);
+      const ts = now + offsetMs;
+      return { timestamp: ts, iso: new Date(ts).toISOString(), offsetMs, direction: 'future' };
+    }
+  }
+
+  // 4. Shorthands: "-<N><unit>" or "+<N><unit>"
+  const shorthandMatch = trimmed.match(/^([+-])\s*(\d+(?:\.\d+)?)\s*([a-z]+)$/);
+  if (shorthandMatch) {
+    const sign = shorthandMatch[1];
+    const count = parseFloat(shorthandMatch[2]);
+    const unit = shorthandMatch[3];
+    const multiplier = UNIT_MS[unit];
+    if (multiplier) {
+      const offsetMs = Math.round(count * multiplier);
+      const direction = sign === '-' ? 'past' : 'future';
+      const ts = sign === '-' ? now - offsetMs : now + offsetMs;
+      return { timestamp: ts, iso: new Date(ts).toISOString(), offsetMs, direction };
+    }
+  }
+
+  return null;
+}
+
+export function parseTemporalInstant(value: string | number | undefined, label: string, now?: number): number {
+  if (value === undefined) return now ?? Date.now();
   if (typeof value === 'number') return value;
+
+  const rel = parseRelativeTemporal(value, now);
+  if (rel) {
+    return rel.timestamp;
+  }
+
   const ms = Date.parse(value);
   if (!Number.isFinite(ms)) {
-    throw new Error(`${label}: not a valid ISO date: ${value}`);
+    throw new Error(`${label}: not a valid ISO date or relative temporal expression: ${value}`);
   }
   return ms;
 }
