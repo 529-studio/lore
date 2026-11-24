@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { DB } from './db.js';
 import { claimId, sha256, treeHash } from './util/hash.js';
 import { assertNoSecrets } from './secrets.js';
+import { scrubClaimFields } from './security/scrub.js';
 
 export type EvidenceKind = 'test' | 'file' | 'command' | 'human' | 'agent';
 export type ClaimState = 'draft' | 'active' | 'retracted';
@@ -32,6 +33,7 @@ export interface WriteInput {
   agentId?: string | null;
   sessionId?: string | null;
   runId?: string | null;
+  scrubSecrets?: boolean;
 }
 
 export type Trust = 'canonical' | 'candidate' | 'contested' | 'stale' | 'retracted';
@@ -135,19 +137,30 @@ export function ensureEntity(db: DB, id: string, now = new Date().toISOString())
  * except for draft -> active promotion, which is a state change, not content.
  */
 export function upsertClaim(db: DB, input: WriteInput): UpsertResult {
+  let subject = input.subject;
+  let predicate = input.predicate;
+  let object = input.object;
+
+  if (input.scrubSecrets) {
+    const scrubbed = scrubClaimFields({ subject, predicate, object });
+    subject = scrubbed.subject;
+    predicate = scrubbed.predicate;
+    object = scrubbed.object;
+  }
+
   // Memory is an exfiltration path: a secret must never be persisted as a claim.
-  assertNoSecrets({ subject: input.subject, predicate: input.predicate, object: input.object });
+  assertNoSecrets({ subject, predicate, object });
 
   const now = new Date().toISOString();
   const authority = Math.min(...input.evidence.map((e) => authorityOf(e.kind)), 4);
   const id = claimId({
-    subject: input.subject,
-    predicate: input.predicate,
-    object: input.object,
+    subject,
+    predicate,
+    object,
     valid_from: input.validFrom ?? null,
   });
 
-  ensureEntity(db, input.subject, now);
+  ensureEntity(db, subject, now);
 
   const existing = db.prepare('SELECT id, state FROM claim WHERE id = ?').get(id) as
     | { id: string; state: ClaimState }
@@ -178,9 +191,9 @@ export function upsertClaim(db: DB, input: WriteInput): UpsertResult {
        VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       id,
-      input.subject,
-      input.predicate,
-      JSON.stringify(input.object),
+      subject,
+      predicate,
+      JSON.stringify(object),
       input.validFrom ?? null,
       now,
       authority,
@@ -231,6 +244,7 @@ export interface SupersedeInput {
   agentId?: string | null;
   sessionId?: string | null;
   runId?: string | null;
+  scrubSecrets?: boolean;
 }
 
 /**

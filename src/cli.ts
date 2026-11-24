@@ -106,6 +106,7 @@ program
   .option('--session <id>', 'write to branch agent/<session>')
   .option('--valid-from <iso>', 'when the claim became true (default: immediately)')
   .option('--ttl-days <n>', 'decay after N days without re-verification (default: ontology)')
+  .option('--scrub', 'automatically redact secrets and credentials before persistence')
   .action((opts) =>
     writeCommand({
       subject: opts.subject,
@@ -119,6 +120,7 @@ program
       session: opts.session,
       validFrom: opts.validFrom,
       ttlDays: opts.ttlDays,
+      scrub: opts.scrub,
     }),
   );
 
@@ -307,15 +309,26 @@ program
 
 program
   .command('attest <claim>')
-  .description('independent review: agree or disagree with a claim')
-  .requiredOption('--verdict <v>', 'agree | disagree')
+  .description('independent review: agree or disagree with a claim (supports zero-knowledge --zk)')
+  .option('--verdict <v>', 'agree | disagree', 'agree')
   .option('--reason <text>')
   .option('--session <id>')
+  .option('--zk', 'create zero-knowledge attestation proof')
+  .option('--salt <salt>', 'salt for zero-knowledge commitment')
+  .option('--verify-zk <proof-json>', 'verify a zero-knowledge attestation proof against claim')
   .action((claim, opts) => {
-    if (opts.verdict !== 'agree' && opts.verdict !== 'disagree') {
+    if (opts.verdict && opts.verdict !== 'agree' && opts.verdict !== 'disagree') {
       throw new Error('--verdict must be agree or disagree');
     }
-    attestCommand({ claim, verdict: opts.verdict, reason: opts.reason, session: opts.session });
+    attestCommand({
+      claim,
+      verdict: opts.verdict,
+      reason: opts.reason,
+      session: opts.session,
+      zk: opts.zk,
+      salt: opts.salt,
+      verifyZk: opts.verifyZk,
+    });
   });
 
 program

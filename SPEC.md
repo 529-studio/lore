@@ -425,23 +425,23 @@ No LLM judge. Outcome metrics on real repositories:
 | purge exists as an audited exception | `lore purge --yes` deletes the row; `purge_audit` keeps id/actor/reason | PII and leaked secrets must be removable |
 | no machine approver | policy tiers without `*` gate promotion; `LORE_MACHINE=1` may approve T0/T1 only | automation needs a gate that is not a human |
 | no attestation | `lore attest` writes a T2 claim linked in `attestation`; no self-attestation | independent review must be attributable |
-| no identity | local OS user; team mode uses HMAC tokens or an asserted OIDC email, enforced by `lore.policy.yml` | actions that grant trust must be attributable |
-| one state axis | `state` stays branch membership; `trust` (canonical/candidate/contested/stale/retracted) is a second column, backfilled once by hash/commit | shared memory needs a trust signal that is not branch-local |
+| no identity | local OS user; team mode uses HMAC tokens or OIDC email, in `lore.policy.yml` | actions must be attributable |
+| one state axis | `state` is branch membership; `trust` is canonical/candidate/contested/stale/retracted | shared memory needs a non-local trust signal |
 | conflicts only surface at merge | a tier-1 conflict is recorded synchronously on write; both live claims become `contested` | shared memory must not serve two values silently |
-| retrieval filters drafts and stale evidence | retrieval also requires `trust = canonical`; contested facts produce a warning line, never content | trust is orthogonal to branch membership and freshness |
-| stale is derived on read | `canon decay` persists `trust = stale` with `invalidated_by_json`; the read path lazily checks TTL and disappeared paths | shared memory needs a durable stale answer and a reason |
+| retrieval filters drafts/stale | retrieval also requires `trust = canonical`; contested facts warn | trust is orthogonal to branch membership |
+| stale derived on read | `canon decay` persists `trust = stale`; read path lazily checks TTL/paths | shared memory needs a durable stale answer |
 | evidence commit must be an ancestor | a non-ancestor stays `ahead-of-checkout`, not stale | an older checkout must not invalidate an observation made on newer code |
 | sync carries commits only | bundle import merges per-claim trust (retracted wins, newer verification wins, flags propagate) | a fetch must not resurrect a contested value |
-| canonical trust changes only through evidence | `canon resolve` keeps one live value and retracts the rest; redact/purge/GC close the pair and restore the survivor | contested memory needs a deliberate, auditable exit |
-| no team sync | `lore remote` + `fetch`/`push` over a shared directory or Postgres, `bundle` for air gaps | internal and air-gapped repositories cannot depend on a git host |
+| trust changes via evidence | `canon resolve` keeps one value; redact/purge close the pair | contested memory needs an auditable exit |
+| no team sync | `lore remote` + `fetch`/`push` over directory or Postgres, `bundle` for air gaps | air-gapped repos cannot depend on git hosts |
 | `--as-of` reads the commit at that instant | folds the whole ancestry, skipping commits after the instant | a single commit chain hides facts on sibling branches before a merge |
 | hash cache keyed by content | keyed by size, mtime and ctime | mtime can be restored; ctime changes on any inode write |
 | file/test evidence auto-promotes | only when the evidence hash was actually observed | an unhashable file is not evidence |
 | `conflict_rate` over 20 sessions | aborts among merges expected to succeed; deliberate conflicts reported separately | measuring a designed conflict against a production threshold is a category error |
-| MCP has five tools | seven (`memory_approve`, `memory_commit` added) | without approve, MCP-only memory is permanently invisible |
-| CLI has static config | `lore setup` auto-wires MCP (agy, claude, cursor, codex, gemini) and `lore config` manages settings | manual editing was error-prone and missed session isolation |
-| UI has flat triple table only | Knowledge Hub defaults to Entity Dossier view with bulleted facts, and presets modal with preview | raw triples fragmented memory and confused users on retrieval |
-| sync carries commits only | `lore replicate` streams SQLite WAL via Litestream to S3/R2/GCS | clusters require real-time streaming replication |
+| MCP has five tools | eight tools and resource subscriptions | without approve and resources, MCP memory is incomplete |
+| CLI has static config | `lore setup` auto-wires MCP and `lore config` manages settings | manual editing was error-prone and missed session isolation |
+| UI has flat triple table only | Knowledge Hub defaults to Entity Dossier view with bulleted facts | raw triples fragmented memory and confused users on retrieval |
+| sync carries commits only | `lore replicate` streams SQLite WAL via Litestream to object store | clusters require real-time streaming replication |
 | search couples bi-temporal dimensions | decoupled bi-temporal search (`--valid-at`, `--tx-at`, `lore timeline`, `src/canon/temporal.ts`) | audit requires querying past beliefs about reality independently |
 | UI is static on read | live Server-Sent Events (`/api/events`) with SQLite data version detection | background mutations must reflect live without manual refresh |
 | UI graph is uniform radial scatter | semantic visual clustering and predicate relationship filtering | graphs with heterogeneous predicates need domain grouping |
@@ -463,6 +463,7 @@ No LLM judge. Outcome metrics on real repositories:
 | retrieval uses lexical overlap only | semantic hybrid search layer (`src/search/vector.ts`, `lore search --semantic`) | queries with synonyms or stem variants fail verbatim token matching |
 | merge aborts equal-tier inference disagreements | semantic 3-way conflict resolver (`src/merge.ts`, `lore merge --semantic`) | equal-tier inference claims aborted without confidence or vector evaluation |
 | MCP supports tools only | MCP resource subscription protocol (`resources/list`, `read`, `subscribe`, notifications) | agents need event-driven updates on memory changes without polling |
+| secret detection throws only | secret scrubbing and ZK claim attestations (`src/security/scrub.ts`, `lore attest --zk`) | pipelines need credential auto-redaction and verifiable ZK proofs |
 
 ## Glossary
 
