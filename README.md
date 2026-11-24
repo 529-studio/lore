@@ -303,7 +303,7 @@ Executable checks and benchmarks in the repository:
 npm run build              # TypeScript
 npm run smoke              # 20+ end-to-end assertions on a throwaway repo
 npm run mcp:smoke          # real MCP handshake, tools, draft gating, approve
-npm run bench:concurrency  # multi-worker soak benchmark (p50/p95/p99)
+npm run bench:concurrency  # soak benchmark (p50/p95/p99, Prometheus/OTel)
 npm run bench:cluster      # multi-replica gossip topology simulator
 npm run eval               # outcome metrics, no LLM judge
 ```
