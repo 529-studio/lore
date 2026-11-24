@@ -320,6 +320,7 @@ interface WriteArgs {
   confidence?: number;
   valid_from?: string;
   ttl_days?: number;
+  scrub?: boolean;
 }
 
 function toolWrite(args: WriteArgs): ToolResult {
@@ -368,6 +369,7 @@ function toolWrite(args: WriteArgs): ToolResult {
         writtenBy: 'agent',
         agentId: 'mcp',
         sessionId: ctx.session,
+        scrubSecrets: args.scrub ?? true,
         ttlDays: args.ttl_days ?? loadOntology(ctx.root).ttlDays(predicate),
       });
 
@@ -715,6 +717,7 @@ const TOOLS: ToolDef[] = [
         confidence: { type: 'number', minimum: 0, maximum: 1 },
         valid_from: { type: 'string', description: 'ISO date when the claim became true' },
         ttl_days: { type: 'number', minimum: 0, description: 'decay after N days without re-verification (default: ontology)' },
+        scrub: { type: 'boolean', description: 'auto-redact detected secrets before persistence (default: true)' },
       },
     },
     run: (args) => toolWrite(ARGS(args) as unknown as WriteArgs),

@@ -161,6 +161,7 @@ CREATE TABLE IF NOT EXISTS attestation (
   verdict              TEXT NOT NULL CHECK (verdict IN ('agree','disagree')),
   actor                TEXT NOT NULL,
   ts                   TEXT NOT NULL,
+  proof_json           TEXT,
   PRIMARY KEY (claim_id, attestation_claim_id)
 );
 

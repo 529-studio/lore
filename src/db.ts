@@ -98,6 +98,11 @@ function migrate(db: DB): void {
     db.exec('ALTER TABLE merge_decision ADD COLUMN actor TEXT');
   }
 
+  const attestationCols = db.prepare('PRAGMA table_info(attestation)').all() as Array<{ name: string }>;
+  if (!attestationCols.some((c) => c.name === 'proof_json')) {
+    db.exec('ALTER TABLE attestation ADD COLUMN proof_json TEXT');
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS token_revocation (
       jti        TEXT PRIMARY KEY,

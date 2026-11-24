@@ -19,6 +19,7 @@ export interface WriteOptions {
   session?: string;
   validFrom?: string;
   ttlDays?: string;
+  scrub?: boolean;
 }
 
 export function writeCommand(opts: WriteOptions): void {
@@ -53,6 +54,7 @@ export function writeCommand(opts: WriteOptions): void {
       forceDraft: gateTier(root, authorityOf(opts.kind)),
       forceActive: permissive,
       sessionId: session,
+      scrubSecrets: opts.scrub,
       ttlDays: opts.ttlDays !== undefined ? Number(opts.ttlDays) : loadOntology(root).ttlDays(opts.predicate),
       evidence: [{ kind: opts.kind, ref: evidenceRef, hash, commit: gitHead(root) }],
     });

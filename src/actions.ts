@@ -5,6 +5,7 @@ import type { Principal } from './identity.js';
 import { resolveRevision } from './revision.js';
 import { gitHead } from './util/git.js';
 import { createHash } from 'node:crypto';
+import { createZkProof, type ZkProof } from './security/scrub.js';
 
 export type ActionErrorCode = 'not_found' | 'policy' | 'invalid' | 'noop';
 
@@ -148,6 +149,7 @@ export interface AttestResult {
   principal: Principal;
   attestationId: string;
   commitId: string | null;
+  proof?: ZkProof;
 }
 
 /** Independent review, stored as a T2 claim linked to the reviewed claim. */
@@ -158,6 +160,7 @@ export function attestClaim(
   claimId: string,
   verdict: 'agree' | 'disagree',
   reason?: string,
+  opts?: { zk?: boolean; salt?: string },
 ): AttestResult {
   const claim = db.prepare('SELECT * FROM claim WHERE id = ?').get(claimId) as ClaimRow | undefined;
   if (!claim) throw new ActionError('not_found', `no such claim: ${claimId}`);
@@ -169,14 +172,32 @@ export function attestClaim(
     throw new ActionError('policy', 'separation of duties: an auditor cannot attest a claim they wrote');
   }
 
-  const object = reason ? `${verdict}: ${reason}` : verdict;
+  let rawObj = claim.object_json;
+  try {
+    const parsed = JSON.parse(claim.object_json);
+    rawObj = typeof parsed === 'string' ? parsed : JSON.stringify(parsed);
+  } catch {}
+
+  let zkProof: ZkProof | undefined;
+  let object = reason ? `${verdict}: ${reason}` : verdict;
+  let predicate = 'attested_by';
+
+  if (opts?.zk) {
+    zkProof = createZkProof(
+      { id: claim.id, object: rawObj },
+      { verdict, actor, salt: opts.salt, reason },
+    );
+    predicate = 'zk_attested_by';
+    object = JSON.stringify(zkProof);
+  }
+
   let attestationId = '';
   let commitId: string | null = null;
 
   db.transaction(() => {
     const result = upsertClaim(db, {
       subject: `claim:${claimId}`,
-      predicate: 'attested_by',
+      predicate,
       object,
       author: actor,
       forceActive: true,
@@ -185,8 +206,8 @@ export function attestClaim(
     attestationId = result.id;
 
     db.prepare(
-      'INSERT OR REPLACE INTO attestation(claim_id, attestation_claim_id, verdict, actor, ts) VALUES (?, ?, ?, ?, ?)',
-    ).run(claimId, result.id, verdict, actor, new Date().toISOString());
+      'INSERT OR REPLACE INTO attestation(claim_id, attestation_claim_id, verdict, actor, ts, proof_json) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run(claimId, result.id, verdict, actor, new Date().toISOString(), zkProof ? JSON.stringify(zkProof) : null);
 
     if (result.state === 'active' && !inBranch(db, ref, result.id)) {
       commitId = makeCommit(db, {
@@ -199,5 +220,5 @@ export function attestClaim(
     }
   })();
 
-  return { principal, attestationId, commitId };
+  return { principal, attestationId, commitId, proof: zkProof };
 }
