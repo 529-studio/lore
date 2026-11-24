@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import { exportPrometheusMetrics, exportOtelMetrics } from './bench-concurrency.mjs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { exportPrometheusMetrics, exportOtelMetrics, handleExports } from './bench-concurrency.mjs';
 
 console.log('[TEST] Checking Prometheus metrics export formatting...');
 
@@ -66,3 +69,29 @@ assert.ok(integrityMetric, 'Missing lore.bench.sqlite.integrity in OTel metrics'
 assert.equal(integrityMetric.gauge.dataPoints[0].asInt, 1);
 
 console.log('[OK] OpenTelemetry export verified');
+
+console.log('[TEST] Checking handleExports file persistence...');
+const testDir = mkdtempSync(path.join(tmpdir(), 'lore-bench-export-test-'));
+
+try {
+  const promFile = path.join(testDir, 'subdir', 'metrics.prom');
+  const otelFile = path.join(testDir, 'subdir', 'metrics.json');
+
+  handleExports(mockResult, {
+    exportPrometheus: promFile,
+    exportOtel: otelFile,
+  });
+
+  assert.ok(existsSync(promFile), 'Prometheus file was not created');
+  assert.ok(existsSync(otelFile), 'OpenTelemetry file was not created');
+
+  const promContent = readFileSync(promFile, 'utf8');
+  assert.ok(promContent.includes('# HELP lore_bench_ops_total'));
+
+  const otelContent = JSON.parse(readFileSync(otelFile, 'utf8'));
+  assert.ok(otelContent.resourceMetrics);
+
+  console.log('[OK] handleExports file persistence verified');
+} finally {
+  rmSync(testDir, { recursive: true, force: true });
+}

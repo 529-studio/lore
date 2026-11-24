@@ -808,11 +808,41 @@ export function printReport(result) {
   }
 }
 
+/**
+ * Exports benchmark metrics to Prometheus or OpenTelemetry files if configured.
+ */
+export function handleExports(result, options = {}) {
+  const promPath = options.exportPrometheus ?? process.env.LORE_BENCH_EXPORT_PROMETHEUS;
+  const otelPath = options.exportOtel ?? process.env.LORE_BENCH_EXPORT_OTEL;
+
+  if (promPath) {
+    const content = exportPrometheusMetrics(result);
+    mkdirSync(path.dirname(path.resolve(promPath)), { recursive: true });
+    writeFileSync(promPath, content, 'utf8');
+    console.log(pc.green(`[OK] exported Prometheus metrics to ${promPath}`));
+  }
+
+  if (otelPath) {
+    const payload = exportOtelMetrics(result);
+    mkdirSync(path.dirname(path.resolve(otelPath)), { recursive: true });
+    writeFileSync(otelPath, JSON.stringify(payload, null, 2), 'utf8');
+    console.log(pc.green(`[OK] exported OpenTelemetry metrics to ${otelPath}`));
+  }
+}
+
 async function main() {
   if (!existsSync(CLI)) {
     console.error(pc.red(`[ERR] dist/cli.js not found. Run npm run build first.`));
     process.exit(1);
   }
+
+  const getArgValue = (arg) => {
+    const idx = process.argv.indexOf(arg);
+    if (idx !== -1 && idx + 1 < process.argv.length) {
+      return process.argv[idx + 1];
+    }
+    return undefined;
+  };
 
   const isQuick = process.argv.includes('--quick') || process.env.LORE_SOAK_QUICK === '1';
   const DEFAULT_WORKERS = isQuick ? 4 : 8;
@@ -820,12 +850,15 @@ async function main() {
 
   const WORKERS = Number(process.env.LORE_SOAK_WORKERS ?? DEFAULT_WORKERS);
   const OPS_PER_WORKER = Number(process.env.LORE_SOAK_OPS ?? DEFAULT_OPS);
+  const exportPrometheus = getArgValue('--export-prometheus');
+  const exportOtel = getArgValue('--export-otel');
 
   console.log(
     `${pc.green('[OK]')} starting concurrency soak benchmark${isQuick ? ' (quick mode)' : ''}: ${WORKERS} workers x ${OPS_PER_WORKER} ops (${WORKERS * OPS_PER_WORKER} total)`,
   );
   const result = await runBenchmark({ workers: WORKERS, opsPerWorker: OPS_PER_WORKER });
   printReport(result);
+  handleExports(result, { exportPrometheus, exportOtel });
 
   if (result.records.some((r) => !r.success)) {
     process.exitCode = 1;
