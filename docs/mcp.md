@@ -1,8 +1,18 @@
 # Wiring Lore into coding agents — MCP config
 
 Lore ships an MCP server over **stdio**: `lore mcp` (JSON-RPC 2.0, protocol on stdout, logs on stderr).
-It exposes 7 tools: `memory_search`, `memory_write`, `memory_approve`, `memory_commit`,
-`memory_blame`, `memory_status`, `memory_diff`.
+It exposes 8 tools (`memory_search`, `memory_write`, `memory_approve`, `memory_commit`,
+`memory_blame`, `memory_status`, `memory_diff`, `memory_sync`) and the **MCP Resource Subscription protocol**
+(`resources/list`, `resources/read`, `resources/subscribe`, `resources/unsubscribe`).
+
+### MCP Resources
+- `lore://memory/active`: Current active canonical claims.
+- `lore://memory/status`: Branch, active claims, drafts, and conflicts count.
+- `lore://memory/rules`: Active ontology rules and schema definitions.
+- `lore://memory/conflicts`: Currently unresolved memory conflicts.
+- `lore://claims/{subject}`: All claims for a specific entity subject.
+
+Subscribed clients receive real-time `notifications/resources/updated` on claim additions, approvals, and commits.
 
 > Canon: `memory_search` injects only `active AND canonical` claims. A contested fact is withheld and
 > returned as a `warnings` line plus a `contested` entry in `structuredContent`.
