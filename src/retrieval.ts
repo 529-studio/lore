@@ -6,6 +6,12 @@ import { loadOntology } from './ontology.js';
 import { branchFor, currentSession } from './session.js';
 import { oneLine } from './util/text.js';
 import { parseTemporalInstant } from './canon/temporal.js';
+import {
+  cosineSimilarity,
+  generateLocalEmbedding,
+  getOrComputeClaimVector,
+  computeHybridSimilarity,
+} from './search/vector.js';
 
 export interface SearchOptions {
   query?: string;
@@ -21,6 +27,10 @@ export interface SearchOptions {
   validAt?: string;
   /** Include claims observed on newer code than this checkout. */
   trustRemote?: boolean;
+  /** Enable semantic vector hybrid search. */
+  semantic?: boolean;
+  /** Weight of vector similarity in hybrid search (0.0 to 1.0, default 0.5 when semantic is enabled). */
+  vectorWeight?: number;
 }
 
 export interface SearchHit {
@@ -161,6 +171,10 @@ interface ScopeContext {
   symbols: Set<string>;
   importsOf: Map<string, string[]>; // file path -> imported module specs
   queryTokens: Set<string> | null;
+  queryText: string | null;
+  semantic: boolean;
+  vectorWeight: number;
+  queryEmbedding: number[] | null;
 }
 
 /**
@@ -195,6 +209,7 @@ function sameDirPrefix(paths: string[], ctx: ScopeContext): string | null {
 }
 
 function scoreClaim(
+  db: DB,
   claim: ClaimRow,
   evidence: Array<{ kind: string; ref: string; verified_at: string | null }>,
   subjectPath: string | null,
@@ -263,7 +278,7 @@ function scoreClaim(
     }
   }
 
-  // --- text similarity: plain token overlap, no embeddings -------------------
+  // --- text & vector semantic similarity ------------------------------------
   if (ctx.queryTokens) {
     let objectText = claim.object_json;
     try {
@@ -272,12 +287,26 @@ function scoreClaim(
       // keep raw json
     }
     const claimTokens = tokenize(`${claim.subject_id} ${claim.predicate} ${objectText}`);
-    const sim = jaccard(ctx.queryTokens, claimTokens);
-    if (sim > 0) {
+    const lexicalSim = jaccard(ctx.queryTokens, claimTokens);
+
+    if (ctx.semantic && ctx.queryEmbedding) {
+      const claimVector = getOrComputeClaimVector(db, claim);
+      const vectorSim = Math.max(0, cosineSimilarity(ctx.queryEmbedding, claimVector));
+      const hybridSim = computeHybridSimilarity(lexicalSim, vectorSim, ctx.vectorWeight);
+
+      if (hybridSim >= 0.08 || lexicalSim > 0) {
+        relevant = true;
+        const part = W_SIMILARITY * hybridSim;
+        parts.push(part);
+        reasons.push(
+          `+${part.toFixed(1)} hybrid text (lexical ${lexicalSim.toFixed(2)}, vector ${vectorSim.toFixed(2)})`,
+        );
+      }
+    } else if (lexicalSim > 0) {
       relevant = true;
-      const part = W_SIMILARITY * sim;
+      const part = W_SIMILARITY * lexicalSim;
       parts.push(part);
-      reasons.push(`+${part.toFixed(1)} text (token overlap ${sim.toFixed(2)})`);
+      reasons.push(`+${part.toFixed(1)} text (token overlap ${lexicalSim.toFixed(2)})`);
     }
   }
 
@@ -406,12 +435,20 @@ export function searchMemory(db: DB, root: string, opts: SearchOptions = {}): Se
     for (const row of rows) if (needle.includes(row.alias.toLowerCase())) aliasTargets.add(row.entity_id);
   }
 
+  const semantic = Boolean(opts.semantic || opts.vectorWeight !== undefined);
+  const vectorWeight = typeof opts.vectorWeight === 'number' ? Math.max(0, Math.min(1, opts.vectorWeight)) : 0.5;
+  const queryEmbedding = semantic && opts.query ? generateLocalEmbedding(opts.query) : null;
+
   const ctx: ScopeContext = {
     files: (opts.files ?? []).map(normPath).filter(Boolean),
     dirs: new Set((opts.files ?? []).map(normPath).filter((p) => p !== '.').map(dirOf)),
     symbols: new Set([...(opts.symbols ?? []), ...aliasTargets]),
     importsOf: new Map(),
     queryTokens: opts.query ? tokenize(opts.query) : null,
+    queryText: opts.query ?? null,
+    semantic,
+    vectorWeight,
+    queryEmbedding,
   };
 
   for (const c of current.values()) {
@@ -443,7 +480,7 @@ export function searchMemory(db: DB, root: string, opts: SearchOptions = {}): Se
     if (ahead && !opts.trustRemote) continue;
     const evidence = hashlessEvidence.get(c.id) ?? [];
     const subjectPath = pathFromEntity(c.subject_id);
-    const { score, reasons, relevant } = scoreClaim(c, evidence, subjectPath, ctx, stale);
+    const { score, reasons, relevant } = scoreClaim(db, c, evidence, subjectPath, ctx, stale);
     // A query must touch the claim: authority and freshness alone are not relevance.
     if (ctx.queryTokens && !relevant) continue;
     hits.push({ claim: c, score, reasons, stale, ahead });

@@ -439,13 +439,13 @@ No LLM judge. Outcome metrics on real repositories:
 | file/test evidence auto-promotes | only when the evidence hash was actually observed | an unhashable file is not evidence |
 | `conflict_rate` over 20 sessions | aborts among merges expected to succeed; deliberate conflicts reported separately | measuring a designed conflict against a production threshold is a category error |
 | MCP has five tools | seven (`memory_approve`, `memory_commit` added) | without approve, MCP-only memory is permanently invisible |
-| CLI has static config | `lore setup` auto-wires MCP for agents (agy, claude, cursor, codex, gemini) and `lore config` manages settings | manual JSON/TOML editing was error-prone and missed session branch isolation |
-| UI has flat triple table only | Knowledge Hub defaults to Entity Dossier view with bulleted facts, and modal provides memory presets with live agent preview | raw triples dump and 1-line cards fragmented memory and confused users about how agents retrieve facts |
-| sync carries commits only | `lore replicate` enables continuous SQLite WAL streaming via Litestream to S3/R2/GCS | distributed multi-agent clusters require real-time streaming replication without manual batch export/import |
-| search couples valid-time and transaction-time | decoupled bi-temporal search (`--valid-at`, `--tx-at`, `lore timeline`, `src/canon/temporal.ts`) | audit and conflict inspection require querying past beliefs about past or current reality independently |
+| CLI has static config | `lore setup` auto-wires MCP (agy, claude, cursor, codex, gemini) and `lore config` manages settings | manual editing was error-prone and missed session isolation |
+| UI has flat triple table only | Knowledge Hub defaults to Entity Dossier view with bulleted facts, and presets modal with preview | raw triples fragmented memory and confused users on retrieval |
+| sync carries commits only | `lore replicate` streams SQLite WAL via Litestream to S3/R2/GCS | clusters require real-time streaming replication |
+| search couples bi-temporal dimensions | decoupled bi-temporal search (`--valid-at`, `--tx-at`, `lore timeline`, `src/canon/temporal.ts`) | audit requires querying past beliefs about reality independently |
 | UI is static on read | live Server-Sent Events stream (`/api/events`) with SQLite `PRAGMA data_version` detection | multi-agent workflows produce continuous background mutations that must reflect live in the UI without manual page refresh |
 | UI graph is uniform radial scatter | semantic visual clustering, predicate relationship filtering, and directional markers | graphs with heterogeneous predicates need domain grouping and relationship isolation |
-| Windows installer built without code signing or checksums | dedicated CI workflow with Authenticode and SHA-256 verification | verifiable binary integrity and code signing |
+| Windows installer lacks signing | CI workflow with Authenticode and SHA-256 | verifiable binary integrity |
 | identity tokens are immutable for 30d | token revocation registry and JTI-based validation (`lore identity revoke`) | identity compromise requires revocation without re-keying the entire team |
 | agent/human writes are draft only | permissive trust mode (`lore init --solo`) auto-promotes writes in solo mode | solo developers need immediate retrieval without approval overhead |
 | static 3-bullet agent rules | rich ontology guidelines (`lore rules [--update]`) with entity prefixes and tiers | prevents hallucinated predicates without namespace guidance |
@@ -453,13 +453,14 @@ No LLM judge. Outcome metrics on real repositories:
 | bare init creates store only | `lore init --full` auto-discovers agents, injects rules, ingests codebase, and wires MCPs | pre-existing repositories need zero-friction activation |
 | onboard prints hardcoded Claude command | `lore onboard` auto-detects agents and wires MCP configs directly | multi-agent repositories require dynamic agent wiring |
 | sync is batch push/fetch only | bi-directional sync adapter with WAL checkpointing (`lore sync`, `memory_sync`) | nodes need atomic sync without DB corruption or lock collisions |
-| concurrency verified on 4 clients x 25 writes only | multi-worker concurrency soak benchmark (`scripts/bench-concurrency.mjs`) | clusters require soak testing for latency percentiles and WAL integrity |
+| concurrency verified on 4x25 writes only | multi-worker concurrency benchmark (`scripts/bench-concurrency.mjs`) | clusters require soak testing for latency and WAL integrity |
 | gossip convergence untested on clusters | multi-replica gossip simulator (`scripts/bench-cluster.mjs`, `npm run bench:cluster`) | clusters require benchmarking convergence and SQLite integrity |
 | SQLite WAL uses static 1000-page autocheckpoint | adaptive WAL checkpoint auto-tuning (`src/db.ts`, `LORE_WAL_AUTOCHECKPOINT`) | high-write sessions need adaptive scaling to prevent WAL bloat |
 | temporal query requires absolute ISO timestamps | relative temporal query parsing (`src/canon/temporal.ts`, `parseRelativeTemporal`) | agents query memory with relative expressions ("yesterday", "-2h") |
-| GC only soft-retracts drafts | GC compaction policy and tombstone purging (`src/gc.ts`, `purgeTombstones`, `compactDatabase`) | stores accumulate retracted tombstones and fragmented SQLite pages |
+| GC only soft-retracts drafts | GC compaction & tombstone purging (`src/gc.ts`, `purgeTombstones`, `compactDatabase`) | stores accumulate tombstones and fragmented SQLite pages |
 | benchmark emits terminal table only | high-resolution Prometheus/OTel exporter (`scripts/bench-concurrency.mjs`, `exportPrometheusMetrics`) | pipelines and dashboards require standard metrics exposition formats |
 | UI lacks multi-agent sync indicators | real-time sync indicators and diagnostics (`src/ui/server.ts`, `/api/sync/status`, `#sync-indicator`) | multi-agent sessions need live visual indicators of replica convergence |
+| retrieval uses lexical overlap only | semantic hybrid search layer (`src/search/vector.ts`, `lore search --semantic`) | queries with synonyms or stem variants fail verbatim token matching |
 
 ## Glossary
 

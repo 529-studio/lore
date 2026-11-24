@@ -474,6 +474,8 @@ program
   .option('--as-of <iso>', 'read memory as it was known and valid at this instant')
   .option('--valid-at <iso>', 'bi-temporal: read memory valid in the world at this instant')
   .option('--tx-at <iso>', 'bi-temporal: read memory recorded by the system at this instant')
+  .option('--semantic', 'enable vector embeddings and semantic hybrid search')
+  .option('--vector-weight <float>', 'weight of vector similarity in hybrid search (0.0 to 1.0)')
   .option('--no-cache', 'bypass the hash cache')
   .option('--trust-remote', 'include claims observed on newer code than this checkout')
   .option('--json', 'machine-readable JSON')
@@ -487,6 +489,8 @@ program
       asOf: opts.asOf,
       validAt: opts.validAt,
       txAt: opts.txAt,
+      semantic: opts.semantic,
+      vectorWeight: opts.vectorWeight,
       noCache: opts.cache === false,
       trustRemote: opts.trustRemote,
       json: opts.json,
