@@ -101,6 +101,144 @@ function context(): Context {
   return { db, root, session, branch, branchActive };
 }
 
+// --- resource definitions and subscription protocol -------------------------------
+
+const resourceSubscriptions = new Set<string>();
+
+export function notifyResourceUpdated(uri: string): void {
+  if (resourceSubscriptions.has(uri) || resourceSubscriptions.has('*')) {
+    send({
+      jsonrpc: '2.0',
+      method: 'notifications/resources/updated',
+      params: { uri },
+    });
+  }
+}
+
+export function broadcastResourceUpdates(subject?: string): void {
+  notifyResourceUpdated('lore://memory/active');
+  notifyResourceUpdated('lore://memory/status');
+  if (subject) {
+    notifyResourceUpdated(`lore://claims/${encodeURIComponent(subject)}`);
+  }
+}
+
+export interface McpResource {
+  uri: string;
+  name: string;
+  description: string;
+  mimeType: string;
+}
+
+export const STATIC_RESOURCES: McpResource[] = [
+  {
+    uri: 'lore://memory/active',
+    name: 'Active Memory Claims',
+    description: 'Current active and canonical claims in the active branch set',
+    mimeType: 'application/json',
+  },
+  {
+    uri: 'lore://memory/status',
+    name: 'Memory System Status',
+    description: 'Overall memory store status, branch, active count, drafts, and health',
+    mimeType: 'application/json',
+  },
+  {
+    uri: 'lore://memory/rules',
+    name: 'Memory Ontology Rules',
+    description: 'Configured ontology rules, domains, and cardinality guidelines',
+    mimeType: 'application/json',
+  },
+  {
+    uri: 'lore://memory/conflicts',
+    name: 'Open Memory Conflicts',
+    description: 'List of currently unresolved tier-1 conflicts in the active branch',
+    mimeType: 'application/json',
+  },
+];
+
+export const RESOURCE_TEMPLATES = [
+  {
+    uriTemplate: 'lore://claims/{subject}',
+    name: 'Subject Claims',
+    description: 'All claims associated with a specific entity subject ID',
+    mimeType: 'application/json',
+  },
+];
+
+export function readResource(ctx: Context, uri: string): { contents: Array<{ uri: string; mimeType: string; text: string }> } {
+  if (uri === 'lore://memory/active') {
+    const claims = [...ctx.branchActive.keys()]
+      .map((id) => ctx.db.prepare('SELECT * FROM claim WHERE id = ?').get(id) as ClaimRow | undefined)
+      .filter((c): c is ClaimRow => Boolean(c && c.state === 'active'));
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: 'application/json',
+          text: JSON.stringify(claims, null, 2),
+        },
+      ],
+    };
+  }
+  if (uri === 'lore://memory/status') {
+    const activeCount = ctx.branchActive.size;
+    const drafts = (ctx.db.prepare("SELECT COUNT(*) as c FROM claim WHERE state = 'draft'").get() as { c: number }).c;
+    const conflicts = (ctx.db.prepare('SELECT COUNT(*) as c FROM claim_conflict WHERE resolved = 0').get() as { c: number }).c;
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: 'application/json',
+          text: JSON.stringify(
+            { branch: ctx.branch, activeClaims: activeCount, drafts, conflicts, session: ctx.session },
+            null,
+            2,
+          ),
+        },
+      ],
+    };
+  }
+  if (uri === 'lore://memory/rules') {
+    const ontology = loadOntology(ctx.root);
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: 'application/json',
+          text: JSON.stringify(ontology, null, 2),
+        },
+      ],
+    };
+  }
+  if (uri === 'lore://memory/conflicts') {
+    const rows = ctx.db.prepare('SELECT * FROM claim_conflict WHERE resolved = 0').all();
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: 'application/json',
+          text: JSON.stringify(rows, null, 2),
+        },
+      ],
+    };
+  }
+  if (uri.startsWith('lore://claims/')) {
+    const rawSubject = decodeURIComponent(uri.slice('lore://claims/'.length));
+    const claims = claimsFor(ctx.db, rawSubject);
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: 'application/json',
+          text: JSON.stringify(claims, null, 2),
+        },
+      ],
+    };
+  }
+  throw new Error(`unknown resource URI: ${uri}`);
+}
+
 // --- tool implementations --------------------------------------------------------
 
 interface SearchArgs {
@@ -246,6 +384,7 @@ function toolWrite(args: WriteArgs): ToolResult {
       return result;
     });
     const result = write();
+    broadcastResourceUpdates(subject);
 
     const text =
       `wrote ${result.id} (${result.state}) to ${ctx.branch}\n` +
@@ -440,6 +579,7 @@ function toolApprove(args: ApproveArgs): ToolResult {
         kind: 'write',
       });
     })();
+    broadcastResourceUpdates();
 
     return {
       content: [{ type: 'text', text: `approved ${targets.length} claim(s) on ${ctx.branch}` }],
@@ -465,6 +605,7 @@ function toolCommit(args: CommitArgs): ToolResult {
       author: 'agent:mcp',
       kind: 'write',
     });
+    broadcastResourceUpdates();
     return {
       content: [{ type: 'text', text: `commit ${id} on ${ctx.branch}` }],
       structuredContent: { commit: id, branch: ctx.branch },
@@ -503,6 +644,7 @@ async function toolSync(args: SyncArgs): Promise<ToolResult> {
     const author = args.author ?? 'agent:mcp';
     const pullRes = await adapter.pull({ author });
     const pushRes = await adapter.push({ author });
+    broadcastResourceUpdates();
 
     return {
       content: [
@@ -859,10 +1001,54 @@ async function handleRequest(id: JsonId, method: string, params: Record<string, 
       const protocolVersion = requested && supported ? requested : FALLBACK_PROTOCOL_VERSION;
       ok(id, {
         protocolVersion,
-        capabilities: { tools: { listChanged: false } },
+        capabilities: {
+          tools: { listChanged: false },
+          resources: { subscribe: true, listChanged: true },
+        },
         serverInfo: { name: 'lore', version: SERVER_VERSION },
         instructions: 'Versioned, verifiable memory. Read docs/mcp.md; each session writes to agent/<session>.',
       });
+      return;
+    }
+    case 'resources/list':
+      ok(id, { resources: STATIC_RESOURCES });
+      return;
+    case 'resources/templates/list':
+      ok(id, { resourceTemplates: RESOURCE_TEMPLATES });
+      return;
+    case 'resources/read': {
+      const uri = typeof params?.uri === 'string' ? params.uri : null;
+      if (!uri) {
+        fail(id, -32602, 'missing or invalid uri');
+        return;
+      }
+      const ctx = context();
+      try {
+        const result = readResource(ctx, uri);
+        ok(id, result);
+      } catch (err) {
+        fail(id, -32602, err instanceof Error ? err.message : String(err));
+      } finally {
+        ctx.db.close();
+      }
+      return;
+    }
+    case 'resources/subscribe': {
+      const uri = typeof params?.uri === 'string' ? params.uri : null;
+      if (!uri) {
+        fail(id, -32602, 'missing or invalid uri');
+        return;
+      }
+      resourceSubscriptions.add(uri);
+      ok(id, {});
+      return;
+    }
+    case 'resources/unsubscribe': {
+      const uri = typeof params?.uri === 'string' ? params.uri : null;
+      if (uri) {
+        resourceSubscriptions.delete(uri);
+      }
+      ok(id, {});
       return;
     }
     case 'tools/list':

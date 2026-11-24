@@ -443,10 +443,10 @@ No LLM judge. Outcome metrics on real repositories:
 | UI has flat triple table only | Knowledge Hub defaults to Entity Dossier view with bulleted facts, and presets modal with preview | raw triples fragmented memory and confused users on retrieval |
 | sync carries commits only | `lore replicate` streams SQLite WAL via Litestream to S3/R2/GCS | clusters require real-time streaming replication |
 | search couples bi-temporal dimensions | decoupled bi-temporal search (`--valid-at`, `--tx-at`, `lore timeline`, `src/canon/temporal.ts`) | audit requires querying past beliefs about reality independently |
-| UI is static on read | live Server-Sent Events stream (`/api/events`) with SQLite `PRAGMA data_version` detection | multi-agent workflows produce continuous background mutations that must reflect live in the UI without manual page refresh |
-| UI graph is uniform radial scatter | semantic visual clustering, predicate relationship filtering, and directional markers | graphs with heterogeneous predicates need domain grouping and relationship isolation |
+| UI is static on read | live Server-Sent Events (`/api/events`) with SQLite data version detection | background mutations must reflect live without manual refresh |
+| UI graph is uniform radial scatter | semantic visual clustering and predicate relationship filtering | graphs with heterogeneous predicates need domain grouping |
 | Windows installer lacks signing | CI workflow with Authenticode and SHA-256 | verifiable binary integrity |
-| identity tokens are immutable for 30d | token revocation registry and JTI-based validation (`lore identity revoke`) | identity compromise requires revocation without re-keying the entire team |
+| identity tokens are immutable for 30d | token revocation registry and JTI validation (`lore identity revoke`) | compromised tokens need revocation without team re-keying |
 | agent/human writes are draft only | permissive trust mode (`lore init --solo`) auto-promotes writes in solo mode | solo developers need immediate retrieval without approval overhead |
 | static 3-bullet agent rules | rich ontology guidelines (`lore rules [--update]`) with entity prefixes and tiers | prevents hallucinated predicates without namespace guidance |
 | manual review and promote commands | unified 1-step session wrapup (`lore wrapup [--yes]`, `lore session`) | multi-agent sessions left unreviewed drafts behind before promote |
@@ -455,13 +455,14 @@ No LLM judge. Outcome metrics on real repositories:
 | sync is batch push/fetch only | bi-directional sync adapter (`lore sync`, `memory_sync`) | nodes need atomic sync without lock collisions |
 | concurrency verified on 4x25 writes only | multi-worker concurrency benchmark (`scripts/bench-concurrency.mjs`) | clusters require soak testing for latency and WAL integrity |
 | gossip convergence untested on clusters | multi-replica gossip simulator (`scripts/bench-cluster.mjs`, `npm run bench:cluster`) | clusters require benchmarking convergence and SQLite integrity |
-| SQLite WAL uses static 1000-page autocheckpoint | adaptive WAL checkpoint auto-tuning (`src/db.ts`, `LORE_WAL_AUTOCHECKPOINT`) | high-write sessions need adaptive scaling to prevent WAL bloat |
+| SQLite WAL static 1000-page autocheckpoint | adaptive WAL checkpoint auto-tuning (`LORE_WAL_AUTOCHECKPOINT`) | high-write sessions need scaling to prevent WAL bloat |
 | temporal query requires absolute ISO timestamps | relative temporal query parsing (`src/canon/temporal.ts`, `parseRelativeTemporal`) | agents query memory with relative expressions ("yesterday", "-2h") |
 | GC only soft-retracts drafts | GC compaction & tombstone purging (`src/gc.ts`, `purgeTombstones`, `compactDatabase`) | stores accumulate tombstones and fragmented SQLite pages |
-| benchmark emits terminal table only | high-resolution Prometheus/OTel exporter (`scripts/bench-concurrency.mjs`, `exportPrometheusMetrics`) | pipelines and dashboards require standard metrics exposition formats |
+| benchmark emits terminal table only | Prometheus/OTel exporter (`exportPrometheusMetrics`) | pipelines and dashboards require standard metrics exposition |
 | UI lacks multi-agent sync indicators | real-time sync indicators and diagnostics (`src/ui/server.ts`, `/api/sync/status`, `#sync-indicator`) | multi-agent sessions need live visual indicators of replica convergence |
 | retrieval uses lexical overlap only | semantic hybrid search layer (`src/search/vector.ts`, `lore search --semantic`) | queries with synonyms or stem variants fail verbatim token matching |
 | merge aborts equal-tier inference disagreements | semantic 3-way conflict resolver (`src/merge.ts`, `lore merge --semantic`) | equal-tier inference claims aborted without confidence or vector evaluation |
+| MCP supports tools only | MCP resource subscription protocol (`resources/list`, `read`, `subscribe`, notifications) | agents need event-driven updates on memory changes without polling |
 
 ## Glossary
 
