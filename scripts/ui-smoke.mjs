@@ -95,6 +95,23 @@ try {
   const post405 = await fetch(`${handle.url}/api/claims`, { method: 'POST' });
   if (post405.status !== 403) throw new Error(`unknown POST must be 403 (CSRF first), got ${post405.status}`);
 
+  // Test sync status endpoint and health.sync payload
+  const syncStatus = await (await fetch(`${handle.url}/api/sync/status`)).json();
+  if (!syncStatus || typeof syncStatus.remoteStatus !== 'string') {
+    throw new Error('sync/status endpoint missing remoteStatus');
+  }
+  if (typeof syncStatus.activeAgents !== 'number') {
+    throw new Error('sync/status endpoint missing activeAgents count');
+  }
+
+  if (!health.sync || health.sync.remoteStatus !== syncStatus.remoteStatus) {
+    throw new Error('health endpoint missing matching sync payload');
+  }
+
+  if (!pageHtml.includes('id="sync-indicator"') || !pageHtml.includes('id="sync-text"') || !pageHtml.includes('id="agent-count-badge"')) {
+    throw new Error('page missing sync indicator components in header');
+  }
+
   // Test ontology endpoint
   const ontology = await (await fetch(`${handle.url}/api/ontology`)).json();
   if (typeof ontology !== 'object' || ontology.exists === undefined) throw new Error('ontology endpoint failed');
@@ -106,14 +123,14 @@ try {
   if (!sampleEntity.id || !sampleEntity.type || !sampleEntity.label) throw new Error('entity object missing required fields');
 
   // Test HTML page has memory authoring and dossier components
-  const pageHtml = await (await fetch(handle.url)).text();
-  if (!pageHtml.includes('modal-type-selector') || !pageHtml.includes('modal-preview-box') || !pageHtml.includes('entity-suggestions')) {
+  const refreshedHtml = await (await fetch(handle.url)).text();
+  if (!refreshedHtml.includes('modal-type-selector') || !refreshedHtml.includes('modal-preview-box') || !refreshedHtml.includes('entity-suggestions')) {
     throw new Error('page missing memory authoring components');
   }
-  if (!pageHtml.includes('id="view-dossier"') || !pageHtml.includes('id="dossier-view"')) {
+  if (!refreshedHtml.includes('id="view-dossier"') || !refreshedHtml.includes('id="dossier-view"')) {
     throw new Error('page missing dossier view components');
   }
-  if (!pageHtml.includes('data-type="internal"') || !pageHtml.includes('shortLabel')) {
+  if (!refreshedHtml.includes('data-type="internal"') || !refreshedHtml.includes('shortLabel')) {
     throw new Error('page missing graph layout enhancements');
   }
   if (!pageHtml.includes('id="graph-predicate-select"') || !pageHtml.includes('id="graph-cluster-mode"')) {

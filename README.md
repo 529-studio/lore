@@ -44,7 +44,7 @@ stale, then accept the new reality with `verify --accept`.*
 
 **Canon demo:** [memory stops being injected after npm → pnpm](scripts/demo/canon-pnpm.sh).
 
-**GUI:** `lore ui` serves a live dashboard (Health, Review, Undo) with real-time SSE streaming. See [docs/desktop.md](docs/desktop.md).
+**GUI:** `lore ui` serves a live dashboard (Health, Sync, Review) with real-time SSE streaming. See [docs/desktop.md](docs/desktop.md).
 
 ![Lore dashboard](docs/assets/dashboard.png)
 
@@ -186,7 +186,7 @@ lore review                   review drafts one by one (approve / reject / skip)
 lore reject <claim>           reject a draft: retract it, keep the row and reason
 lore attest <claim>           independent review: agree or disagree, linked to the claim
 lore digest                   what changed since the last review
-lore ui                       read-only dashboard on localhost (health, claims, commits)
+lore ui                       dashboard on localhost (health, sync indicators, review)
 lore remote <dir>             point fetch/push at a shared directory
 lore fetch | push             exchange commits with that directory
 lore bundle export|import     air-gapped exchange of commits

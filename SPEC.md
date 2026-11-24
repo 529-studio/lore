@@ -452,13 +452,14 @@ No LLM judge. Outcome metrics on real repositories:
 | manual review and promote commands | unified 1-step session wrapup (`lore wrapup [--yes]`, `lore session`) | multi-agent sessions left unreviewed drafts behind before promote |
 | bare init creates store only | `lore init --full` auto-discovers agents, injects rules, ingests codebase, and wires MCPs | pre-existing repositories need zero-friction activation |
 | onboard prints hardcoded Claude command | `lore onboard` auto-detects agents and wires MCP configs directly | multi-agent repositories require dynamic agent wiring |
-| sync is batch push/fetch only | bi-directional sync adapter with scratch DB restore and WAL checkpointing (`lore sync`, `memory_sync`) | multi-agent nodes need atomic sync without database corruption or lock collisions |
-| concurrency verified on 4 clients x 25 writes only | multi-worker concurrency soak benchmark (`scripts/bench-concurrency.mjs`, `npm run bench:concurrency`) | clusters require soak testing for latency percentiles and WAL integrity under saturation |
+| sync is batch push/fetch only | bi-directional sync adapter with WAL checkpointing (`lore sync`, `memory_sync`) | nodes need atomic sync without DB corruption or lock collisions |
+| concurrency verified on 4 clients x 25 writes only | multi-worker concurrency soak benchmark (`scripts/bench-concurrency.mjs`) | clusters require soak testing for latency percentiles and WAL integrity |
 | gossip convergence untested on clusters | multi-replica gossip simulator (`scripts/bench-cluster.mjs`, `npm run bench:cluster`) | clusters require benchmarking convergence and SQLite integrity |
 | SQLite WAL uses static 1000-page autocheckpoint | adaptive WAL checkpoint auto-tuning (`src/db.ts`, `LORE_WAL_AUTOCHECKPOINT`) | high-write sessions need adaptive scaling to prevent WAL bloat |
 | temporal query requires absolute ISO timestamps | relative temporal query parsing (`src/canon/temporal.ts`, `parseRelativeTemporal`) | agents query memory with relative expressions ("yesterday", "-2h") |
 | GC only soft-retracts drafts | GC compaction policy and tombstone purging (`src/gc.ts`, `purgeTombstones`, `compactDatabase`) | stores accumulate retracted tombstones and fragmented SQLite pages |
-| benchmark emits terminal table only | high-resolution Prometheus and OpenTelemetry exporter (`scripts/bench-concurrency.mjs`, `exportPrometheusMetrics`, `exportOtelMetrics`) | CI/CD pipelines and dashboards require standard metrics exposition formats |
+| benchmark emits terminal table only | high-resolution Prometheus/OTel exporter (`scripts/bench-concurrency.mjs`, `exportPrometheusMetrics`) | pipelines and dashboards require standard metrics exposition formats |
+| UI lacks multi-agent sync indicators | real-time sync indicators and diagnostics (`src/ui/server.ts`, `/api/sync/status`, `#sync-indicator`) | multi-agent sessions need live visual indicators of replica convergence |
 
 ## Glossary
 
