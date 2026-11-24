@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { SCHEMA } from './schema.js';
 
@@ -205,4 +205,79 @@ export function requireRoot(): string {
     throw new Error('not inside a lore repo — run `lore init` first');
   }
   return root;
+}
+
+export type WalCheckpointMode = 'PASSIVE' | 'FULL' | 'RESTART' | 'TRUNCATE';
+
+export interface WalCheckpointResult {
+  busy: boolean;
+  log: number;
+  checkpointed: number;
+}
+
+export interface WalStats {
+  pageSize: number;
+  autocheckpointPages: number;
+  walFrames: number;
+  checkpointedFrames: number;
+  walSizeBytes: number;
+  dbSizeBytes: number;
+}
+
+/**
+ * Executes a SQLite WAL checkpoint with the specified mode.
+ * Safe against concurrent readers/writers; handles busy status without throwing.
+ */
+export function checkpointWal(db: DB, mode: WalCheckpointMode = 'PASSIVE'): WalCheckpointResult {
+  const rows = db.pragma(`wal_checkpoint(${mode})`) as Array<{ busy: number; log: number; checkpointed: number }>;
+  const row = rows[0] ?? { busy: 0, log: 0, checkpointed: 0 };
+  return {
+    busy: row.busy !== 0,
+    log: Number(row.log ?? 0),
+    checkpointed: Number(row.checkpointed ?? 0),
+  };
+}
+
+/**
+ * Retrieves comprehensive WAL and database storage metrics.
+ */
+export function getWalStats(db: DB, root?: string): WalStats {
+  const effectiveRoot = root ?? stateRootFor(db);
+  const pageSize = Number(db.pragma('page_size', { simple: true }));
+  const autocheckpointPages = Number(db.pragma('wal_autocheckpoint', { simple: true }));
+
+  // Non-blocking passive checkpoint to retrieve log frame count and checkpointed frame count
+  const rows = db.pragma('wal_checkpoint(PASSIVE)') as Array<{ busy: number; log: number; checkpointed: number }>;
+  const row = rows[0] ?? { busy: 0, log: 0, checkpointed: 0 };
+
+  let walSizeBytes = 0;
+  let dbSizeBytes = 0;
+
+  if (effectiveRoot) {
+    const dbFile = dbPathFor(effectiveRoot);
+    const walFile = `${dbFile}-wal`;
+    if (existsSync(dbFile)) {
+      try {
+        dbSizeBytes = statSync(dbFile).size;
+      } catch {
+        // ignore
+      }
+    }
+    if (existsSync(walFile)) {
+      try {
+        walSizeBytes = statSync(walFile).size;
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  return {
+    pageSize,
+    autocheckpointPages,
+    walFrames: Number(row.log ?? 0),
+    checkpointedFrames: Number(row.checkpointed ?? 0),
+    walSizeBytes,
+    dbSizeBytes,
+  };
 }

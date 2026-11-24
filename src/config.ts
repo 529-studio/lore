@@ -13,11 +13,18 @@ export interface LitestreamConfig {
   sync_interval?: string;
 }
 
+export interface WalConfig {
+  autocheckpoint_pages?: number;
+  target_wal_size_kb?: number;
+  auto_tune?: boolean;
+}
+
 export interface LoreConfig {
   /** Stable identity of the project, independent of any git remote. */
   repo_id: string;
   remote?: RemoteConfig;
   litestream?: LitestreamConfig;
+  wal?: WalConfig;
   /** Last remote main commit seen by fetch/push, used for the ahead/behind line. */
   remote_main?: string | null;
   trust_mode?: 'strict' | 'permissive';
