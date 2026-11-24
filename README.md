@@ -163,8 +163,8 @@ Agents never write to `main`; you decide what gets promoted. Full details: [docs
 ```
 lore init [--solo] [--full]    initialise .lore/ (--full: rules, ingest, MCP)
 lore ingest [--dry-run]        derive claims from deterministic extractors
-lore write                     write one claim (draft for agent/human evidence); --valid-from <iso>
-lore search "<query>"          score active+canonical claims; --valid-at, --tx-at, --as-of
+lore write                     write one claim (draft for agent/human); --valid-from <iso>
+lore search "<query>"          score claims; --valid-at, --tx-at, --as-of (ISO / relative)
 lore explain <claim|key>       why a claim is injected: trust, provenance, evidence
 lore canon status|decay|confirm|resolve|metrics  trust, decay, re-confirm, resolve, metrics
 lore blame <subject>           provenance: author, evidence, branch membership

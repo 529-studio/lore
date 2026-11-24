@@ -5,6 +5,7 @@ import { byKey, claimFreshness, isStale } from './merge.js';
 import { loadOntology } from './ontology.js';
 import { branchFor, currentSession } from './session.js';
 import { oneLine } from './util/text.js';
+import { parseTemporalInstant } from './canon/temporal.js';
 
 export interface SearchOptions {
   query?: string;
@@ -59,12 +60,6 @@ const W_STALE = -10.0;
 const VERIFIED_WINDOW_DAYS = 14;
 const DAY_MS = 86_400_000;
 
-function parseInstant(value: string, label: string): number {
-  const ms = Date.parse(value);
-  if (!Number.isFinite(ms)) throw new Error(`${label}: not a valid ISO date: ${value}`);
-  return ms;
-}
-
 function validAt(claim: ClaimRow, instant: number): boolean {
   const from = claim.valid_from ? Date.parse(claim.valid_from) : Number.NEGATIVE_INFINITY;
   const to = claim.valid_to ? Date.parse(claim.valid_to) : Number.POSITIVE_INFINITY;
@@ -86,15 +81,15 @@ function branchSnapshot(
   const headTip = head(db, branch) ?? head(db, 'main');
 
   const txInstant = temporalOpts.txAt
-    ? parseInstant(temporalOpts.txAt, '--tx-at')
+    ? parseTemporalInstant(temporalOpts.txAt, '--tx-at')
     : temporalOpts.asOf
-      ? parseInstant(temporalOpts.asOf, '--as-of')
+      ? parseTemporalInstant(temporalOpts.asOf, '--as-of')
       : Date.now();
 
   const validInstant = temporalOpts.validAt
-    ? parseInstant(temporalOpts.validAt, '--valid-at')
+    ? parseTemporalInstant(temporalOpts.validAt, '--valid-at')
     : temporalOpts.asOf
-      ? parseInstant(temporalOpts.asOf, '--as-of')
+      ? parseTemporalInstant(temporalOpts.asOf, '--as-of')
       : Date.now();
 
   const active = activeAtAsOf(db, headTip, txInstant);
