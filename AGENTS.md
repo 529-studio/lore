@@ -20,13 +20,19 @@ hand. "Should work" is not evidence.
 If a check can pass while the product fails, the check is the bug. Scenario checks are fail-fatal;
 metrics measure the product through its real CLI, not a private shortcut.
 
-## 4. Git flow
+## 4. Git flow & Autonomous PR lifecycle
 
 - Never push to `main`. Branch `feat/*`, `fix/*`, `docs/*`, `chore/*`, open a PR.
 - PR description starts with `Close #<issue-number>`.
 - Conventional commits: `feat(merge): …`, `fix(cli): …`, `docs: …`.
 - One concern per PR.
 - Always create a merge commit (`gh pr merge --merge`). Never squash merge (`--squash`) or rebase merge.
+- Automated task completion protocol:
+  1. Upon finishing a task and passing local verifications, push the branch and open a PR (`gh pr create`).
+  2. Automatically spawn a reviewer subagent to review the PR diff against project invariants.
+  3. Wait for all CI checks to pass (`gh pr checks`).
+  4. Automatically merge the PR using a merge commit (`gh pr merge --merge`).
+  5. Checkout `main` and pull latest changes before starting the next task.
 
 ## 5. English, no emoji
 

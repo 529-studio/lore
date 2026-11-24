@@ -266,11 +266,10 @@ identity and enforces `lore.policy.yml`: `LORE_TOKEN` from `lore identity issue`
 asserted by a trusted launcher. See [docs/team-mode.md](docs/team-mode.md).
 
 **Internal or offline repositories.** Memory does not depend on a git host: `lore remote`
-plus `fetch`/`push` shares commits with a directory, Postgres remote uses a database,
-`lore bundle` moves commits across an air gap, and `lore replicate` streams WAL frames
-to S3/R2/GCS. Replicas converge bi-directionally via `lore sync` and gossip meshes.
-Claims observed on newer code than checkout are reported as *ahead of checkout*, not
-stale; `--trust-remote` includes them. See [docs/team-mode.md](docs/team-mode.md).
+shares commits via directory or Postgres, `lore bundle` moves commits across air gaps,
+and `lore replicate` streams WAL frames. SQLite WAL checkpoints auto-tune (or set `LORE_WAL_AUTOCHECKPOINT`).
+Replicas converge via `lore sync` and gossip meshes. Ahead-of-checkout claims are preserved;
+`--trust-remote` includes them. See [docs/team-mode.md](docs/team-mode.md).
 
 **CI integration.** The GitHub Action comments on every pull request with what it teaches the agent
 and which claims it invalidates. See [docs/github-action.md](docs/github-action.md).
