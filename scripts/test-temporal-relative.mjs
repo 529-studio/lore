@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import { parseRelativeTemporal, parseTemporalInstant } from '../dist/canon/temporal.js';
 
 console.log('[TEST] Checking parseRelativeTemporal keywords...');
@@ -91,3 +92,50 @@ assert.throws(
 );
 
 console.log('[OK] All Task 1 assertions passed');
+
+import { createDb } from '../dist/db.js';
+import { makeCommit } from '../dist/model.js';
+import { searchMemory } from '../dist/retrieval.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+
+console.log('[TEST] Checking searchMemory relative temporal queries...');
+const work = mkdtempSync(path.join(tmpdir(), 'lore-test-temporal-search-'));
+
+try {
+  const db = createDb(work);
+  const insertEntity = db.prepare(`
+    INSERT INTO entity (id, kind, canonical, created_at)
+    VALUES ('sym:temporal_test', 'symbol', 'sym:temporal_test', datetime('now'))
+  `);
+  insertEntity.run();
+
+  const insertClaim = db.prepare(`
+    INSERT INTO claim (id, subject_id, predicate, object_json, tx_from, authority, confidence, author, state, trust, written_by)
+    VALUES ('c_rel_1', 'sym:temporal_test', 'defines_rule', '"relative test"', datetime('now'), 1, 1.0, 'test', 'active', 'canonical', 'agent')
+  `);
+  insertClaim.run();
+
+  makeCommit(db, {
+    ref: 'main',
+    entries: [{ claim_id: 'c_rel_1', op: 'add' }],
+    message: 'add relative test claim',
+    author: 'agent:test',
+    kind: 'write',
+  });
+
+  // Test searchMemory with relative temporal options
+  const resAsOf = searchMemory(db, work, { asOf: 'now', query: 'relative' });
+  assert.ok(resAsOf.hits.length >= 1);
+
+  const resValidAt = searchMemory(db, work, { validAt: 'yesterday', query: 'relative' });
+  assert.ok(Array.isArray(resValidAt.hits));
+
+  const resTxAt = searchMemory(db, work, { txAt: 'in 1 hour', query: 'relative' });
+  assert.ok(Array.isArray(resTxAt.hits));
+
+  db.close();
+  console.log('[OK] searchMemory relative temporal integration passed');
+} finally {
+  rmSync(work, { recursive: true, force: true });
+}
