@@ -1,4 +1,5 @@
 import type { DB } from './db.js';
+import { runClaimRetractHooks } from './model.js';
 
 export interface GcPolicy {
   /** Retract a draft nobody reviewed for this many sessions. */
@@ -13,6 +14,34 @@ export interface GcCandidate {
   predicate: string;
   tx_from: string;
   reason: string;
+}
+
+export interface TombstoneCandidate {
+  id: string;
+  subject: string;
+  predicate: string;
+  retracted_at: string;
+  reason: string;
+}
+
+export interface TombstonePolicy {
+  tombstoneTtlDays?: number;
+  tombstoneTtlSessions?: number;
+}
+
+export interface DatabaseStorageStats {
+  pageSize: number;
+  pageCount: number;
+  freelistPages: number;
+  freelistBytes: number;
+  totalBytes: number;
+}
+
+export interface DatabaseCompactionResult {
+  before: DatabaseStorageStats;
+  after: DatabaseStorageStats;
+  reclaimedBytes: number;
+  reclaimedPages: number;
 }
 
 interface DraftRow {
@@ -72,4 +101,113 @@ export function gcCandidates(db: DB, policy: GcPolicy): GcCandidate[] {
   }
 
   return out;
+}
+
+/**
+ * Identify retracted claims (tombstones) eligible for permanent purging.
+ */
+export function tombstoneCandidates(db: DB, policy: TombstonePolicy = {}): TombstoneCandidate[] {
+  const ttlDays = policy.tombstoneTtlDays ?? 30;
+  const rows = db
+    .prepare("SELECT id, subject_id, predicate, tx_from FROM claim WHERE state = 'retracted' OR trust = 'retracted'")
+    .all() as Array<{ id: string; subject_id: string; predicate: string; tx_from: string }>;
+  if (!rows.length) return [];
+
+  const logStmt = db.prepare(
+    "SELECT ts FROM agent_action_log WHERE table_name = 'claim' AND row_id = ? AND action = 'UPDATE' ORDER BY ts DESC LIMIT 1",
+  );
+  const commitStmt = db.prepare(
+    "SELECT mc.ts FROM commit_entry ce JOIN memory_commit mc ON ce.commit_id = mc.id WHERE ce.claim_id = ? AND ce.op = 'retract' ORDER BY mc.ts DESC LIMIT 1",
+  );
+
+  const cutoff = ttlDays === 0 ? new Date().toISOString() : new Date(Date.now() - ttlDays * 86_400_000).toISOString();
+  const out: TombstoneCandidate[] = [];
+
+  for (const row of rows) {
+    const logRow = logStmt.get(row.id) as { ts: string } | undefined;
+    const commitRow = commitStmt.get(row.id) as { ts: string } | undefined;
+    const retractedAt = logRow?.ts ?? commitRow?.ts ?? row.tx_from;
+
+    if (ttlDays === 0 || retractedAt <= cutoff) {
+      out.push({
+        id: row.id,
+        subject: row.subject_id,
+        predicate: row.predicate,
+        retracted_at: retractedAt,
+        reason: ttlDays === 0 ? 'immediate tombstone purge' : `retracted >= ${ttlDays} day(s) ago`,
+      });
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Permanently purge eligible tombstones, deleting dependent foreign key rows
+ * and unlinking supersedes pointers while logging to purge_audit.
+ */
+export function purgeTombstones(db: DB, candidates: TombstoneCandidate[], actor: string = 'lore:gc'): number {
+  if (!candidates.length) return 0;
+
+  const now = new Date().toISOString();
+  const deleteClaimRead = db.prepare('DELETE FROM claim_read WHERE claim_id = ?');
+  const deleteCommitEntry = db.prepare('DELETE FROM commit_entry WHERE claim_id = ?');
+  const deleteEvidence = db.prepare('DELETE FROM evidence WHERE claim_id = ?');
+  const clearSupersedes = db.prepare('UPDATE claim SET supersedes = NULL WHERE supersedes = ?');
+  const deleteRedaction = db.prepare('DELETE FROM redaction WHERE claim_id = ?');
+  const deleteAttestation = db.prepare('DELETE FROM attestation WHERE claim_id = ? OR attestation_claim_id = ?');
+  const deleteClaim = db.prepare('DELETE FROM claim WHERE id = ?');
+  const insertAudit = db.prepare(
+    'INSERT INTO purge_audit (claim_id, actor, reason, ts) VALUES (?, ?, ?, ?) ON CONFLICT(claim_id) DO NOTHING',
+  );
+
+  const apply = db.transaction(() => {
+    for (const c of candidates) {
+      runClaimRetractHooks(db, c.id, actor);
+      deleteClaimRead.run(c.id);
+      deleteCommitEntry.run(c.id);
+      deleteEvidence.run(c.id);
+      clearSupersedes.run(c.id);
+      deleteRedaction.run(c.id);
+      deleteAttestation.run(c.id, c.id);
+      deleteClaim.run(c.id);
+      insertAudit.run(c.id, actor, `gc tombstone: ${c.reason}`, now);
+    }
+  });
+
+  apply();
+  return candidates.length;
+}
+
+/**
+ * Retrieve low-level SQLite storage and freelist metrics.
+ */
+export function getDatabaseStorageStats(db: DB): DatabaseStorageStats {
+  const pageSize = (db.pragma('page_size', { simple: true }) as number) ?? 4096;
+  const pageCount = (db.pragma('page_count', { simple: true }) as number) ?? 0;
+  const freelistPages = (db.pragma('freelist_count', { simple: true }) as number) ?? 0;
+
+  return {
+    pageSize,
+    pageCount,
+    freelistPages,
+    freelistBytes: freelistPages * pageSize,
+    totalBytes: pageCount * pageSize,
+  };
+}
+
+/**
+ * Defragment and compact SQLite database pages via VACUUM outside any transaction.
+ */
+export function compactDatabase(db: DB): DatabaseCompactionResult {
+  const before = getDatabaseStorageStats(db);
+  db.exec('VACUUM');
+  const after = getDatabaseStorageStats(db);
+
+  return {
+    before,
+    after,
+    reclaimedBytes: Math.max(0, before.totalBytes - after.totalBytes),
+    reclaimedPages: Math.max(0, before.pageCount - after.pageCount),
+  };
 }
