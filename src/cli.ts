@@ -422,12 +422,18 @@ program
   .description('retract draft claims nobody reviewed (rows are never deleted)')
   .option('--ttl-sessions <n>', 'sessions without review before a draft is retracted', '3')
   .option('--ttl-days <n>', 'explicit age override in days')
+  .option('--purge-tombstones', 'permanently purge retracted claims past retention TTL')
+  .option('--tombstone-ttl-days <n>', 'retention threshold in days for retracted claims (default 30)')
+  .option('--compact', 'defragment and compact database file via VACUUM')
   .option('--dry-run')
   .option('--session <id>')
   .action((opts) =>
     gcCommand({
       ttlSessions: opts.ttlSessions,
       ttlDays: opts.ttlDays,
+      purgeTombstones: opts.purgeTombstones,
+      tombstoneTtlDays: opts.tombstoneTtlDays,
+      compact: opts.compact,
       dryRun: opts.dryRun,
       session: opts.session,
     }),

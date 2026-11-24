@@ -1,7 +1,7 @@
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { hashCache } from '../hash-cache.js';
-import { gcCandidates } from '../gc.js';
+import { gcCandidates, tombstoneCandidates, getDatabaseStorageStats } from '../gc.js';
 import { activeAt, head } from '../model.js';
 import { claimFreshness } from '../merge.js';
 import { readConfig } from '../config.js';
@@ -77,6 +77,8 @@ export function statusCommand(opts: StatusOptions = {}): void {
   const conflicts = (db.prepare('SELECT COUNT(*) n FROM merge_conflict WHERE resolved = 0').get() as { n: number }).n;
   const canon = canonStatus(db);
   const gcEligible = gcCandidates(db, { ttlSessions: 3 }).length;
+  const tombstonesEligible = tombstoneCandidates(db, { tombstoneTtlDays: 30 }).length;
+  const storage = getDatabaseStorageStats(db);
 
   console.log(pc.bold('lore status'));
   console.log(`  claims     ${pc.bold(String(total))} total  ${pc.green(`${byState.get('active') ?? 0} active`)}  ${pc.yellow(`${byState.get('draft') ?? 0} draft`)}  ${pc.red(`${byState.get('retracted') ?? 0} retracted`)}`);
@@ -112,7 +114,16 @@ export function statusCommand(opts: StatusOptions = {}): void {
   console.log(`  stale      ${stale.length ? pc.red(String(stale.length)) : pc.green('0')} ${pc.dim('(evidence hash no longer matches)')}`);
   console.log(`  ahead      ${ahead.length ? pc.yellow(String(ahead.length)) : pc.green('0')} ${pc.dim('(claim observed on newer code than this checkout)')}`);
   console.log(`  conflicts  ${conflicts ? pc.red(String(conflicts)) : pc.green('0')} ${pc.dim('(unresolved merges)')}  ${canon.unresolved_conflicts ? pc.red(String(canon.unresolved_conflicts)) : pc.green('0')} ${pc.dim('(tier-1 facts)')}`);
-  console.log(`  gc         ${gcEligible ? pc.yellow(String(gcEligible)) : pc.green('0')} ${pc.dim('drafts unreviewed for 3 sessions — run lore gc')}`);
+  const gcParts = [
+    `${gcEligible ? pc.yellow(String(gcEligible)) : pc.green('0')} ${pc.dim('drafts unreviewed for 3 sessions — run lore gc')}`,
+  ];
+  if (tombstonesEligible > 0) {
+    gcParts.push(`${pc.yellow(String(tombstonesEligible))} ${pc.dim('purgeable tombstones (>=30d)')}`);
+  }
+  if (storage.freelistPages > 0) {
+    gcParts.push(pc.dim(`${storage.freelistPages} freelist pages`));
+  }
+  console.log(`  gc         ${gcParts.join('  ')}`);
 
   if (opts.stats) {
     const c = cache.stats();

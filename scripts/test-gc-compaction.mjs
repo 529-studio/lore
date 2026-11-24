@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createDb } from '../dist/db.js';
+import { createDb, openDb } from '../dist/db.js';
 import {
   tombstoneCandidates,
   purgeTombstones,
@@ -124,6 +124,57 @@ try {
 
   db.close();
   console.log('[OK] All Task 1 unit assertions passed cleanly');
+
+  console.log('[TEST] Checking CLI gcCommand integration...');
+  const cliDir = mkdtempSync(join(tmpdir(), 'lore-gc-cli-'));
+  try {
+    const { initCommand } = await import('../dist/commands/init.js');
+    const { gcCommand } = await import('../dist/commands/gc.js');
+    initCommand({ root: cliDir, solo: true });
+
+    process.env.LORE_ROOT = cliDir;
+    const cliDb = openDb(cliDir);
+
+    cliDb.prepare("INSERT INTO entity (id, kind, canonical, created_at) VALUES ('env:GC_TEST', 'env', 'env:GC_TEST', datetime('now'))").run();
+
+    // Insert an old draft
+    cliDb.prepare(`
+      INSERT INTO claim (id, subject_id, predicate, object_json, tx_from, authority, confidence, author, state, trust)
+      VALUES ('c_cli_draft', 'env:GC_TEST', 'read_by', '"draft"', ?, 1, 1.0, 'test', 'draft', 'candidate')
+    `).run(past40dIso);
+
+    // Insert an old tombstone
+    cliDb.prepare(`
+      INSERT INTO claim (id, subject_id, predicate, object_json, tx_from, authority, confidence, author, state, trust)
+      VALUES ('c_cli_tomb', 'env:GC_TEST', 'read_by', '"tomb"', ?, 1, 1.0, 'test', 'retracted', 'retracted')
+    `).run(past40dIso);
+    cliDb.close();
+
+    // Run dry run
+    gcCommand({ root: cliDir, ttlDays: '30', purgeTombstones: true, tombstoneTtlDays: '30', dryRun: true });
+
+    // Verify still in place
+    const checkDb1 = openDb(cliDir);
+    assert.equal(checkDb1.prepare('SELECT state FROM claim WHERE id = ?').get('c_cli_draft')?.state, 'draft');
+    assert.ok(checkDb1.prepare('SELECT id FROM claim WHERE id = ?').get('c_cli_tomb'));
+    checkDb1.close();
+
+    // Run actual GC with purge and compaction
+    gcCommand({ root: cliDir, ttlDays: '30', purgeTombstones: true, tombstoneTtlDays: '30', compact: true });
+
+    const checkDb2 = openDb(cliDir);
+    // Draft should now be retracted
+    assert.equal(checkDb2.prepare('SELECT state FROM claim WHERE id = ?').get('c_cli_draft')?.state, 'retracted');
+    // Tombstone should be purged permanently
+    assert.equal(checkDb2.prepare('SELECT id FROM claim WHERE id = ?').get('c_cli_tomb'), undefined);
+    // Purge audit should exist
+    assert.ok(checkDb2.prepare('SELECT * FROM purge_audit WHERE claim_id = ?').get('c_cli_tomb'));
+    checkDb2.close();
+    console.log('[OK] CLI gcCommand integration passed cleanly');
+  } finally {
+    delete process.env.LORE_ROOT;
+    rmSync(cliDir, { recursive: true, force: true });
+  }
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }
