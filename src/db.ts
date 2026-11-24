@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { SCHEMA } from './schema.js';
+import { readConfig } from './config.js';
 
 export type DB = Database.Database;
 
@@ -179,10 +180,11 @@ export function openDb(root: string): DB {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.pragma('busy_timeout = 5000');
+  stateRoots.set(db, root);
+  tuneWalCheckpoint(db, root);
   db.exec(SCHEMA);
   migrate(db);
   setupTriggers(db);
-  stateRoots.set(db, root);
   return db;
 }
 
@@ -192,10 +194,11 @@ export function createDb(root: string): DB {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.pragma('busy_timeout = 5000');
+  stateRoots.set(db, root);
+  tuneWalCheckpoint(db, root);
   db.exec(SCHEMA);
   migrate(db);
   setupTriggers(db);
-  stateRoots.set(db, root);
   return db;
 }
 
@@ -279,5 +282,77 @@ export function getWalStats(db: DB, root?: string): WalStats {
     checkpointedFrames: Number(row.checkpointed ?? 0),
     walSizeBytes,
     dbSizeBytes,
+  };
+}
+
+export interface WalTuneOptions {
+  autocheckpointPages?: number;
+  targetWalSizeKb?: number;
+}
+
+export interface WalTuneResult {
+  pageSize: number;
+  configuredThreshold: number;
+  activeThreshold: number;
+  source: 'options' | 'env' | 'config' | 'adaptive' | 'default';
+}
+
+/**
+ * Automatically tunes SQLite WAL checkpoint threshold honoring explicit options,
+ * environment overrides ($LORE_WAL_AUTOCHECKPOINT), repository configuration (.lore/config.json),
+ * and page-size proportional scaling.
+ */
+export function tuneWalCheckpoint(db: DB, root?: string, options?: WalTuneOptions): WalTuneResult {
+  const effectiveRoot = root ?? stateRootFor(db);
+  const pageSize = Number(db.pragma('page_size', { simple: true }));
+
+  let threshold = 1000;
+  let source: WalTuneResult['source'] = 'default';
+
+  if (options?.autocheckpointPages !== undefined) {
+    threshold = Math.max(10, Math.floor(options.autocheckpointPages));
+    source = 'options';
+  } else if (options?.targetWalSizeKb !== undefined) {
+    threshold = Math.max(10, Math.floor((options.targetWalSizeKb * 1024) / pageSize));
+    source = 'options';
+  } else if (process.env.LORE_WAL_AUTOCHECKPOINT) {
+    const parsed = parseInt(process.env.LORE_WAL_AUTOCHECKPOINT, 10);
+    if (Number.isFinite(parsed) && parsed >= 10) {
+      threshold = parsed;
+      source = 'env';
+    }
+  } else if (effectiveRoot) {
+    const config = readConfig(effectiveRoot);
+    if (config?.wal?.autocheckpoint_pages !== undefined) {
+      const parsed = Math.floor(config.wal.autocheckpoint_pages);
+      if (parsed >= 10) {
+        threshold = parsed;
+        source = 'config';
+      }
+    } else if (config?.wal?.target_wal_size_kb !== undefined) {
+      threshold = Math.max(10, Math.floor((config.wal.target_wal_size_kb * 1024) / pageSize));
+      source = 'config';
+    }
+  }
+
+  if (source === 'default') {
+    // Proportional scaling targeting ~4MB WAL buffer across non-default page sizes
+    if (pageSize > 4096) {
+      threshold = Math.max(100, Math.floor((4 * 1024 * 1024) / pageSize));
+      source = 'adaptive';
+    } else {
+      threshold = 1000;
+      source = 'default';
+    }
+  }
+
+  db.pragma(`wal_autocheckpoint = ${threshold}`);
+  const activeThreshold = Number(db.pragma('wal_autocheckpoint', { simple: true }));
+
+  return {
+    pageSize,
+    configuredThreshold: threshold,
+    activeThreshold,
+    source,
   };
 }
