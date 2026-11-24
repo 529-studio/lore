@@ -447,16 +447,17 @@ No LLM judge. Outcome metrics on real repositories:
 | UI graph is uniform radial scatter | semantic visual clustering, predicate relationship filtering, and directional markers | graphs with heterogeneous predicates need domain grouping and relationship isolation |
 | Windows installer built without code signing or checksums | dedicated CI workflow with Authenticode and SHA-256 verification | verifiable binary integrity and code signing |
 | identity tokens are immutable for 30d | token revocation registry and JTI-based validation (`lore identity revoke`) | identity compromise requires revocation without re-keying the entire team |
-| agent/human writes are draft only | permissive trust mode (`trust_mode: permissive` in `.lore/config.json` or `lore init --solo`) auto-promotes writes to active in solo mode | solo developers working locally need immediate retrieval without draft approval overhead; team mode remains strictly gated |
-| static 3-bullet agent rules | rich ontology guidelines (`lore rules [--update]`) with entity prefixes and evidence tiers | agents hallucinated arbitrary predicates without explicit entity namespaces and schema guidance |
-| manual review and promote commands | unified 1-step session wrapup (`lore wrapup [--yes]`, `lore session [status|rotate]`) | multi-agent sessions left unreviewed drafts behind when running promote, requiring disjoint approval steps |
+| agent/human writes are draft only | permissive trust mode (`lore init --solo`) auto-promotes writes in solo mode | solo developers need immediate retrieval without approval overhead |
+| static 3-bullet agent rules | rich ontology guidelines (`lore rules [--update]`) with entity prefixes and tiers | prevents hallucinated predicates without namespace guidance |
+| manual review and promote commands | unified 1-step session wrapup (`lore wrapup [--yes]`, `lore session`) | multi-agent sessions left unreviewed drafts behind before promote |
 | bare init creates store only | `lore init --full` auto-discovers agents, injects rules, ingests codebase, and wires MCPs | pre-existing repositories need zero-friction activation |
-| onboard prints hardcoded Claude command | `lore onboard` auto-detects workspace agents and wires MCP configs directly via `setupCommand` | multi-agent repositories use Cursor, Antigravity, OpenCode, Codex, or Gemini and require dynamic agent wiring |
+| onboard prints hardcoded Claude command | `lore onboard` auto-detects agents and wires MCP configs directly | multi-agent repositories require dynamic agent wiring |
 | sync is batch push/fetch only | bi-directional sync adapter with scratch DB restore and WAL checkpointing (`lore sync`, `memory_sync`) | multi-agent nodes need atomic sync without database corruption or lock collisions |
 | concurrency verified on 4 clients x 25 writes only | multi-worker concurrency soak benchmark (`scripts/bench-concurrency.mjs`, `npm run bench:concurrency`) | clusters require soak testing for latency percentiles and WAL integrity under saturation |
 | gossip convergence untested across multi-replica topologies | multi-replica gossip topology simulator (`scripts/bench-cluster.mjs`, `npm run bench:cluster`) | multi-replica clusters require benchmarking convergence rounds and SQLite integrity |
 | SQLite WAL uses static 1000-page autocheckpoint | adaptive WAL checkpoint auto-tuning (`src/db.ts`, `LORE_WAL_AUTOCHECKPOINT`, `checkpointWal`, `getWalStats`) | high-write sessions need adaptive scaling and configurable thresholds to prevent WAL bloat |
 | temporal query requires absolute ISO timestamps | natural language relative temporal parsing (`src/canon/temporal.ts`, `parseRelativeTemporal`, `parseTemporalInstant`) | users and agents query memory with relative expressions ("yesterday", "3 days ago", "-2h") |
+| GC only soft-retracts drafts | GC compaction policy and tombstone purging (`src/gc.ts`, `tombstoneCandidates`, `purgeTombstones`, `compactDatabase`) | long-running multi-agent stores accumulate retracted tombstones and fragmented SQLite pages |
 
 ## Glossary
 

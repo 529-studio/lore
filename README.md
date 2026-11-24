@@ -194,7 +194,7 @@ lore replicate [action]       Litestream streaming replication (check, config, s
 lore sync                   bi-directional sync with remote replica (pull, CRDT merge, push)
 lore redact <claim>           replace the object with [redacted], keep id and audit
 lore purge <claim> --yes      remove the row permanently, keep an audit entry
-lore gc [--ttl-sessions 3]     retract unreviewed drafts (rows are kept)
+lore gc [--ttl-sessions 3]     retract drafts, purge tombstones, --compact
 lore export --md               deterministic markdown projection
 lore supersede <claim>         replace a claim, preserving history
 lore setup [agent]             configure MCP for agents
