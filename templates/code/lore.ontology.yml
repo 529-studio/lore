@@ -14,6 +14,10 @@ predicates:
   status:               { cardinality: one,  domain: concept }
   main_entry:           { cardinality: one,  domain: pkg }
   package_name:         { cardinality: one,  domain: pkg }
+  provides_command:     { cardinality: many, domain: pkg }
+  requires_runtime:     { cardinality: many, domain: pkg }
+  has_keyword:          { cardinality: many, domain: pkg }
+  detects:              { cardinality: one,  domain: rule }
   requires_idempotency_key: { cardinality: one, domain: symbol }
   uses_library:         { cardinality: many, domain: symbol }
   has_known_bug:        { cardinality: many, domain: symbol }

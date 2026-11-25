@@ -15,3 +15,17 @@ predicates:
   has_guardrail:      { cardinality: many, domain: doc }
   has_constraint:     { cardinality: many, domain: symbol }
   describes_issue:    { cardinality: many, domain: doc }
+  declared_dependency:  { cardinality: one,  domain: pkg }
+  defines_script:       { cardinality: many, domain: file }
+  imports_module:       { cardinality: many, domain: file }
+  exposes_route:        { cardinality: many, domain: file }
+  read_by:              { cardinality: many, domain: env }
+  uses_image:           { cardinality: many, domain: file }
+  publishes_port:       { cardinality: many, domain: file }
+  has_make_target:      { cardinality: many, domain: file }
+  main_entry:           { cardinality: one,  domain: pkg }
+  package_name:         { cardinality: one,  domain: pkg }
+  provides_command:     { cardinality: many, domain: pkg }
+  requires_runtime:     { cardinality: many, domain: pkg }
+  has_keyword:          { cardinality: many, domain: pkg }
+  detects:              { cardinality: one,  domain: rule }

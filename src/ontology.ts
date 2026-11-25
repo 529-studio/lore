@@ -13,6 +13,27 @@ export interface Ontology {
 
 const DEFAULT: Cardinality = 'one';
 
+/** Multi-valued predicates emitted by deterministic codebase extractors. */
+const EXTRACTOR_MULTI_VALUED_PREDICATES = new Set<string>([
+  'defines_script',
+  'imports_module',
+  'exposes_route',
+  'read_by',
+  'uses_image',
+  'publishes_port',
+  'has_make_target',
+  'has_section',
+  'provides_command',
+  'requires_runtime',
+  'has_keyword',
+  'enforces_invariant',
+  'defines_rule',
+  'has_guardrail',
+  'has_constraint',
+  'decides',
+  'describes_issue',
+]);
+
 export function loadOntology(root: string): Ontology {
   const file = path.join(root, 'lore.ontology.yml');
   let predicates: Record<string, { cardinality?: Cardinality; ttl_days?: number }> = {};
@@ -30,8 +51,14 @@ export function loadOntology(root: string): Ontology {
 
   return {
     cardinality(predicate) {
-      const entry = predicates[predicate];
-      return entry?.cardinality === 'many' ? 'many' : DEFAULT;
+      if (Object.prototype.hasOwnProperty.call(predicates, predicate)) {
+        const entry = predicates[predicate];
+        return entry?.cardinality === 'many' ? 'many' : DEFAULT;
+      }
+      if (EXTRACTOR_MULTI_VALUED_PREDICATES.has(predicate)) {
+        return 'many';
+      }
+      return DEFAULT;
     },
     known(predicate) {
       return Object.prototype.hasOwnProperty.call(predicates, predicate);
