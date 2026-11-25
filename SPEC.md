@@ -463,9 +463,10 @@ No LLM judge. Outcome metrics on real repositories:
 | retrieval uses lexical overlap only | semantic hybrid search layer (`src/search/vector.ts`, `lore search --semantic`) | queries with synonyms or stem variants fail verbatim token matching |
 | merge aborts equal-tier inference disagreements | semantic 3-way conflict resolver (`src/merge.ts`, `lore merge --semantic`) | equal-tier inference claims aborted without confidence or vector evaluation |
 | MCP supports tools only | MCP resource subscription protocol (`resources/list`, `read`, `subscribe`, notifications) | agents need event-driven updates on memory changes without polling |
-| secret detection throws only | secret scrubbing and ZK claim attestations (`src/security/scrub.ts`, `lore attest --zk`) | pipelines need credential auto-redaction and verifiable ZK proofs |
-| UI graph runs layout on main thread | Web Worker force simulation and spatial quadtree index (`src/ui/server.ts`, `/graph-worker.js`) | high-density graphs (> 1,000 nodes) freeze main UI thread without worker offloading |
-| packaging requires host node/npm | standalone cross-platform desktop binary packaging (`scripts/package-binary.mjs`, `.github/workflows/desktop.yml`) | environments without host Node or npm require self-contained portable binaries |
+| secret detection throws only | secret scrubbing & ZK attestations (`src/security/scrub.ts`, `lore attest --zk`) | pipelines need redaction & ZK proofs |
+| main-thread UI graph | Web Worker force layout & quadtree (`/graph-worker.js`) | graphs >1k nodes freeze main thread |
+| packaging needs host node | portable desktop bundles (`scripts/package-binary.mjs`, `desktop.yml`) | air-gapped hosts need self-contained binaries |
+| omitted predicates default to `one` | built-in `many` fallback for omitted extractor predicates (`src/ontology.ts`) | prevents day-0 false tier-1 conflicts |
 
 ## Glossary
 

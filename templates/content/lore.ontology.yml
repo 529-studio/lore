@@ -26,3 +26,6 @@ predicates:
   requires_runtime: { cardinality: many, domain: pkg }
   has_keyword:      { cardinality: many, domain: pkg }
   detects:          { cardinality: one,  domain: rule }
+  declared_dependency: { cardinality: one, domain: pkg }
+  main_entry:       { cardinality: one,  domain: pkg }
+  package_name:     { cardinality: one,  domain: pkg }

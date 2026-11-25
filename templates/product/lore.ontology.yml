@@ -29,4 +29,3 @@ predicates:
   requires_runtime:     { cardinality: many, domain: pkg }
   has_keyword:          { cardinality: many, domain: pkg }
   detects:              { cardinality: one,  domain: rule }
-  has_guardrail:        { cardinality: many, domain: doc }

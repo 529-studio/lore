@@ -682,6 +682,12 @@ function conflictsFor(db, subject, predicate) {
     );
 
     runCli(r, ['onboard', '--template', tpl, '--yes', '--no-setup']);
+    const ontLoaded = loadOntology(r);
+    check(`${tpl} template ontology parses and knows title`, ontLoaded.known('title'));
+    check(`${tpl} template ontology knows has_guardrail`, ontLoaded.known('has_guardrail'));
+    if (tpl === 'product') eq('product owned_by is many', ontLoaded.cardinality('owned_by'), 'many');
+    if (tpl === 'content') eq('content covers_topic is many', ontLoaded.cardinality('covers_topic'), 'many');
+    if (tpl === 'support') eq('support answers is many', ontLoaded.cardinality('answers'), 'many');
     const status = JSON.parse(runCli(r, ['canon', 'status', '--json']));
     eq(`${tpl} template produces 0 contested claims on day 0`, status.trust.contested, 0);
     eq(`${tpl} template produces 0 unresolved tier-1 conflicts on day 0`, status.unresolved_conflicts, 0);
