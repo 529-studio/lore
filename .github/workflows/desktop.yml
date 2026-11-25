@@ -1,4 +1,4 @@
-name: Desktop (macOS)
+name: Desktop (macOS & Standalone Packaging)
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to attach the dmg to (defaults to the pushed tag)
+        description: Release tag to attach assets to (defaults to the pushed tag)
         required: false
 
 permissions:
@@ -42,4 +42,49 @@ jobs:
           tag_name: ${{ inputs.tag || github.ref_name }}
           files: desktop/src-tauri/target/release/bundle/dmg/*.dmg
           fail_on_unmatched_files: false
+
+  standalone-binaries:
+    name: Standalone binary (${{ matrix.platform }}-${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+          - os: macos-latest
+            platform: darwin
+            arch: arm64
+          - os: windows-latest
+            platform: win32
+            arch: x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install and build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Test standalone packaging
+        run: npm run test:packaging
+
+      - name: Build standalone distribution package
+        run: node scripts/package-binary.mjs --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
+
+      - name: Attach standalone packages and checksums
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          files: |
+            dist/binaries/lore-*
+            dist/binaries/SHA256SUMS.txt
+          fail_on_unmatched_files: false
+
 
