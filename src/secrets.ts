@@ -47,24 +47,52 @@ function shannon(value: string): number {
   return entropy;
 }
 
-function looksRandomSegment(segment: string): boolean {
-  if (segment.length < 20 || SAFE_TOKEN_RE.test(segment) || HEX_RE.test(segment)) return false;
-  const classes = [/[a-z]/, /[A-Z]/, /[0-9]/].filter((re) => re.test(segment)).length;
-  return classes >= 3 && shannon(segment) >= ENTROPY_THRESHOLD;
+function digitTransitions(word: string): number {
+  let count = 0;
+  for (let i = 1; i < word.length; i++) {
+    const prevDigit = word[i - 1] >= '0' && word[i - 1] <= '9';
+    const currDigit = word[i] >= '0' && word[i] <= '9';
+    if (prevDigit !== currDigit) count++;
+  }
+  return count;
+}
+
+function isReadableWord(word: string): boolean {
+  if (!word) return true;
+  if (!/^[A-Za-z0-9]+$/.test(word)) return false;
+  if (/^\d+$/.test(word) || HEX_RE.test(word)) return true;
+
+  const transitions = digitTransitions(word);
+  if (transitions > 2) return false;
+
+  const hasLower = /[a-z]/.test(word);
+  const hasUpper = /[A-Z]/.test(word);
+  const hasDigit = /[0-9]/.test(word);
+  if (word.length >= 12 && hasLower && hasUpper) {
+    // Require genuine multi-letter camelCase/PascalCase words rather than alternating random chars
+    const longRuns = word.match(/[a-z]{3,}/g) ?? [];
+    if (longRuns.length === 0) return false;
+    if (hasDigit && longRuns.every((r) => r.length < 4)) return false;
+  }
+  return true;
 }
 
 function isLikelyPathOrSlug(token: string, text: string, index: number): boolean {
-  if (/^[a-z0-9]+(?:-[a-z0-9]+){3,}-?$/.test(token)) return true;
-  if (/^(?:[A-Z0-9]+(?:_[A-Z0-9]+){2,}|[a-z0-9]+(?:_[a-z0-9]+){2,})$/.test(token)) return true;
-  if (!token.includes('/') || /[+=]/.test(token)) return false;
+  if (/[+=]/.test(token)) return false;
+  if (!/[/_-]/.test(token)) return false;
 
-  const before = text.slice(Math.max(0, index - 8), index);
+  const before = text.slice(Math.max(0, index - 24), index);
   const after = text.slice(index + token.length, index + token.length + 12);
-  const hasPrefix = /(?:doc|file|sym|test):\.?$/i.test(before) || /(?:^|[\s"'`(])\.{0,2}\/$/.test(before);
-  const hasExt = /^\.[a-zA-Z0-9]{1,8}(?:$|[^A-Za-z0-9])/.test(after);
-  const segments = token.split('/').filter(Boolean);
-  if (segments.length < 2 || (!hasPrefix && !hasExt && segments.length < 3)) return false;
-  return segments.every((seg) => !looksRandomSegment(seg));
+  const hasEntityPrefix = /(?:^|[\s"'`(])(?:doc|file|sym|test|env|rule):(?:\.\.?\/|\.|\/)?$/i.test(before);
+  const hasRelativePrefix = /(?:^|[\s"'`(])\.{1,2}\/$/.test(before);
+  const hasRegistryHostPrefix = token.includes('/') && /(?:^|[\s"'`(])[a-z0-9][a-z0-9-]*\.$/i.test(before);
+  const hasHashAnchor = /#$/.test(before);
+  const hasFileExt = /^\.[a-zA-Z0-9]{1,8}(?:$|[^A-Za-z0-9])/.test(after);
+  if (!hasEntityPrefix && !hasRelativePrefix && !hasRegistryHostPrefix && !hasHashAnchor && !hasFileExt) return false;
+
+  const words = token.split(/[/_.-]+/).filter(Boolean);
+  if (words.length < 2) return false;
+  return words.every(isReadableWord);
 }
 
 function looksRandom(token: string, text: string, index: number): boolean {

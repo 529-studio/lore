@@ -60,7 +60,12 @@ const safeInputs = [
   'doc:docs/interview-prep/F1_RACE_ENGINEER_SOURCE_DEFENSE.md#18-cv-claim-audit',
   'doc:lesson_learn.md#2026-11-24-framer-motion-svg-keyframe-array-traps-circle-attribute-cx-undefined',
   'doc:lesson_learn.md#2026-11-23-tyre-thermal-degradation-3d-isometric-svg-projection-kiosk-sub-pixel-',
+  'doc:docs/F1_Race_Engineer_2026_Source_Defense_V2_Checklist/notes.md',
+  'doc:./F1_RACE_ENGINEER_SOURCE_DEFENSE',
+  'file:../F1_RACE_ENGINEER_SOURCE_DEFENSE',
   'file:F1_RACE_ENGINEER_SOURCE_DEFENSE_V2.ts',
+  'doc:.zcode/plans/plan-session_323a12156b02886f751fe0b1f8227b34.md',
+  'ghcr.io/529-studio/f1-virtual-engineer/backend:${IMAGE_TAG:-stg-latest}',
   'See docs/interview-prep/F1_RACE_ENGINEER_SOURCE_DEFENSE.md for details',
 ];
 for (const safe of safeInputs) {
@@ -70,6 +75,21 @@ for (const safe of safeInputs) {
 
 const realBase64Secret = 'Ab3+Cd9/Ef2gH5iJ8kL1mN4oP7qR0sT3uV6wX9yZ2aB=';
 const realSlashSecret = 'Ab3Cd9/Ef2gH5iJ8kL1mN4oP7qR0sT3uV6wX9yZ2aB1';
+const mustCatchSecrets = [
+  'Ab3Cd9Ef2g/H5iJ8kL1mN4oP7q/R0sT3uV6wX9yZ2aB1',
+  'Ab3Cd9/Ef2gH5iJ8k/L1mN4oP7q/R0sT3uV6wX9yZ2',
+  'https://api.example.com/v1/Ab3Cd9Ef2gH5iJ8k/L1mN4oP7qR0sT3uV/callback',
+  'doc:path/Ab3Cd9Ef2gH5iJ8k/L1mN4oP7qR0sT3uV/file.md',
+  'doc:foo/k9m2p4q7_r1s5t8u2_v6w9x3y7_a1b2/bar.md',
+  'k9m2p4q7-r1s5t8u2-v6w9x3y7-z1a8b3c6',
+  'x-k9m2p4q7r1s5t8u2v6w9x3y7z1a8b3c6-y-z',
+  'tok_k9m2p4q7r1s5t8u2v6w9x3y7z1a8b3c6_v1',
+  'TOK_K9M2P4Q7R1S5T8U2V6W9X3Y7Z1A8B3C6_V1',
+];
+for (const sec of mustCatchSecrets) {
+  const findings = scanSecurityText(sec);
+  expect(findings.length > 0, `secret bypass caught for: ${sec}`);
+}
 const mixedInput = `doc:.codex/skills/f1-strategy-self-qa/SKILL.md uses ${realBase64Secret} and ${realSlashSecret}`;
 const mixedScrub = scrubText(mixedInput);
 expect(mixedScrub.scrubbed === true, 'mixed input with real base64/slash secrets is detected');
