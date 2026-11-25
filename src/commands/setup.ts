@@ -59,6 +59,26 @@ function updateJsonMcpConfig(filePath: string, serverName: string, config: Recor
   writeFileSync(filePath, `${JSON.stringify(content, null, 2)}\n`, 'utf8');
 }
 
+function tomlString(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')}"`;
+}
+
+function stripTomlServerSections(content: string, serverName: string): string {
+  const prefix = `mcp_servers.${serverName}`;
+  const kept: string[] = [];
+  let skipping = false;
+  for (const line of content.split(/\r?\n/)) {
+    const match = /^\s*\[([^\]]+)\]\s*(?:#.*)?$/.exec(line);
+    if (match) {
+      const tableName = match[1].trim();
+      skipping = tableName === prefix || tableName.startsWith(`${prefix}.`);
+      if (skipping) continue;
+    }
+    if (!skipping) kept.push(line);
+  }
+  return kept.join('\n').replace(/\n+$/, '');
+}
+
 function updateTomlMcpConfig(
   filePath: string,
   serverName: string,
@@ -67,20 +87,15 @@ function updateTomlMcpConfig(
   env: Record<string, string>,
 ): void {
   mkdirSync(path.dirname(filePath), { recursive: true });
-  let content = existsSync(filePath) ? readFileSync(filePath, 'utf8') : '';
-  const sectionHeader = `[mcp_servers.${serverName}]`;
-  const envPairs = Object.entries(env)
-    .map(([k, v]) => `  ${k} = "${v}"`)
-    .join('\n');
-  const sectionBlock = `${sectionHeader}\ncommand = "${command}"\nargs = [${args.map((a) => `"${a}"`).join(', ')}]\nenv = {\n${envPairs}\n}\n`;
-
-  const regex = new RegExp(`\\[mcp_servers\\.${serverName}\\][\\s\\S]*?(?=\\n\\[|$)`, 'm');
-  if (regex.test(content)) {
-    content = content.replace(regex, sectionBlock.trim());
-  } else {
-    content = `${content.trim()}\n\n${sectionBlock}`.trim() + '\n';
-  }
-  writeFileSync(filePath, content, 'utf8');
+  const existing = existsSync(filePath) ? readFileSync(filePath, 'utf8') : '';
+  const base = stripTomlServerSections(existing, serverName);
+  const envEntries = Object.entries(env);
+  const envBlock = envEntries.length
+    ? `\n[mcp_servers.${serverName}.env]\n${envEntries.map(([k, v]) => `${k} = ${tomlString(v)}`).join('\n')}\n`
+    : '';
+  const sectionBlock = `[mcp_servers.${serverName}]\ncommand = ${tomlString(command)}\nargs = [${args.map(tomlString).join(', ')}]\n${envBlock}`;
+  const next = base ? `${base}\n\n${sectionBlock}` : sectionBlock;
+  writeFileSync(filePath, next, 'utf8');
 }
 
 function updateOpencodeMcpConfig(
