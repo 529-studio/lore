@@ -652,6 +652,54 @@ function conflictsFor(db, subject, predicate) {
   check('the injected value is the winner', afterResolve.hits[0].object.includes('npm'));
 }
 
+// --- J. extractor predicate defaults & zero day-0 conflicts (#180) ----------
+{
+  const { loadOntology } = await import('../dist/ontology.js');
+  for (const tpl of ['code', 'product', 'content', 'support']) {
+    const r = tempRoot();
+    writeFileSync(
+      path.join(r, 'package.json'),
+      JSON.stringify({
+        name: 'multi-val-app',
+        keywords: ['agent', 'memory', 'sqlite', 'mcp'],
+        scripts: { build: 'tsc', test: 'node test.js' },
+        bin: { a: 'dist/a.js', b: 'dist/b.js' },
+        engines: { node: '>=22', npm: '>=10' },
+      }),
+    );
+    writeFileSync(
+      path.join(r, 'docker-compose.yml'),
+      'services:\n  api:\n    image: node:22\n    ports:\n      - "3000:3000"\n  db:\n    image: postgres:16\n    ports:\n      - "5432:5432"\n  redis:\n    image: redis:7\n',
+    );
+    writeFileSync(
+      path.join(r, 'AGENTS.md'),
+      '# Rules\n\n## 1. First Rule\nAlways verify before asserting.\n\n## 2. Second Rule\nNever push secrets.\n',
+    );
+    mkdirSync(path.join(r, 'src'), { recursive: true });
+    writeFileSync(
+      path.join(r, 'src', 'app.ts'),
+      "import a from 'pkg-a';\nimport b from 'pkg-b';\napp.get('/a', () => {});\napp.post('/b', () => {});\n",
+    );
+
+    runCli(r, ['onboard', '--template', tpl, '--yes', '--no-setup']);
+    const status = JSON.parse(runCli(r, ['canon', 'status', '--json']));
+    eq(`${tpl} template produces 0 contested claims on day 0`, status.trust.contested, 0);
+    eq(`${tpl} template produces 0 unresolved tier-1 conflicts on day 0`, status.unresolved_conflicts, 0);
+    check(`${tpl} template extracted multiple claims`, status.trust.canonical >= 10);
+  }
+
+  // Fallback keeps unknown predicates at 'one' and honors explicit YAML override
+  const customRoot = tempRoot();
+  writeFileSync(
+    path.join(customRoot, 'lore.ontology.yml'),
+    'predicates:\n  uses_image: { cardinality: one }\n',
+  );
+  const ont = loadOntology(customRoot);
+  eq('unknown predicate defaults to one', ont.cardinality('custom_unknown_pred'), 'one');
+  eq('omitted multi-valued extractor predicate falls back to many', ont.cardinality('has_keyword'), 'many');
+  eq('explicit YAML entry overrides extractor fallback', ont.cardinality('uses_image'), 'one');
+}
+
 for (const dir of roots) rmSync(dir, { recursive: true, force: true });
 
 if (failures) {
