@@ -47,8 +47,29 @@ function shannon(value: string): number {
   return entropy;
 }
 
-function looksRandom(token: string): boolean {
+function looksRandomSegment(segment: string): boolean {
+  if (segment.length < 20 || SAFE_TOKEN_RE.test(segment) || HEX_RE.test(segment)) return false;
+  const classes = [/[a-z]/, /[A-Z]/, /[0-9]/].filter((re) => re.test(segment)).length;
+  return classes >= 3 && shannon(segment) >= ENTROPY_THRESHOLD;
+}
+
+function isLikelyPathOrSlug(token: string, text: string, index: number): boolean {
+  if (/^[a-z0-9]+(?:-[a-z0-9]+){3,}-?$/.test(token)) return true;
+  if (/^(?:[A-Z0-9]+(?:_[A-Z0-9]+){2,}|[a-z0-9]+(?:_[a-z0-9]+){2,})$/.test(token)) return true;
+  if (!token.includes('/') || /[+=]/.test(token)) return false;
+
+  const before = text.slice(Math.max(0, index - 8), index);
+  const after = text.slice(index + token.length, index + token.length + 12);
+  const hasPrefix = /(?:doc|file|sym|test):\.?$/i.test(before) || /(?:^|[\s"'`(])\.{0,2}\/$/.test(before);
+  const hasExt = /^\.[a-zA-Z0-9]{1,8}(?:$|[^A-Za-z0-9])/.test(after);
+  const segments = token.split('/').filter(Boolean);
+  if (segments.length < 2 || (!hasPrefix && !hasExt && segments.length < 3)) return false;
+  return segments.every((seg) => !looksRandomSegment(seg));
+}
+
+function looksRandom(token: string, text: string, index: number): boolean {
   if (SAFE_TOKEN_RE.test(token) || HEX_RE.test(token)) return false;
+  if (isLikelyPathOrSlug(token, text, index)) return false;
   const classes = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((re) => re.test(token)).length;
   return classes >= 3 && shannon(token) >= ENTROPY_THRESHOLD;
 }
@@ -71,11 +92,12 @@ export function scanText(text: string): SecretFinding[] {
 
   for (const match of text.matchAll(ENTROPY_RE)) {
     const value = match[0];
-    if (!looksRandom(value)) continue;
+    const index = match.index ?? 0;
+    if (!looksRandom(value, text, index)) continue;
     const key = `high-entropy:${value}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    findings.push({ kind: 'high-entropy', match: value, masked: mask(value), index: match.index ?? 0 });
+    findings.push({ kind: 'high-entropy', match: value, masked: mask(value), index });
   }
 
   return findings.sort((a, b) => a.index - b.index);
