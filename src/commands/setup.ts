@@ -68,10 +68,10 @@ function stripTomlServerSections(content: string, serverName: string): string {
   const kept: string[] = [];
   let skipping = false;
   for (const line of content.split(/\r?\n/)) {
-    const match = /^\s*\[([^\]]+)\]\s*(?:#.*)?$/.exec(line);
+    const match = /^\s*(?:\[\[([^\]]+)\]\]|\[([^\[\]]+)\])\s*(?:#.*)?$/.exec(line);
     if (match) {
-      const tableName = match[1].trim();
-      skipping = tableName === prefix || tableName.startsWith(`${prefix}.`);
+      const tableName = (match[1] ?? match[2] ?? '').trim();
+      skipping = !match[1] && (tableName === prefix || tableName.startsWith(`${prefix}.`));
       if (skipping) continue;
     }
     if (!skipping) kept.push(line);

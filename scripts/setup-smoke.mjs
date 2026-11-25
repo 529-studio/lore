@@ -43,12 +43,12 @@ try {
   const cursorFile = path.join(tmp, '.cursor', 'mcp.json');
   if (!existsSync(cursorFile)) throw new Error('cursor config file not created');
 
-  // Test setup command for codex with pre-existing sections and idempotent re-run
+  // Test setup command for codex with pre-existing sections, legacy broken block, [[array]] table, and idempotent re-run
   const codexFile = path.join(tmp, '.codex', 'config.toml');
   mkdirSync(path.dirname(codexFile), { recursive: true });
   writeFileSync(
     codexFile,
-    `# existing config\n[mcp_servers.github]\ncommand = "npx"\nargs = ["-y", "server-github"]\n\n[mcp_servers.github.env]\nGITHUB_TOKEN = "placeholder"\n`,
+    `# existing config\n[mcp_servers.github]\ncommand = "npx"\nargs = ["-y", "server-github"]\n\n[mcp_servers.github.env]\nGITHUB_TOKEN = "placeholder"\n\n[mcp_servers.lore]\ncommand = "lore"\nargs = ["mcp"]\nenv = {\n  LORE_SESSION = "old"\n}\n\n[projects."/tmp/example"]\ntrust_level = "trusted"\n\n[[custom_entries]]\nname = "keep-me"\n`,
     'utf8',
   );
   execFileSync('node', [cli, 'setup', 'codex', '--scope', 'project', '--root', tmp]);
@@ -57,11 +57,14 @@ try {
   if (!toml1.includes('[mcp_servers.lore]') || !toml1.includes('[mcp_servers.lore.env]')) {
     throw new Error('codex toml missing [mcp_servers.lore] or [mcp_servers.lore.env]');
   }
-  if (/env\s*=\s*\{\s*\n/.test(toml1)) {
-    throw new Error('codex toml must not emit invalid multiline inline tables');
+  if (/env\s*=\s*\{\s*\n/.test(toml1) || toml1.includes('LORE_SESSION = "old"')) {
+    throw new Error('codex toml still contains legacy multiline inline env block');
   }
   if (!toml1.includes('[mcp_servers.github]') || !toml1.includes('[mcp_servers.github.env]')) {
     throw new Error('codex toml did not preserve unrelated mcp_servers.github sections');
+  }
+  if (!toml1.includes('[projects."/tmp/example"]') || !toml1.includes('[[custom_entries]]')) {
+    throw new Error('codex toml did not preserve [projects] or [[custom_entries]] sections');
   }
   // Re-run must be byte-identical and not duplicate sections
   execFileSync('node', [cli, 'setup', 'codex', '--scope', 'project', '--root', tmp]);
@@ -73,7 +76,7 @@ try {
       'python3',
       [
         '-c',
-        'import sys, tomllib; d = tomllib.load(open(sys.argv[1], "rb")); assert d["mcp_servers"]["lore"]["env"]["LORE_SESSION"] == "codex"; assert d["mcp_servers"]["github"]["command"] == "npx"',
+        'import sys, tomllib; d = tomllib.load(open(sys.argv[1], "rb")); assert d["mcp_servers"]["lore"]["env"]["LORE_SESSION"] == "codex"; assert d["mcp_servers"]["github"]["command"] == "npx"; assert len(d["custom_entries"]) == 1',
         codexFile,
       ],
       { stdio: 'pipe' },
@@ -83,13 +86,23 @@ try {
       throw new Error(`codex toml failed tomllib validation: ${String(err)}`);
     }
   }
-  // Validate with real codex CLI if installed
+  // Validate with real codex CLI if installed (isolated CODEX_HOME so project config is actually parsed)
+  let hasCodex = false;
   try {
     execFileSync('which', ['codex'], { stdio: 'ignore' });
-    execFileSync('codex', ['mcp', 'list'], { cwd: tmp, stdio: 'pipe', encoding: 'utf8' });
-  } catch (err) {
-    if (err && typeof err === 'object' && 'stderr' in err && String(err.stderr).includes('Error loading config.toml')) {
-      throw new Error(`codex CLI rejected generated config.toml: ${String(err.stderr)}`);
+    hasCodex = true;
+  } catch {
+    hasCodex = false;
+  }
+  if (hasCodex) {
+    const codexOut = execFileSync('codex', ['mcp', 'list'], {
+      cwd: tmp,
+      env: { ...process.env, CODEX_HOME: path.join(tmp, '.codex') },
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    if (!codexOut.includes('lore') || !codexOut.includes('github')) {
+      throw new Error(`codex mcp list did not load lore and github from CODEX_HOME: ${codexOut}`);
     }
   }
   // Verify lore write --help uses English (no Vietnamese 'vd')

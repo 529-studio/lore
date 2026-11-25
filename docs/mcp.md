@@ -38,7 +38,7 @@ Instead of manual editing, configure your agents and install autonomous memory p
 lore setup agy       # Antigravity CLI (.agents/mcp_config.json or global ~/.gemini/config/mcp_config.json)
 lore setup claude    # Claude Code (.mcp.json)
 lore setup cursor    # Cursor (.cursor/mcp.json)
-lore setup codex     # Codex CLI (~/.codex/config.toml)
+lore setup codex     # Codex CLI (.codex/config.toml or global ~/.codex/config.toml)
 lore setup gemini    # Gemini CLI (.gemini/settings.json)
 lore setup opencode  # OpenCode (opencode.json or ~/.config/opencode/opencode.jsonc)
 lore setup --all     # Detect and configure all installed agents
@@ -101,13 +101,15 @@ Accept the server with `/mcp` (or restart Claude Code in the project root).
 
 ## Codex CLI
 
-Edit `~/.codex/config.toml`:
+Edit `.codex/config.toml` (or `~/.codex/config.toml`):
 
 ```toml
 [mcp_servers.lore]
 command = "node"
 args = ["/ABS/PATH/TO/lore/dist/cli.js", "mcp"]
-env = { "LORE_SESSION" = "codex" }
+
+[mcp_servers.lore.env]
+LORE_SESSION = "codex"
 ```
 
 Codex starts MCP servers with your current directory, so run `codex` from the project root.
