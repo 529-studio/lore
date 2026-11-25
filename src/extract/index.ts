@@ -73,7 +73,13 @@ export function listFiles(root: string): string[] {
 }
 
 function readText(root: string, rel: string): string | null {
-  if (!TEXT_EXT.has(path.extname(rel))) return null;
+  const base = path.basename(rel);
+  const allowed =
+    TEXT_EXT.has(path.extname(rel)) ||
+    base === 'Makefile' ||
+    base === 'go.mod' ||
+    /^requirements.*\.txt$/i.test(base);
+  if (!allowed) return null;
   const real = resolveInside(root, rel);
   if (!real) return null;
   try {
@@ -187,11 +193,12 @@ function addPackageJson(root: string, rel: string, text: string, out: Candidate[
   } catch {
     return;
   }
+  const pkgSubject = typeof pkg.name === 'string' && pkg.name.trim() ? `pkg:${pkg.name}` : `pkg:${rel}`;
   if (typeof pkg.name === 'string') {
-    out.push({ subject: `pkg:${pkg.name}`, predicate: 'package_name', object: pkg.name });
+    out.push({ subject: pkgSubject, predicate: 'package_name', object: pkg.name, evidenceRef: rel });
   }
   if (typeof pkg.main === 'string') {
-    out.push({ subject: `pkg:${String(pkg.name ?? 'unknown')}`, predicate: 'main_entry', object: pkg.main });
+    out.push({ subject: pkgSubject, predicate: 'main_entry', object: pkg.main, evidenceRef: rel });
   }
   for (const section of ['dependencies', 'devDependencies', 'peerDependencies']) {
     const deps = pkg[section];
@@ -201,6 +208,7 @@ function addPackageJson(root: string, rel: string, text: string, out: Candidate[
         subject: `pkg:${name}`,
         predicate: 'declared_dependency',
         object: `${version} (${section})`,
+        evidenceRef: rel,
       });
     }
   }
@@ -211,27 +219,98 @@ function addPackageJson(root: string, rel: string, text: string, out: Candidate[
         subject: `file:${rel}`,
         predicate: 'defines_script',
         object: `${name} -> ${cmd}`,
+        evidenceRef: rel,
       });
     }
   }
   const bin = pkg.bin;
   if (typeof bin === 'string') {
-    out.push({ subject: `pkg:${String(pkg.name ?? 'unknown')}`, predicate: 'provides_command', object: bin });
+    out.push({ subject: pkgSubject, predicate: 'provides_command', object: bin, evidenceRef: rel });
   } else if (bin && typeof bin === 'object') {
     for (const [name, target] of Object.entries(bin as Record<string, string>)) {
-      out.push({ subject: `pkg:${String(pkg.name ?? 'unknown')}`, predicate: 'provides_command', object: `${name} -> ${target}` });
+      out.push({ subject: pkgSubject, predicate: 'provides_command', object: `${name} -> ${target}`, evidenceRef: rel });
     }
   }
   const engines = pkg.engines;
   if (engines && typeof engines === 'object') {
     for (const [runtime, version] of Object.entries(engines as Record<string, string>)) {
-      out.push({ subject: `pkg:${String(pkg.name ?? 'unknown')}`, predicate: 'requires_runtime', object: `${runtime} ${version}` });
+      out.push({ subject: pkgSubject, predicate: 'requires_runtime', object: `${runtime} ${version}`, evidenceRef: rel });
     }
   }
   const keywords = pkg.keywords;
   if (Array.isArray(keywords)) {
     for (const keyword of keywords) {
-      out.push({ subject: `pkg:${String(pkg.name ?? 'unknown')}`, predicate: 'has_keyword', object: String(keyword) });
+      out.push({ subject: pkgSubject, predicate: 'has_keyword', object: String(keyword), evidenceRef: rel });
+    }
+  }
+}
+
+function addRequirementsTxt(rel: string, text: string, out: Candidate[]): void {
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/#.*$/, '').trim();
+    if (!line || line.startsWith('-')) continue;
+    const m = /^([A-Za-z0-9_.-]+)(?:\[[^\]]+\])?\s*(.*)$/.exec(line);
+    if (!m || !m[1]) continue;
+    const spec = (m[2] ?? '').trim();
+    out.push({
+      subject: `pkg:${m[1]}`,
+      predicate: 'declared_dependency',
+      object: spec ? `${spec} (requirements.txt)` : 'any (requirements.txt)',
+      evidenceRef: rel,
+    });
+  }
+}
+
+function addPyprojectToml(rel: string, text: string, out: Candidate[]): void {
+  const nameMatch = /^name\s*=\s*["']([^"']+)["']/m.exec(text);
+  if (nameMatch?.[1]) {
+    out.push({ subject: `pkg:${nameMatch[1]}`, predicate: 'package_name', object: nameMatch[1], evidenceRef: rel });
+  }
+  const depsBlock = /\bdependencies\s*=\s*\[([\s\S]*?)\]/m.exec(text);
+  if (depsBlock?.[1]) {
+    for (const item of depsBlock[1].matchAll(/["']([^"']+)["']/g)) {
+      const m = /^([A-Za-z0-9_.-]+)(?:\[[^\]]+\])?\s*(.*)$/.exec(item[1].trim());
+      if (!m || !m[1]) continue;
+      const spec = (m[2] ?? '').trim();
+      out.push({
+        subject: `pkg:${m[1]}`,
+        predicate: 'declared_dependency',
+        object: spec ? `${spec} (pyproject.toml)` : 'any (pyproject.toml)',
+        evidenceRef: rel,
+      });
+    }
+  }
+}
+
+function addGoMod(rel: string, text: string, out: Candidate[]): void {
+  const modMatch = /^module\s+(\S+)/m.exec(text);
+  if (modMatch?.[1]) {
+    out.push({ subject: `pkg:${modMatch[1]}`, predicate: 'package_name', object: modMatch[1], evidenceRef: rel });
+  }
+  const goVer = /^go\s+(\S+)/m.exec(text);
+  if (goVer?.[1] && modMatch?.[1]) {
+    out.push({ subject: `pkg:${modMatch[1]}`, predicate: 'requires_runtime', object: `go ${goVer[1]}`, evidenceRef: rel });
+  }
+  for (const m of text.matchAll(/^require\s+([^\s(]+)\s+(\S+)/gm)) {
+    out.push({
+      subject: `pkg:${m[1]}`,
+      predicate: 'declared_dependency',
+      object: `${m[2]} (go.mod)`,
+      evidenceRef: rel,
+    });
+  }
+  for (const block of text.matchAll(/^require\s*\(([\s\S]*?)\)/gm)) {
+    for (const raw of block[1].split(/\r?\n/)) {
+      const line = raw.replace(/\/\/.*$/, '').trim();
+      if (!line) continue;
+      const m = /^(\S+)\s+(\S+)/.exec(line);
+      if (!m) continue;
+      out.push({
+        subject: `pkg:${m[1]}`,
+        predicate: 'declared_dependency',
+        object: `${m[2]} (go.mod)`,
+        evidenceRef: rel,
+      });
     }
   }
 }
@@ -319,6 +398,19 @@ function scanCode(root: string, rel: string, text: string, out: Candidate[]): vo
     if (!spec || isRelativeOrBuiltin(spec)) continue;
     out.push({ subject: `file:${rel}`, predicate: 'imports_module', object: spec, confidence: 0.9 });
   }
+  if (rel.endsWith('.py')) {
+    for (const m of text.matchAll(/^[ \t]*from[ \t]+([A-Za-z_][A-Za-z0-9_.]*)[ \t]+import\b/gm)) {
+      if (m[1]) out.push({ subject: `file:${rel}`, predicate: 'imports_module', object: m[1], confidence: 0.9 });
+    }
+    for (const m of text.matchAll(/^[ \t]*import[ \t]+([^\r\n#]+)/gm)) {
+      for (const part of m[1].split(',')) {
+        const mod = part.trim().split(/\s+as\s+/)[0]?.trim();
+        if (mod && /^[A-Za-z_][A-Za-z0-9_.]*$/.test(mod)) {
+          out.push({ subject: `file:${rel}`, predicate: 'imports_module', object: mod, confidence: 0.9 });
+        }
+      }
+    }
+  }
   const routes = new Set<string>();
   for (const m of text.matchAll(DECORATOR_ROUTE_RE)) routes.add(`${m[1].toUpperCase()} ${m[2]}`);
   for (const m of text.matchAll(EXPRESS_ROUTE_RE)) {
@@ -339,30 +431,45 @@ export function extractAll(root: string): Candidate[] {
   for (const rel of files) {
     const base = path.basename(rel);
 
-    if (base === 'package.json' && !rel.includes('/')) {
+    if (base === 'package.json') {
       const text = readText(root, rel);
       if (text) addPackageJson(root, rel, text, out);
     }
 
-    if (base === 'Makefile' && !rel.includes('/')) {
+    if (/^requirements.*\.txt$/i.test(base)) {
+      const text = readText(root, rel);
+      if (text) addRequirementsTxt(rel, text, out);
+    }
+
+    if (base === 'pyproject.toml') {
+      const text = readText(root, rel);
+      if (text) addPyprojectToml(rel, text, out);
+    }
+
+    if (base === 'go.mod') {
+      const text = readText(root, rel);
+      if (text) addGoMod(rel, text, out);
+    }
+
+    if (base === 'Makefile') {
       const text = readText(root, rel);
       if (text) {
         for (const m of text.matchAll(MAKE_TARGET_RE)) {
           const target = m[1];
           if (!target || target.startsWith('.')) continue;
-          out.push({ subject: `file:${rel}`, predicate: 'has_make_target', object: target });
+          out.push({ subject: `file:${rel}`, predicate: 'has_make_target', object: target, evidenceRef: rel });
         }
       }
     }
 
-    if (/^docker-compose.*\.(yml|yaml)$/.test(base) && !rel.includes('/')) {
+    if (/^(?:docker-)?compose.*\.(?:yml|yaml)$/.test(base)) {
       const text = readText(root, rel);
       if (text) {
         for (const m of text.matchAll(COMPOSE_IMAGE_RE)) {
-          out.push({ subject: `file:${rel}`, predicate: 'uses_image', object: m[1] });
+          out.push({ subject: `file:${rel}`, predicate: 'uses_image', object: m[1], evidenceRef: rel });
         }
         for (const m of text.matchAll(COMPOSE_PORT_RE)) {
-          out.push({ subject: `file:${rel}`, predicate: 'publishes_port', object: m[1] });
+          out.push({ subject: `file:${rel}`, predicate: 'publishes_port', object: m[1], evidenceRef: rel });
         }
       }
     }
@@ -459,13 +566,31 @@ export function extractAll(root: string): Candidate[] {
 }
 
 function dedupe(list: Candidate[]): Candidate[] {
+  // Disambiguate cardinality-one declared_dependency subjects if multiple manifests specify different versions.
+  const depObjects = new Map<string, Set<string>>();
+  for (const c of list) {
+    if (c.predicate !== 'declared_dependency') continue;
+    let set = depObjects.get(c.subject);
+    if (!set) {
+      set = new Set<string>();
+      depObjects.set(c.subject, set);
+    }
+    set.add(c.object);
+  }
+
   const seen = new Set<string>();
   const out: Candidate[] = [];
   for (const c of list) {
-    const key = `${c.subject}\u0000${c.predicate}\u0000${c.object}`;
+    const candidate =
+      c.predicate === 'declared_dependency' &&
+      (depObjects.get(c.subject)?.size ?? 0) > 1 &&
+      c.evidenceRef
+        ? { ...c, subject: `${c.subject}@${c.evidenceRef}` }
+        : c;
+    const key = `${candidate.subject}\u0000${candidate.predicate}\u0000${candidate.object}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(c);
+    out.push(candidate);
   }
   return out;
 }

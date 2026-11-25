@@ -515,26 +515,61 @@ function extractManifests(root) {
     /* ignore */
   }
   for (const rel of rels) {
-    if (path.basename(rel) !== 'package.json') continue;
-    try {
-      const pkg = JSON.parse(readFileSync(path.join(root, rel), 'utf8'));
-      for (const section of ['dependencies', 'devDependencies', 'peerDependencies']) {
-        const deps = pkg?.[section];
-        if (!deps || typeof deps !== 'object') continue;
-        for (const [name, version] of Object.entries(deps)) {
-          if (!maps.deps.has(name)) maps.deps.set(name, new Set());
-          maps.deps.get(name).add(`${version} (${section})`);
+    const base = path.basename(rel);
+    if (base === 'package.json') {
+      try {
+        const pkg = JSON.parse(readFileSync(path.join(root, rel), 'utf8'));
+        for (const section of ['dependencies', 'devDependencies', 'peerDependencies']) {
+          const deps = pkg?.[section];
+          if (!deps || typeof deps !== 'object') continue;
+          for (const [name, version] of Object.entries(deps)) {
+            if (!maps.deps.has(name)) maps.deps.set(name, new Set());
+            maps.deps.get(name).add(`${version} (${section})`);
+          }
         }
-      }
-      if (pkg?.scripts && typeof pkg.scripts === 'object') {
-        for (const [name, command] of Object.entries(pkg.scripts)) {
-          if (typeof command !== 'string') continue;
-          if (!maps.scriptsByName.has(name)) maps.scriptsByName.set(name, new Set());
-          maps.scriptsByName.get(name).add(command);
+        if (pkg?.scripts && typeof pkg.scripts === 'object') {
+          for (const [name, command] of Object.entries(pkg.scripts)) {
+            if (typeof command !== 'string') continue;
+            if (!maps.scriptsByName.has(name)) maps.scriptsByName.set(name, new Set());
+            maps.scriptsByName.get(name).add(command);
+          }
         }
+      } catch {
+        /* package.json with comments/unparseable */
       }
-    } catch {
-      /* package.json with comments/unparseable */
+    } else if (/^requirements.*\.txt$/i.test(base)) {
+      try {
+        for (const raw of readFileSync(path.join(root, rel), 'utf8').split(/\r?\n/)) {
+          const line = raw.replace(/#.*$/, '').trim();
+          if (!line || line.startsWith('-')) continue;
+          const m = /^([A-Za-z0-9_.-]+)(?:\[[^\]]+\])?\s*(.*)$/.exec(line);
+          if (!m?.[1]) continue;
+          const spec = (m[2] ?? '').trim();
+          if (!maps.deps.has(m[1])) maps.deps.set(m[1], new Set());
+          maps.deps.get(m[1]).add(spec ? `${spec} (requirements.txt)` : 'any (requirements.txt)');
+        }
+      } catch {
+        /* ignore */
+      }
+    } else if (base === 'go.mod') {
+      try {
+        const text = readFileSync(path.join(root, rel), 'utf8');
+        for (const m of text.matchAll(/^require\s+([^\s(]+)\s+(\S+)/gm)) {
+          if (!maps.deps.has(m[1])) maps.deps.set(m[1], new Set());
+          maps.deps.get(m[1]).add(`${m[2]} (go.mod)`);
+        }
+        for (const block of text.matchAll(/^require\s*\(([\s\S]*?)\)/gm)) {
+          for (const raw of block[1].split(/\r?\n/)) {
+            const line = raw.replace(/\/\/.*$/, '').trim();
+            const m = /^(\S+)\s+(\S+)/.exec(line);
+            if (!m) continue;
+            if (!maps.deps.has(m[1])) maps.deps.set(m[1], new Set());
+            maps.deps.get(m[1]).add(`${m[2]} (go.mod)`);
+          }
+        }
+      } catch {
+        /* ignore */
+      }
     }
   }
   return maps;
