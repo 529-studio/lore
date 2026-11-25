@@ -137,7 +137,7 @@ Run `lore setup` to configure your agent automatically:
 ```bash
 lore setup agy        # Antigravity CLI (.agents/mcp_config.json)
 lore setup claude     # Claude Code (.mcp.json)
-lore setup codex      # Codex CLI (~/.codex/config.toml)
+lore setup codex      # Codex CLI (.codex/config.toml)
 lore setup gemini     # Gemini CLI (~/.gemini/settings.json)
 lore setup cursor     # Cursor IDE (.cursor/mcp.json)
 lore setup opencode   # OpenCode (opencode.json)
