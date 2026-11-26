@@ -95,8 +95,8 @@ program
 program
   .command('write')
   .description('write one claim (draft when evidence is agent/human)')
-  .requiredOption('--subject <id>', 'entity id, vd file:src/a.ts, env:DATABASE_URL, sym:src/a.ts#fn')
-  .requiredOption('--predicate <name>', 'vd read_by, declares_dependency')
+  .requiredOption('--subject <id>', 'entity id, e.g. file:src/a.ts, env:DATABASE_URL, sym:src/a.ts#fn')
+  .requiredOption('--predicate <name>', 'e.g. read_by, declared_dependency')
   .requiredOption('--object <text>', 'claim value')
   .option('--kind <kind>', 'test|file|command|human|agent', 'file')
   .option('--ref <ref>', 'evidence source path (default: subject)')

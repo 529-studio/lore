@@ -136,6 +136,24 @@ try {
   if (!pageHtml.includes('id="graph-predicate-select"') || !pageHtml.includes('id="graph-cluster-mode"')) {
     throw new Error('page missing graph predicate filter or cluster mode controls');
   }
+  if (!pageHtml.includes('id="graph-density-toggle"') || !pageHtml.includes('queryQuadtree') || !pageHtml.includes('runLocalSimulation')) {
+    throw new Error('page missing high-density graph worker or quadtree components');
+  }
+
+  // Test Web Worker route and syntax
+  const workerRes = await fetch(`${handle.url}/graph-worker.js`);
+  if (!workerRes.ok || !workerRes.headers.get('content-type')?.includes('application/javascript')) {
+    throw new Error(`graph-worker.js route failed: ${workerRes.status}`);
+  }
+  const workerCode = await workerRes.text();
+  if (!workerCode.includes('createQuadtree') || !workerCode.includes('onmessage')) {
+    throw new Error('graph-worker.js missing expected simulation or quadtree code');
+  }
+  try {
+    new vm.Script(workerCode);
+  } catch (err) {
+    throw new Error(`graph-worker.js syntax error: ${err.message}`);
+  }
   if (!pageHtml.includes('id="arrow-imports"') || !pageHtml.includes('id="arrow-read"')) {
     throw new Error('page missing SVG directional arrow markers');
   }
