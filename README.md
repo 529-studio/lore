@@ -203,10 +203,11 @@ lore setup [agent]             configure MCP for agents
 lore rules [--update]          install or update agent rules
 lore config [action]           view or edit project configuration (list, get, set, unset)
 lore check-update              check npm registry for newer versions of lore
+lore doctor [--json] [--fix]   readiness: store, branch parity, MCP configs, ontology
 lore mcp                       MCP server over stdio
 ```
 
-Exit codes: `0` ok · `2` unresolved merge conflict · `3` stale above threshold.
+Exit codes: `0` ok · `1` doctor errors · `2` unresolved merge conflict · `3` stale above threshold.
 
 ### Troubleshooting
 
@@ -333,7 +334,6 @@ These numbers are measured proxies; the harness fails the build when a scenario 
 
 - **`verify` does not rewrite hashes**; a legitimately changed file stays stale until `ingest` re-observes it ([#3](https://github.com/529-studio/lore/issues/3)).
 - **Code repositories only.** Entity ids come from `path#symbol`, which is what makes merge deterministic. Non-code entities are v0.3 ([#20](https://github.com/529-studio/lore/issues/20)).
-- **No team backend yet.** SQLite per repo; shared Postgres and auth are v0.2 ([#15](https://github.com/529-studio/lore/issues/15), [#16](https://github.com/529-studio/lore/issues/16)).
 
 ## Contributing
 
