@@ -141,16 +141,32 @@ function asHttpRemote(remote: RemoteConfig): HttpRemote | null {
   return null;
 }
 
-/** Commits on remote main missing locally, and the claim/entity rows the delta carries. */
+/**
+ * Commits on remote main missing locally, and the claims those commits touch.
+ * Bundles also carry side-branch commits (proposals, peer sessions); counting
+ * the whole bundle would report a remote as behind while main tips match.
+ */
 export function behindCounts(db: DB, bundle: Bundle): { commits: number; rows: number } {
   const localMain = head(db, 'main');
-  const commits = localMain
-    ? bundle.commits.filter((row) => !isAncestor(db, String(row.id), localMain)).length
-    : bundle.commits.length;
-  return {
-    commits,
-    rows: bundle.claims.length + bundle.entities.length,
-  };
+  const mainRef = bundle.refs.find((ref) => ref.name === 'main')?.commit_id ?? null;
+  const byId = new Map(bundle.commits.map((row) => [String(row.id), row]));
+  const reachable = new Set<string>();
+  const queue = mainRef ? [mainRef] : [];
+  while (queue.length) {
+    const id = queue.shift()!;
+    if (reachable.has(id)) continue;
+    reachable.add(id);
+    const row = byId.get(id);
+    if (row?.parent_id) queue.push(String(row.parent_id));
+    if (row?.merge_parent_id) queue.push(String(row.merge_parent_id));
+  }
+  const missing = [...reachable].filter((id) => !localMain || !isAncestor(db, id, localMain));
+  const missingIds = new Set(missing);
+  const claims = new Set<string>();
+  for (const entry of bundle.entries) {
+    if (missingIds.has(String(entry.commit_id))) claims.add(String(entry.claim_id));
+  }
+  return { commits: missing.length, rows: claims.size };
 }
 
 interface CountedPull extends SyncPullResult {
