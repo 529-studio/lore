@@ -33,3 +33,8 @@ protected:
   "file:package.json": [maintainers]
   "file:scripts/*": [maintainers]
   "file:.github/workflows/*": [maintainers]
+
+# Linked repositories whose claims can be read alongside this repo's memory.
+links:
+  self-infras:
+    repo_id: "aff2d3a0-7c33-4270-8ea3-6cacc22bad4b"

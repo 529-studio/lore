@@ -151,7 +151,17 @@ runs:
       run: |
         set -euo pipefail
         LORE_SESSION=head lore ingest > /dev/null
-        LORE_SESSION=head lore diff main..agent/head --json > "${RUNNER_TEMP}/lore-diff.json"
+        # A pull request that extracts zero claims does not create agent/head, so
+        # diff would abort on an unknown revision. Treat that as an empty diff and
+        # keep failing closed on every other error.
+        if LORE_SESSION=head lore diff main..agent/head --json > "${RUNNER_TEMP}/lore-diff.json" 2>"${RUNNER_TEMP}/lore-diff.err"; then
+          true
+        elif grep -q 'unknown revision: agent/head' "${RUNNER_TEMP}/lore-diff.err"; then
+          printf '{"added":[],"removed":[]}\n' > "${RUNNER_TEMP}/lore-diff.json"
+        else
+          cat "${RUNNER_TEMP}/lore-diff.err" >&2
+          exit 1
+        fi
 
     - name: Write the comment
       id: report
