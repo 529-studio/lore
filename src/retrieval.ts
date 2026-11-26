@@ -57,11 +57,26 @@ export interface SearchResult {
 
 const BUDGET_DEFAULT = 2000;
 
-// Weights — SPEC §9. Not configurable: keep the contract stable for M4.
+// Weights — SPEC §9 and §15 (issue #181). Not configurable: keep the contract
+// stable for M4.
+//
+// Relevance is split into three terms so that an exact multi-token match is not
+// buried by boilerplate that happens to share one token:
+//   - coverage: fraction of the query tokens present in the claim. Full
+//     coverage ("X-Telemetry-Key" -> x/telemetry/key) is a strong signal.
+//   - phrase: the normalized query appears contiguously in the claim text.
+//     This is what separates a rule that literally names the queried phrase
+//     from claims that merely mention one of its words.
+//   - similarity: Jaccard overlap, kept at its old small weight as a
+//     tie-breaker; it penalizes long claims, so it must not decide relevance.
+// Authority and verification keep their SPEC §9 weights: tier still matters
+// between equally relevant claims, just not more than a full exact match.
 const W_ANCHOR = 3.0;
 const W_PROXIMITY = 2.0;
 const W_AUTHORITY = 1.5;
 const W_VERIFIED = 1.0;
+const W_COVERAGE = 2.0;
+const W_PHRASE = 2.5;
 const W_SIMILARITY = 0.5;
 const W_STALE = -10.0;
 
@@ -148,7 +163,14 @@ function pathBase(p: string): string {
 }
 
 function tokenize(text: string): Set<string> {
-  return new Set(text.toLowerCase().match(/[a-z0-9_]{2,}/g) ?? []);
+  // Single-character tokens are kept: identifiers like `X-Telemetry-Key` are
+  // three tokens (x, telemetry, key), not two.
+  return new Set(text.toLowerCase().match(/[a-z0-9_]+/g) ?? []);
+}
+
+/** Lowercase, punctuation-insensitive words for contiguous phrase matching. */
+function normalizePhrase(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9_]+/g, ' ').trim();
 }
 
 function jaccard(a: Set<string>, b: Set<string>): number {
@@ -286,16 +308,33 @@ function scoreClaim(
     } catch {
       // keep raw json
     }
-    const claimTokens = tokenize(`${claim.subject_id} ${claim.predicate} ${objectText}`);
+    const claimText = `${claim.subject_id} ${claim.predicate} ${objectText}`;
+    const claimTokens = tokenize(claimText);
     const lexicalSim = jaccard(ctx.queryTokens, claimTokens);
+    let matched = 0;
+    for (const token of ctx.queryTokens) if (claimTokens.has(token)) matched++;
+    const tokenCoverage = ctx.queryTokens.size ? matched / ctx.queryTokens.size : 0;
+    const queryPhrase = ctx.queryText ? normalizePhrase(ctx.queryText) : '';
+    const phraseHit = Boolean(queryPhrase) && queryPhrase.split(' ').length >= 2 && normalizePhrase(claimText).includes(queryPhrase);
+
+    if (tokenCoverage > 0 || phraseHit) relevant = true;
+    if (tokenCoverage > 0) {
+      const part = W_COVERAGE * tokenCoverage;
+      parts.push(part);
+      reasons.push(`+${part.toFixed(1)} coverage (${matched}/${ctx.queryTokens.size} query tokens)`);
+    }
+    if (phraseHit) {
+      parts.push(W_PHRASE);
+      reasons.push(`+${W_PHRASE.toFixed(1)} phrase (exact "${queryPhrase}")`);
+    }
 
     if (ctx.semantic && ctx.queryEmbedding) {
       const claimVector = getOrComputeClaimVector(db, claim);
       const vectorSim = Math.max(0, cosineSimilarity(ctx.queryEmbedding, claimVector));
       const hybridSim = computeHybridSimilarity(lexicalSim, vectorSim, ctx.vectorWeight);
 
+      if (hybridSim >= 0.08) relevant = true;
       if (hybridSim >= 0.08 || lexicalSim > 0) {
-        relevant = true;
         const part = W_SIMILARITY * hybridSim;
         parts.push(part);
         reasons.push(
@@ -303,7 +342,6 @@ function scoreClaim(
         );
       }
     } else if (lexicalSim > 0) {
-      relevant = true;
       const part = W_SIMILARITY * lexicalSim;
       parts.push(part);
       reasons.push(`+${part.toFixed(1)} text (token overlap ${lexicalSim.toFixed(2)})`);

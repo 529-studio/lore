@@ -49,6 +49,9 @@ interface DraftRow {
   subject_id: string;
   predicate: string;
   tx_from: string;
+  session_id: string | null;
+  /** Last time this draft was observed/written; never earlier than tx_from. */
+  observed_at: string;
 }
 
 /**
@@ -57,17 +60,29 @@ interface DraftRow {
  * "Used" means a human looked at it (blame), because drafts are deliberately
  * invisible to retrieval until approved. Sessions are registered by any command,
  * so the count reflects real work, not wall-clock time.
+ *
+ * Distance is measured from the draft's *last observation*, not its row
+ * creation. Writing the same claim again updates evidence.verified_at, so an
+ * active agent re-observing a draft resets its age instead of inheriting a
+ * tx_from from a row inserted days ago. The session that wrote the draft is
+ * excluded from the count: it cannot be a later session.
  */
 export function gcCandidates(db: DB, policy: GcPolicy): GcCandidate[] {
   const drafts = db
-    .prepare("SELECT id, subject_id, predicate, tx_from FROM claim WHERE state = 'draft'")
+    .prepare(
+      `SELECT c.id, c.subject_id, c.predicate, c.tx_from, c.session_id,
+              COALESCE((SELECT MAX(e.verified_at) FROM evidence e WHERE e.claim_id = c.id), c.tx_from)
+                AS observed_at
+       FROM claim c
+       WHERE c.state = 'draft'`,
+    )
     .all() as DraftRow[];
   if (!drafts.length) return [];
 
   if (policy.ttlDays !== undefined) {
     const cutoff = new Date(Date.now() - policy.ttlDays * 86_400_000).toISOString();
     return drafts
-      .filter((d) => d.tx_from < cutoff)
+      .filter((d) => d.observed_at < cutoff)
       .map((d) => ({
         id: d.id,
         subject: d.subject_id,
@@ -86,7 +101,9 @@ export function gcCandidates(db: DB, policy: GcPolicy): GcCandidate[] {
   const out: GcCandidate[] = [];
 
   for (const draft of drafts) {
-    const later = sessions.filter((s) => s.started_at > draft.tx_from);
+    const later = sessions.filter(
+      (s) => s.id !== draft.session_id && s.started_at > draft.observed_at,
+    );
     if (later.length < policy.ttlSessions) continue;
     const window = later.slice(-policy.ttlSessions);
     const readIn = new Set((reads.all(draft.id) as Array<{ session_id: string }>).map((r) => r.session_id));

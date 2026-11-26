@@ -637,6 +637,9 @@ node "$LORE_ROOT/scripts/worktree-smoke.mjs"
 node "$LORE_ROOT/scripts/join-smoke.mjs"
 node "$LORE_ROOT/scripts/plugins-smoke.mjs"
 
+# --- status consistency, draft GC distance, exact-match ranking (#181) -------
+node "$LORE_ROOT/scripts/status-ranking-smoke.mjs"
+
 # --- bi-temporal search & timeline -------------------------------------------
 node "$LORE_BIN" timeline doc:README.md | grep -q "Bi-temporal Timeline" || fail "timeline must display bi-temporal revisions"
 node "$LORE_BIN" timeline doc:README.md --json | grep -q "claimId" || fail "timeline --json must output valid JSON"

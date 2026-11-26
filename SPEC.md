@@ -326,13 +326,13 @@ score = 3.0 * anchor        # evidence/subject path is in scope
       + 2.0 * proximity     # 1-2 hops through imports / same directory
       + 1.5 * authority     # (4 - tier) / 4
       + 1.0 * verified      # recency of verification, 14-day window
-      + 0.5 * similarity    # token overlap
+      + 2.0 * coverage      # fraction of query tokens present
+      + 2.5 * phrase        # normalized query appears contiguously
+      + 0.5 * similarity    # Jaccard token overlap (tie-break)
       - 10.0 * stale
 ```
 
-`searchClaims(db, root, {query, files, symbols, budgetTokens, includeStale})` returns hits with the
-score breakdown, so a human can audit why something ranked high. The budget is approximate tokens
-(chars/4), consumed in score order.
+Hits carry the score breakdown; budget is ~tokens (chars/4), in score order.
 
 ## 10. Interfaces
 
@@ -383,7 +383,7 @@ No LLM judge. Outcome metrics on real repositories:
 | `token_savings` | tokens to answer via `search` vs reading files | > 30% |
 | `time_to_first_useful` | invocations before a claim is read back | < 10 |
 
-`revert_correctness` and `token_savings` decide whether the product lives.
+`revert_correctness` and `token_savings` decide if the product lives.
 
 ## 12. Milestones
 
@@ -399,8 +399,6 @@ No LLM judge. Outcome metrics on real repositories:
 ## 13. Open questions
 
 - Entity resolution outside code (issues, ADRs, decisions) — what replaces `path#symbol`?
-- Ontology: hand-written, or bootstrapped from observed predicates?
-- Cross-repository memory: share, or import?
 - Encryption at rest: ours, or the OS?
 
 ## 14. Risks
@@ -431,7 +429,7 @@ No LLM judge. Outcome metrics on real repositories:
 | retrieval filters drafts/stale | retrieval also requires `trust = canonical`; contested facts warn | trust is orthogonal to branch membership |
 | stale derived on read | `canon decay` persists `trust = stale`; read path lazily checks TTL/paths | shared memory needs a durable stale answer |
 | evidence commit must be an ancestor | a non-ancestor stays `ahead-of-checkout`, not stale | an older checkout must not invalidate an observation made on newer code |
-| sync carries commits only | bundle import merges per-claim trust (retracted wins, newer verification wins, flags propagate) | a fetch must not resurrect a contested value |
+| sync carries commits only | bundle import merges trust (retracted wins); tombstones applied; `lore replicate` streams WAL | a fetch must not resurrect a value; clusters need streaming |
 | trust changes via evidence | `canon resolve` keeps one value; redact/purge close the pair | contested memory needs an auditable exit |
 | no team sync | `lore remote` + `fetch`/`push` over directory or Postgres, `bundle` for air gaps | air-gapped repos cannot depend on git hosts |
 | `--as-of` reads the commit at that instant | folds the whole ancestry, skipping commits after the instant | a single commit chain hides facts on sibling branches before a merge |
@@ -441,7 +439,6 @@ No LLM judge. Outcome metrics on real repositories:
 | MCP has five tools | eight tools and resource subscriptions | without approve and resources, MCP memory is incomplete |
 | CLI has static config | `lore setup` auto-wires MCP and `lore config` manages settings | manual editing was error-prone and missed session isolation |
 | UI has flat triple table only | Knowledge Hub defaults to Entity Dossier view with bulleted facts | raw triples fragmented memory and confused users on retrieval |
-| sync carries commits only | `lore replicate` streams SQLite WAL to object store | clusters require real-time streaming replication |
 | search couples bi-temporal dimensions | decoupled bi-temporal search (`--valid-at`, `--tx-at`, `lore timeline`) | audit requires querying past beliefs independently |
 | UI is static on read | live Server-Sent Events (`/api/events`) with SQLite version detection | mutations must reflect live without manual refresh |
 | UI graph is uniform radial scatter | semantic visual clustering and predicate relationship filtering | graphs need domain grouping |
@@ -467,13 +464,14 @@ No LLM judge. Outcome metrics on real repositories:
 | main-thread UI graph | worker force layout + quadtree (`/graph-worker.js`) | 1k+ nodes freeze UI |
 | packaging needs host node | portable bundles (`scripts/package-binary.mjs`) | air-gapped hosts |
 | omitted predicates default to `one` | `many` fallback for extractor predicates (`src/ontology.ts`) | avoids day-0 tier-1 conflicts |
-| sync carries commits | tombstones applied (`src/sync.ts`) | no resurrection after fetch |
 | MCP/lifecycle trusted callers | all writes enforce roles + protected (`src/policy/auth.ts`) | no policy bypass |
 | `.lore` beside worktree | shared primary store, per-worktree sessions (`src/scope.ts`) | agents must not fork memory |
 | config only in gitignored `.lore/config.json` | `.lore.yml` + `lore join` adopt `repo_id`/remote; `init` keeps it | clones must not fork team memory |
 | team mode needs the env secret | `team_mode: true` activates policy and fails closed without credentials | no silent downgrade |
 | direct Postgres sync | `lore-hub`: http delta + CAS + per-user tokens (`src/hub/`) | no DB creds on dev machines |
 | hosts hardcoded in `setup` | personal/repo plugin scopes (`src/plugins/loader.ts`) | extend without core edits |
+| status trusts persisted counts; GC uses row age | status separates persisted trust, live drift, branch/store; GC ages drafts from last observation | contradictory counts and fresh-draft warnings (#181) |
+| similarity = Jaccard token overlap | coverage and exact-phrase weights rank before authority | one shared token must not bury an exact rule (#181) |
 
 ## Glossary
 
