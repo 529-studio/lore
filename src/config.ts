@@ -7,12 +7,14 @@ import { applyManifest, readManifest } from './manifest.js';
 export type RemoteConfig =
   | { type: 'dir'; path: string }
   | { type: 'postgres'; url?: string; url_env?: string }
-  | { type: 'hub'; url: string };
+  | { type: 'hub'; url: string }
+  | { type: 'http'; url: string; token_env?: string };
 
 /** Human label for a remote; never prints credentials. */
 export function remoteLabel(remote: RemoteConfig): string {
   if (remote.type === 'dir') return remote.path;
   if (remote.type === 'hub') return remote.url;
+  if (remote.type === 'http') return `http  ${remote.url}${remote.token_env ? ` (token from $${remote.token_env})` : ''}`;
   return remote.url_env ? `postgres ($${remote.url_env})` : 'postgres';
 }
 
@@ -37,6 +39,10 @@ export interface LoreConfig {
   wal?: WalConfig;
   /** Last remote main commit seen by fetch/push, used for the ahead/behind line. */
   remote_main?: string | null;
+  /** Last hub sequence and main seen by fetch/push, used for delta sync. */
+  hub_seq?: number;
+  hub_auth_seq?: number;
+  hub_main?: string | null;
   trust_mode?: 'strict' | 'permissive';
   auto_approve?: boolean | number[];
   /** Linked worktrees share the primary store by default; `isolated` keeps their own `.lore`. */

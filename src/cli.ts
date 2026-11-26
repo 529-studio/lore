@@ -45,6 +45,7 @@ import { verifyCommand } from './commands/verify.js';
 import { writeCommand } from './commands/write.js';
 import { setupCommand } from './commands/setup.js';
 import { pluginsCommand } from './commands/plugins.js';
+import { hubCommand, hubTokenCommand } from './commands/hub.js';
 import { rulesCommand } from './commands/rules.js';
 import { configCommand } from './commands/config.js';
 import { checkUpdateCommand } from './commands/update.js';
@@ -376,9 +377,48 @@ program
   .option('--show', 'print the current remote')
   .option('--postgres', 'use a postgres connection instead of a directory')
   .option('--env <name>', 'read the postgres connection string from this environment variable')
+  .option('--hub <url>', 'lore-hub https URL (sets an http remote)')
+  .option('--token-env <NAME>', 'environment variable holding the hub token', 'LORE_HUB_TOKEN')
   .action((path, opts) =>
-    remoteCommand({ path, show: opts.show, postgres: opts.postgres, env: opts.env }),
+    remoteCommand({
+      path,
+      show: opts.show,
+      postgres: opts.postgres,
+      env: opts.env,
+      hub: opts.hub,
+      tokenEnv: opts.tokenEnv,
+    }),
   );
+
+program
+  .command('hub [action] [subaction]')
+  .description('run lore-hub (serve) or manage per-user hub tokens (token issue|revoke)')
+  .option('--port <n>', 'listen port (default: 8787)')
+  .option('--host <host>', 'listen host (default: 127.0.0.1)')
+  .option('--sub <user>', 'token subject (email or host id)')
+  .option('--role <role>', 'maintainer | contributor | machine | auditor', 'contributor')
+  .option('--repo <id>', 'scope the token to one repository id')
+  .option('--jti <hash>', 'token hash to revoke')
+  .option('--url <url>', 'hub URL (default: LORE_HUB_URL)')
+  .option('--admin-token-env <NAME>', 'environment variable holding the admin token', 'LORE_HUB_ADMIN_TOKEN')
+  .action((action, subaction, opts) => {
+    if (!action || action === 'serve') return hubCommand({ port: opts.port, host: opts.host });
+    if (action === 'token') {
+      if (subaction && subaction !== 'issue' && subaction !== 'revoke') {
+        throw new Error('usage: lore hub token issue|revoke');
+      }
+      return hubTokenCommand({
+        action: subaction ?? (opts.jti ? 'revoke' : 'issue'),
+        sub: opts.sub,
+        role: opts.role,
+        repo: opts.repo,
+        jti: opts.jti,
+        url: opts.url,
+        adminTokenEnv: opts.adminTokenEnv,
+      });
+    }
+    throw new Error('usage: lore hub serve | lore hub token issue --sub <user> | lore hub token revoke --jti <hash>');
+  });
 
 program
   .command('replicate [action]')

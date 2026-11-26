@@ -38,7 +38,8 @@ Claude, Codex, Gemini, ...
 Postgres is a **transport**, not the query backend: one row per repository in `lore_bundles`, holding
 the commit bundle. This keeps offline first-class and avoids rewriting every query to be asynchronous.
 A query-level backend would only be needed for a hosted dashboard; the read-only dashboard (#18) can
-read the local store.
+read the local store. For shared teams, `lore-hub` replaces direct Postgres access with per-user tokens,
+delta sync, and server-side policy — see [hub](hub.md).
 
 - **Repository identity is not the git remote.** A UUID is generated once into `.lore/config.json`.
   Azure DevOps, GitLab self-host, a bare directory and a public GitHub repo all work the same way.
