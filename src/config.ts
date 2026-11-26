@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { stateDirFor } from './scope.js';
 
 export type RemoteConfig =
   | { type: 'dir'; path: string }
@@ -29,14 +30,15 @@ export interface LoreConfig {
   remote_main?: string | null;
   trust_mode?: 'strict' | 'permissive';
   auto_approve?: boolean | number[];
+  /** Linked worktrees share the primary store by default; `isolated` keeps their own `.lore`. */
+  worktree_mode?: 'shared' | 'isolated';
   [key: string]: unknown;
 }
 
-const DIR = '.lore';
 const FILE = 'config.json';
 
 export function configPath(root: string): string {
-  return path.join(root, DIR, FILE);
+  return path.join(stateDirFor(root), FILE);
 }
 
 export function readConfig(root: string): LoreConfig | null {
@@ -50,7 +52,7 @@ export function readConfig(root: string): LoreConfig | null {
 }
 
 export function writeConfig(root: string, config: LoreConfig): void {
-  mkdirSync(path.join(root, DIR), { recursive: true });
+  mkdirSync(stateDirFor(root), { recursive: true });
   writeFileSync(configPath(root), `${JSON.stringify(config, null, 2)}\n`);
 }
 

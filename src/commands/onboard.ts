@@ -4,6 +4,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import pc from 'picocolors';
+import { stateDirFor } from '../db.js';
 import { initCommand } from './init.js';
 import { ingestCommand } from './ingest.js';
 import { installAgentRules } from './rules.js';
@@ -85,7 +86,7 @@ export async function onboardCommand(opts: OnboardOptions = {}): Promise<void> {
 
   const ontologyPath = path.join(root, 'lore.ontology.yml');
   const ontologyExisted = existsSync(ontologyPath);
-  const stateExisted = existsSync(path.join(root, '.lore'));
+  const stateExisted = existsSync(stateDirFor(root));
   const previous = process.cwd();
 
   process.chdir(root);

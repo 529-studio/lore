@@ -1,8 +1,8 @@
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import pc from 'picocolors';
-import { createDb } from '../db.js';
+import { createDb, stateDirFor } from '../db.js';
 import { makeCommit, head } from '../model.js';
 import { ONTOLOGY_TEMPLATE } from '../schema.js';
 import { ensureConfig, writeConfig } from '../config.js';
@@ -23,6 +23,9 @@ export interface InitOptions {
 
 export function initCommand(opts: InitOptions = {}): void {
   const root = path.resolve(opts.root ?? process.cwd());
+  const stateDir = stateDirFor(root);
+  const sharedState = stateDir !== path.join(root, '.lore');
+  const stateExisted = existsSync(stateDir);
   const db = createDb(root);
   const config = ensureConfig(root);
   if (opts.solo || opts.trustMode === 'permissive') {
@@ -34,7 +37,7 @@ export function initCommand(opts: InitOptions = {}): void {
   }
   const created: string[] = [];
 
-  if (!existsSync(path.join(root, '.lore'))) created.push('.lore/');
+  if (!stateExisted) created.push(sharedState ? `${stateDir} (shared store)` : '.lore/');
 
   if (!head(db, 'main')) {
     makeCommit(db, {
@@ -52,7 +55,9 @@ export function initCommand(opts: InitOptions = {}): void {
     created.push('lore.ontology.yml');
   }
 
-  if (opts.gitignore !== false && existsSync(path.join(root, '.git')) ) {
+  const gitPath = path.join(root, '.git');
+  const isPrimaryCheckout = existsSync(gitPath) && statSync(gitPath).isDirectory();
+  if (opts.gitignore !== false && isPrimaryCheckout) {
     const gitignore = path.join(root, '.gitignore');
     const current = existsSync(gitignore) ? readFileSync(gitignore, 'utf8') : '';
     if (!/^\.lore\/?$/m.test(current)) {
@@ -63,6 +68,7 @@ export function initCommand(opts: InitOptions = {}): void {
 
   db.close();
   console.log(`lore initialised in ${root}`);
+  if (sharedState) console.log(`  using shared store at ${stateDir}`);
   if (created.length) console.log(`  ${created.join('\n  ')}`);
 
   const detection = detectWorkspaceAgents(root);

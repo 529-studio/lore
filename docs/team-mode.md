@@ -60,6 +60,24 @@ read the local store.
   ladder, fast-forwards the session branch, issues an atomic WAL checkpoint flush (`PRAGMA wal_checkpoint(TRUNCATE)`),
   and writes `SYNC_INCOMING` and `SYNC_OUTGOING` audit logs.
 
+## Git worktrees
+
+Linked worktrees (`git worktree add`, agent orchestrators, Cursor/Claude parallel checkouts) share
+the primary checkout's store by default. `.lore/` is gitignored, so without this a worktree would
+either fail with `not inside a lore repo` or create a second `repo_id`.
+
+- `workspaceRoot` is the checkout you run in: file hashing, `git HEAD`, `lore.policy.yml` and
+  `lore.ontology.yml` resolve here.
+- `stateDir` is the primary `.lore/`: `lore.db`, `config.json`, `session` and `litestream.yml`.
+- Each worktree gets a deterministic `agent/wt_<hash>` session branch; its session file lives in
+  that worktree's git dir, so two checkouts never share a branch. `LORE_SESSION` overrides it.
+- `file_hash` is keyed by workspace id, so worktrees on different commits do not thrash or
+  misreport each other's hashes.
+- `"worktree_mode": "isolated"` in a worktree's local `.lore/config.json` keeps a separate store
+  (useful for a throwaway clone that must not touch team memory).
+- Env overrides: `LORE_WORKSPACE_ROOT` (checkout) and `LORE_STATE_DIR` (the `.lore` directory).
+- `lore init` in a linked worktree attaches the shared store instead of creating a local one.
+
 ## Bi-directional synchronization workflow
 
 When multiple autonomous agents or distributed nodes run in parallel, continuous streaming replication via Litestream requires safe bi-directional coordination. Modifying or restoring active SQLite database files while other agents hold locks leads to `SQLITE_BUSY` errors or database corruption.

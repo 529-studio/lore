@@ -11,7 +11,7 @@ import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { stringify } from 'yaml';
-import { dbPathFor, openDb, type DB } from '../db.js';
+import { dbPathFor, openDb, stateDirFor, type DB } from '../db.js';
 import { head } from '../model.js';
 import { buildBundle, fastForwardSession, importBundle, mergeTip } from '../sync.js';
 import { readConfig } from '../config.js';
@@ -138,7 +138,7 @@ export function generateLitestreamConfig(root: string, opts: LitestreamOptions):
 }
 
 export function defaultLitestreamConfigPath(root: string): string {
-  return path.join(root, '.lore', 'litestream.yml');
+  return path.join(stateDirFor(root), 'litestream.yml');
 }
 
 /**
