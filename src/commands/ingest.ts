@@ -21,13 +21,18 @@ export function createOnboardSession(): string {
   return `onboard_${randomUUID().slice(0, 8)}`;
 }
 
-function evidenceRef(c: Candidate): string {
+/**
+ * The file a candidate was observed in. `pkg:` has no path of its own — the
+ * extractor must name the manifest it came from, because a monorepo has many.
+ * Without one there is no file to hash, so the claim cannot become canonical
+ * (docs/lessons/L07).
+ */
+function evidenceRef(c: Candidate): string | null {
   if (c.subject.startsWith('file:')) return c.subject.slice(5).split('#')[0];
   if (c.subject.startsWith('doc:')) return c.subject.slice(4).split('#')[0];
   if (c.subject.startsWith('sym:')) return c.subject.slice(4).split('#')[0];
-  if (c.subject.startsWith('pkg:')) return 'package.json';
   if (c.subject.startsWith('env:')) return c.object;
-  return c.subject;
+  return null;
 }
 
 /**
@@ -104,7 +109,9 @@ export async function ingestCommand(
         object: c.object,
         confidence: c.confidence,
         author: opts.author ?? 'lore:ingest',
-          evidence: [{ kind: 'file', ref: evRef, hash: cache.hash(evRef), commit: gitHead(root) }],
+          evidence: evRef
+            ? [{ kind: 'file' as const, ref: evRef, hash: cache.hash(evRef), commit: gitHead(root) }]
+            : [],
           forceDraft: gated,
           writtenBy: 'agent',
           agentId: 'lore-ingest',
