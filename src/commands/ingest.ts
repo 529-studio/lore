@@ -6,9 +6,13 @@ import { activeAt, head, makeCommit, upsertClaim } from '../model.js';
 import { hashCache } from '../hash-cache.js';
 import { SecretDetected } from '../secrets.js';
 import { gitHead } from '../util/git.js';
-import { gateTier, requireWriteSubjects } from '../policy.js';
+import { gateTier, PolicyError, requireWriteSubjects } from '../policy.js';
 import { loadOntology } from '../ontology.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
+import { promoteCommand } from './promote.js';
+
+/** The onboarding ingest runs on its own branch so it never mixes with an agent session. */
+export const ONBOARD_SESSION = 'onboard';
 
 function evidenceRef(c: Candidate): string {
   if (c.subject.startsWith('file:')) return c.subject.slice(5).split('#')[0];
@@ -17,6 +21,32 @@ function evidenceRef(c: Candidate): string {
   if (c.subject.startsWith('pkg:')) return 'package.json';
   if (c.subject.startsWith('env:')) return c.object;
   return c.subject;
+}
+
+/**
+ * Publish the onboarding ingest baseline: fast-forward/merge `agent/onboard`
+ * into `main` so every agent session forked from `main` inherits the knowledge.
+ * Returns true when main moved. A contributor who cannot promote keeps the
+ * baseline on its branch instead of failing onboarding.
+ */
+export function publishIngestBaseline(root: string): boolean {
+  const db = openDb(root);
+  const tip = head(db, branchFor(ONBOARD_SESSION));
+  const mainTip = head(db, 'main');
+  db.close();
+  if (!tip || tip === mainTip) return false;
+  try {
+    promoteCommand({ session: ONBOARD_SESSION });
+    return true;
+  } catch (error) {
+    if (error instanceof PolicyError) {
+      console.log(
+        pc.yellow(`  baseline kept on ${branchFor(ONBOARD_SESSION)}: ${error.message}`),
+      );
+      return false;
+    }
+    throw error;
+  }
 }
 
 export function ingestCommand(opts: { root?: string; author?: string; session?: string; dryRun?: boolean; quiet?: boolean } = {}): void {

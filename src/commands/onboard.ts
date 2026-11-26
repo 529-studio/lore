@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { createInterface } from 'node:readline/promises';
 import path from 'node:path';
 import process from 'node:process';
@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import pc from 'picocolors';
 import { stateDirFor } from '../db.js';
 import { initCommand } from './init.js';
-import { ingestCommand } from './ingest.js';
+import { ingestCommand, ONBOARD_SESSION, publishIngestBaseline } from './ingest.js';
 import { installAgentRules } from './rules.js';
 import { detectWorkspaceAgents, setupCommand } from './setup.js';
 
@@ -24,14 +24,53 @@ const templateRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 
 
 function detect(root: string): { template: Template; signals: string[] } {
   const has = (rel: string) => existsSync(path.join(root, rel));
+  const isDir = (rel: string) => {
+    try {
+      return statSync(path.join(root, rel)).isDirectory();
+    } catch {
+      return false;
+    }
+  };
   const signals: string[] = [];
   let template: Template = 'product';
 
-  const codeFiles = ['package.json', 'pyproject.toml', 'go.mod', 'Cargo.toml', 'pom.xml', 'build.gradle'];
-  const codeHits = codeFiles.filter(has);
-  if (codeHits.length || has('src') || has('app')) {
+  const codeFiles = [
+    'package.json',
+    'pyproject.toml',
+    'go.mod',
+    'Cargo.toml',
+    'pom.xml',
+    'build.gradle',
+    'pnpm-workspace.yaml',
+    'turbo.json',
+    'nx.json',
+    'lerna.json',
+    'go.work',
+    'Makefile',
+  ];
+  const nested = [
+    'frontend/package.json',
+    'app/package.json',
+    'backend/package.json',
+    'backend/requirements.txt',
+    'packages',
+    'apps',
+    'services',
+  ];
+  let containers: string[] = [];
+  try {
+    containers = readdirSync(root).filter(
+      (name) => /^(docker-)?compose.*\.ya?ml$/i.test(name) || /^(dockerfile|containerfile)(\..*)?$/i.test(name),
+    );
+  } catch {
+    // unreadable directory: fall back to the checks below
+  }
+
+  const codeHits = [...codeFiles.filter(has), ...nested.filter(has), ...containers];
+  const dirHits = ['src', 'app', 'scripts'].filter(isDir);
+  if (codeHits.length || dirHits.length) {
     template = 'code';
-    signals.push(...codeHits, ...(has('src') ? ['src/'] : []));
+    signals.push(...codeHits, ...dirHits.map((d) => `${d}/`));
   }
   if (has('issues') || has('docs/issues')) {
     signals.push('issues/');
@@ -100,7 +139,10 @@ export async function onboardCommand(opts: OnboardOptions = {}): Promise<void> {
       console.log(pc.dim('keeping the existing lore.ontology.yml'));
     }
     installAgentRules(root);
-    if (doIngest) ingestCommand({});
+    if (doIngest) {
+      ingestCommand({ session: ONBOARD_SESSION });
+      publishIngestBaseline(root);
+    }
     if (doSetup) {
       const target = typeof opts.setup === 'string' ? opts.setup : 'all';
       setupCommand(target, { root, scope: 'project', rules: false });
@@ -111,7 +153,12 @@ export async function onboardCommand(opts: OnboardOptions = {}): Promise<void> {
 
   console.log(`\n${pc.bold('Next')}`);
   console.log(`  agent memory setup`);
-  console.log(`    run ${pc.cyan('lore setup --all')} to configure detected agents (Cursor, Claude, Antigravity, OpenCode, Codex, Gemini)`);
+  if (doSetup) {
+    const names = detectedAgents.length ? detectedAgents.join(', ') : 'detected agents';
+    console.log(`    ${pc.green('[OK]')} MCP configured for ${names}`);
+  } else {
+    console.log(`    run ${pc.cyan('lore setup --all')} to configure detected agents (Cursor, Claude, Antigravity, OpenCode, Codex, Gemini)`);
+  }
   if (detectedAgents.length) {
     console.log(pc.dim(`    detected agents: ${detectedAgents.join(', ')}`));
   }
