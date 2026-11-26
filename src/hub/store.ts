@@ -13,7 +13,7 @@ export interface HubPrincipal {
 
 export interface HubRepoState {
   main: string | null;
-  seq: number;
+  policy: GranularPolicyFile | null;
 }
 
 export class HubError extends Error {
@@ -32,10 +32,8 @@ CREATE TABLE IF NOT EXISTS repos (
   repo_id text PRIMARY KEY,
   main_commit text,
   policy jsonb,
-  seq bigint NOT NULL DEFAULT 0,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-ALTER TABLE repos ADD COLUMN IF NOT EXISTS seq bigint NOT NULL DEFAULT 0;
 CREATE TABLE IF NOT EXISTS repo_commits (
   repo_id text NOT NULL, id text NOT NULL, payload jsonb NOT NULL,
   seq bigint NOT NULL DEFAULT nextval('hub_seq'), PRIMARY KEY (repo_id, id)
@@ -159,13 +157,35 @@ export async function revokeToken(client: Client, input: { jti: string; reason?:
   await client.query('UPDATE hub_tokens SET revoked_at = now() WHERE token_hash = $1', [input.jti]);
 }
 
-async function repoState(client: Client, repoId: string): Promise<HubRepoState & { policy: GranularPolicyFile | null }> {
-  const { rows } = await client.query('SELECT main_commit, policy, seq FROM repos WHERE repo_id = $1', [repoId]);
+async function repoState(client: Client, repoId: string): Promise<HubRepoState> {
+  const { rows } = await client.query('SELECT main_commit, policy FROM repos WHERE repo_id = $1', [repoId]);
   return {
     main: (rows[0]?.main_commit as string | null) ?? null,
     policy: (rows[0]?.policy as GranularPolicyFile | null) ?? null,
-    seq: Number(rows[0]?.seq ?? 0),
   };
+}
+
+/**
+ * A cursor is only safe when it covers every committed row, and nothing that is
+ * still uncommitted. Global `last_value` can jump past an in-flight revocation;
+ * per-table `max(seq)` cannot, because MVCC hides uncommitted rows.
+ */
+async function pullCursor(client: Client, repoId: string): Promise<number> {
+  const { rows } = await client.query(
+    `SELECT GREATEST(
+       COALESCE((SELECT max(seq) FROM repo_commits WHERE repo_id = $1), 0),
+       COALESCE((SELECT max(seq) FROM repo_refs WHERE repo_id = $1), 0),
+       COALESCE((SELECT max(seq) FROM repo_entities WHERE repo_id = $1), 0),
+       COALESCE((SELECT max(seq) FROM repo_claims WHERE repo_id = $1), 0),
+       COALESCE((SELECT max(seq) FROM repo_evidence WHERE repo_id = $1), 0),
+       COALESCE((SELECT max(seq) FROM repo_commit_entries WHERE repo_id = $1), 0),
+       COALESCE((SELECT max(seq) FROM repo_conflicts WHERE repo_id = $1), 0),
+       COALESCE((SELECT max(seq) FROM repo_tombstones WHERE repo_id = $1), 0),
+       COALESCE((SELECT max(seq) FROM auth_revocations), 0)
+     ) AS seq`,
+    [repoId],
+  );
+  return Number(rows[0]?.seq ?? 0);
 }
 
 function rowsToBundle(repoId: string, rows: Record<string, Array<Record<string, unknown>>>, main: string | null): Bundle {
@@ -194,6 +214,7 @@ function rowsToBundle(repoId: string, rows: Record<string, Array<Record<string, 
 export async function pull(client: Client, repoId: string, sinceSeq: number): Promise<{ bundle: Bundle; main: string | null; seq: number }> {
   const state = await repoState(client, repoId);
   const since = Number.isFinite(sinceSeq) && sinceSeq > 0 ? sinceSeq : 0;
+  const cursor = await pullCursor(client, repoId);
   const q = async (sql: string): Promise<Array<Record<string, unknown>>> =>
     (await client.query(sql, [repoId, since])).rows.map((row) => row.payload as Record<string, unknown>);
   const rows = {
@@ -221,7 +242,7 @@ export async function pull(client: Client, repoId: string, sinceSeq: number): Pr
     revoked_at: new Date(row.revoked_at).toISOString(),
   }));
   rows.revocations = revocations;
-  return { bundle: rowsToBundle(repoId, rows, state.main), main: state.main, seq: state.seq };
+  return { bundle: rowsToBundle(repoId, rows, state.main), main: state.main, seq: cursor };
 }
 
 function principalIdentity(principal: HubPrincipal): {
@@ -446,16 +467,9 @@ export async function push(client: Client, input: PushInput): Promise<PushResult
       );
     }
     const nextMain = mainRef ?? currentMain;
-    await client.query(
-      `UPDATE repos SET main_commit = $2, updated_at = now(),
-         seq = GREATEST(seq, (SELECT COALESCE(last_value, 0) FROM hub_seq))
-       WHERE repo_id = $1`,
-      [repoId, nextMain],
-    );
-    const { rows: seqRows } = await client.query('SELECT seq FROM repos WHERE repo_id = $1', [repoId]);
-    const seq = Number(seqRows[0]?.seq ?? 0);
+    await client.query('UPDATE repos SET main_commit = $2, updated_at = now() WHERE repo_id = $1', [repoId, nextMain]);
     await client.query('COMMIT');
-    return { main: nextMain, seq };
+    return { main: nextMain, seq: await pullCursor(client, repoId) };
   } catch (error) {
     if (!(error instanceof HubError) || error.status !== 409) {
       try {
