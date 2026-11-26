@@ -103,6 +103,9 @@ runs:
           git worktree add "${RUNNER_TEMP}/lore-base" "${BASE_SHA}"
           (
             cd "${RUNNER_TEMP}/lore-base"
+            # A linked worktree otherwise shares the primary checkout's store;
+            # the base memory must be isolated and copied into the workspace.
+            export LORE_STATE_DIR="${RUNNER_TEMP}/lore-base/.lore"
             LORE_SESSION=base lore init > /dev/null
             LORE_SESSION=base lore ingest > /dev/null
             LORE_SESSION=base lore promote > /dev/null
