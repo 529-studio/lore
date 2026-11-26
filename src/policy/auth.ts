@@ -182,7 +182,7 @@ function assertProtectedAllowed(
 
 /** Resolve the caller and reject revoked tokens before any policy decision. */
 function authorizePrincipal(root: string): Principal {
-  const principal = resolvePrincipal();
+  const principal = resolvePrincipal(root);
   if (principal.source === 'token') {
     const revCheck = isTokenRevoked(root, { jti: principal.jti, sub: principal.id });
     if (revCheck.revoked) {
@@ -219,7 +219,7 @@ function assertWriteAllowed(
  */
 export function requireWriteSubjects(root: string, subjects: Iterable<string>): Principal {
   const principal = authorizePrincipal(root);
-  if (!teamMode()) return principal;
+  if (!teamMode(root)) return principal;
   const policy = loadGranularPolicy(root);
   for (const subject of new Set(subjects)) assertWriteAllowed(principal, policy, root, subject);
   return principal;
@@ -237,7 +237,7 @@ export function checkAuthorization(
     throw new PolicyError('a machine approver may only approve T0/T1 evidence-backed claims');
   }
 
-  if (!teamMode()) return principal;
+  if (!teamMode(root)) return principal;
 
   const policy = loadGranularPolicy(root);
   const policyName = path.basename(policyPath(root));

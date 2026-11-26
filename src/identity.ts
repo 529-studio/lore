@@ -1,6 +1,8 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
+import { declaresTeamMode } from './config.js';
+import { findWorkspaceRoot } from './scope.js';
 
 export type Role = 'maintainer' | 'contributor' | 'machine' | 'auditor';
 
@@ -55,8 +57,13 @@ function gitEmail(): string | null {
   }
 }
 
-export function teamMode(): boolean {
-  return Boolean(process.env.LORE_TEAM_SECRET);
+/**
+ * Team mode is on when the environment carries the signing secret or the
+ * repository declares it in `.lore.yml`. A declaring repository fails closed:
+ * policy gates apply even if a teammate forgets to export LORE_TEAM_SECRET.
+ */
+export function teamMode(root = findWorkspaceRoot()): boolean {
+  return Boolean(process.env.LORE_TEAM_SECRET) || declaresTeamMode(root);
 }
 
 /**
@@ -65,7 +72,7 @@ export function teamMode(): boolean {
  * 2. LORE_OIDC_EMAIL + LORE_OIDC_ROLE asserted by a trusted launcher (SSO wrapper).
  * 3. Local: git email or OS user, maintainer on a single-user machine.
  */
-export function resolvePrincipal(): Principal {
+export function resolvePrincipal(root = findWorkspaceRoot()): Principal {
   const secret = process.env.LORE_TEAM_SECRET;
   const token = process.env.LORE_TOKEN;
 
@@ -81,11 +88,20 @@ export function resolvePrincipal(): Principal {
     return { id: asserted, role, source: 'assertion' };
   }
 
+  if (declaresTeamMode(root) && !secret) {
+    throw new Error(
+      '.lore.yml declares team_mode but LORE_TEAM_SECRET is missing; set LORE_TEAM_SECRET and LORE_TOKEN (or LORE_OIDC_EMAIL) before writing',
+    );
+  }
+
   if (process.env.LORE_MACHINE === '1') {
+    // A local machine principal is accepted only with the team signing secret,
+    // which is checked above for a declaring repository. A machine token is the
+    // per-host alternative for teams that do not export the shared secret.
     return { id: 'machine:local', role: 'machine', source: 'local' };
   }
 
-  if (teamMode()) {
+  if (teamMode(root)) {
     throw new Error(
       'team mode is enabled (LORE_TEAM_SECRET) but no identity is present; set LORE_TOKEN or LORE_OIDC_EMAIL',
     );

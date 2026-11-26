@@ -2674,7 +2674,7 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
               return;
             }
             requireAction(root, 'write', { subject: old.subject_id });
-            const author = `human:${resolvePrincipal()?.id ?? 'ui'}`;
+            const author = `human:${resolvePrincipal(root)?.id ?? 'ui'}`;
             const run = db.transaction(() => {
               const result = supersedeClaim(db, claimId, {
                 object,
@@ -3049,7 +3049,7 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
         let source: string | null = null;
         let error: string | null = null;
         try {
-          const p = resolvePrincipal();
+          const p = resolvePrincipal(root);
           principal = p.id;
           role = p.role;
           source = p.source;
@@ -3062,7 +3062,7 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
           role,
           source,
           error,
-          team: teamMode(),
+          team: teamMode(root),
           policy: describePolicy(root),
           remote: config?.remote ? remoteLabel(config.remote) : null,
           branch: ref,

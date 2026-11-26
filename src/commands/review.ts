@@ -36,7 +36,7 @@ export async function reviewCommand(opts: ReviewOptions): Promise<void> {
   const db = openDb(root);
   const session = ensureSession(db, root, opts.session);
   const ref = branchFor(session);
-  const principal = resolvePrincipal();
+  const principal = resolvePrincipal(root);
 
   const limit = Number(opts.limit ?? 100);
   const drafts = db
