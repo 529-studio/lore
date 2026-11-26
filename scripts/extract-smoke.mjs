@@ -119,6 +119,8 @@ try {
       'dependencies = [',
       '  "fastapi>=0.110",',
       '  "uvicorn[standard]",',
+      '  # "fake-pkg>=1.0" is a comment, not a dependency',
+      '  "tenacity>=8",',
       ']',
       '',
       '[project.optional-dependencies]',
@@ -138,8 +140,11 @@ try {
       '',
       'Usage example, not an import:',
       '    from fake.module import thing',
+      '    marker = \\"""',
+      '    from fake.late import late',
       '"""',
       'import os',
+      'import this',
       'import json',
       'import requests  # noqa: E402',
       'import requests.adapters',
@@ -184,12 +189,19 @@ try {
   assert.equal(declared('pkg:sqlalchemy')[0]?.evidenceRef, 'backend/pyproject.toml');
   assert.equal(declared('pkg:httpx')[0]?.object, '>=0.27');
   assert.equal(declared('pkg:setuptools')[0]?.object, '>=68');
+  assert.equal(declared('pkg:uvicorn')[0]?.object, '*', 'extras bracket must not end the array');
+  assert.equal(declared('pkg:tenacity')[0]?.object, '>=8', 'entries after a comment must still parse');
+  assert.equal(declared('pkg:fake-pkg').length, 0, 'commented-out dependency must be skipped');
   assert.equal(declared('pkg:github.com/gin-gonic/gin')[0]?.object, 'v1.9.1');
   assert.equal(declared('pkg:github.com/gin-gonic/gin')[0]?.evidenceRef, 'go.mod');
   assert.equal(declared('pkg:github.com/google/uuid')[0]?.object, 'v1.5.0');
   assert(!mono.some((c) => c.subject === 'pkg:private'), 'VCS requirement must be skipped');
   assert(!mono.some((c) => c.subject === 'pkg:dev-requirements'), 'include directive must be skipped');
   assert(!mono.some((c) => c.subject === 'pkg:python'), 'python runtime constraint is not a package');
+  assert(
+    !mono.some((c) => c.evidenceRef?.startsWith('broken/')),
+    'malformed manifests must yield no claims',
+  );
 
   const imported = (spec) =>
     mono.filter(
@@ -198,8 +210,8 @@ try {
   for (const spec of ['requests', 'requests.adapters', 'django.db']) {
     assert.equal(imported(spec), 1, `expected imports_module ${spec}`);
   }
-  for (const spec of ['os', 'json', '__future__', '.', '.helpers', 'fake.module']) {
-    assert.equal(imported(spec), 0, `stdlib/relative import must be ignored: ${spec}`);
+  for (const spec of ['os', 'json', 'this', '__future__', '.', '.helpers', 'fake.module', 'fake.late']) {
+    assert.equal(imported(spec), 0, `stdlib/relative/docstring import must be ignored: ${spec}`);
   }
 
   assert(

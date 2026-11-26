@@ -228,6 +228,45 @@ function addRequirementLines(rel: string, text: string, out: Candidate[]): void 
 }
 
 const PY_POETRY_DEP_SECTION_RE = /^tool\.poetry\.(?:group\.(?:"?[\w-]+"?\.))?(?:dev-)?dependencies$/;
+const PY_QUOTED_RE = /"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'/g;
+
+/**
+ * Inner text of a TOML array: stops at the first `]` outside a string and
+ * drops comments, so `"uvicorn[standard]"` and `# "fake"` are not delimiters
+ * or entries. Null while the array is still open on a later line.
+ */
+function tomlArrayInner(text: string): string | null {
+  let out = '';
+  let quote: string | null = null;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (quote) {
+      out += ch;
+      if (ch === '\\' && quote === '"') {
+        out += text[i + 1] ?? '';
+        i += 1;
+      } else if (ch === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      out += ch;
+      continue;
+    }
+    if (ch === '#') {
+      const nl = text.indexOf('\n', i);
+      if (nl === -1) return null;
+      out += '\n';
+      i = nl;
+      continue;
+    }
+    if (ch === ']') return out;
+    out += ch;
+  }
+  return null;
+}
 
 /** Which keys of a TOML table hold dependency arrays (`authors` must not be read). */
 function pyDependencyArrayKey(section: string, key: string): boolean {
@@ -235,7 +274,6 @@ function pyDependencyArrayKey(section: string, key: string): boolean {
   if (section === 'build-system') return key === 'requires';
   return section === 'project.optional-dependencies';
 }
-const PY_QUOTED_RE = /"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'/g;
 
 /** pyproject.toml: `[project] dependencies`, optional groups and Poetry tables only. */
 function addPyproject(rel: string, text: string, out: Candidate[]): void {
@@ -254,13 +292,14 @@ function addPyproject(rel: string, text: string, out: Candidate[]): void {
     if (arrayKey && arrayKey[1] && pyDependencyArrayKey(section, arrayKey[1])) {
       let body = line.slice(line.indexOf('[') + 1);
       // A TOML array may span lines; an unterminated array reads to EOF.
-      while (!body.includes(']') && i + 1 < lines.length) {
+      let inner = tomlArrayInner(body);
+      while (inner === null && i + 1 < lines.length) {
         i += 1;
         body += `\n${lines[i] ?? ''}`;
+        inner = tomlArrayInner(body);
       }
-      const close = body.indexOf(']');
-      if (close !== -1) body = body.slice(0, close);
-      for (const q of body.matchAll(PY_QUOTED_RE)) {
+      if (inner === null) continue;
+      for (const q of inner.matchAll(PY_QUOTED_RE)) {
         const entry = q[1] ?? q[2];
         if (!entry) continue;
         const req = parseRequirement(entry);
@@ -326,11 +365,13 @@ function addGoRequire(rel: string, entry: string, out: Candidate[]): void {
 }
 
 const PY_STDLIB = new Set([
-  '__future__', '_thread', 'abc', 'aifc', 'argparse', 'array', 'ast', 'asyncio', 'atexit', 'base64',
+  '__future__', '_dummy_thread', '_thread', 'abc', 'aifc', 'antigravity', 'argparse', 'array', 'ast',
+  'asynchat', 'asyncio', 'asyncore', 'atexit', 'audioop', 'base64',
   'bdb', 'binascii', 'bisect', 'builtins', 'bz2', 'calendar', 'cgi', 'cgitb', 'chunk', 'cmath', 'cmd',
   'code', 'codecs', 'codeop', 'collections', 'colorsys', 'compileall', 'concurrent', 'configparser',
   'contextlib', 'contextvars', 'copy', 'crypt', 'csv', 'ctypes', 'curses', 'datetime', 'dbm',
-  'decimal', 'difflib', 'dis', 'doctest', 'email', 'encodings', 'ensurepip', 'enum', 'errno',
+  'decimal', 'difflib', 'dis', 'distutils', 'doctest', 'dummy_threading', 'email', 'encodings',
+  'ensurepip', 'enum', 'errno',
   'faulthandler', 'fcntl', 'filecmp', 'fileinput', 'fnmatch', 'fractions', 'ftplib', 'functools',
   'gc', 'getopt', 'getpass', 'gettext', 'glob', 'graphlib', 'grp', 'gzip', 'hashlib', 'heapq', 'hmac',
   'html', 'http', 'imaplib', 'imghdr', 'imp', 'importlib', 'inspect', 'io', 'ipaddress', 'itertools',
@@ -343,7 +384,7 @@ const PY_STDLIB = new Set([
   'select', 'selectors', 'shelve', 'shlex', 'shutil', 'signal', 'site', 'smtpd', 'smtplib', 'sndhdr',
   'socket', 'socketserver', 'spwd', 'sqlite3', 'ssl', 'stat', 'statistics', 'string', 'stringprep',
   'struct', 'subprocess', 'sunau', 'symtable', 'sys', 'sysconfig', 'syslog', 'tabnanny', 'tarfile',
-  'telnetlib', 'tempfile', 'termios', 'textwrap', 'threading', 'time', 'timeit', 'tkinter', 'token',
+  'telnetlib', 'tempfile', 'termios', 'textwrap', 'this', 'threading', 'time', 'timeit', 'tkinter', 'token',
   'tokenize', 'tomllib', 'trace', 'traceback', 'tracemalloc', 'tty', 'turtle', 'turtledemo', 'types',
   'typing', 'unicodedata', 'unittest', 'urllib', 'uu', 'uuid', 'venv', 'warnings', 'wave', 'weakref',
   'webbrowser', 'winreg', 'winsound', 'wsgiref', 'xdrlib', 'xml', 'xmlrpc', 'zipapp', 'zipfile',
@@ -359,10 +400,49 @@ function addPythonImport(rel: string, spec: string, out: Candidate[]): void {
   out.push({ subject: `file:${rel}`, predicate: 'imports_module', object: spec, confidence: 0.9 });
 }
 
+/**
+ * Drop triple-quoted strings (docstrings and multi-line literals) while keeping
+ * their newlines, so usage examples are not read as imports. Escaped quotes do
+ * not close the literal.
+ */
+function stripPythonTripleQuotes(text: string): string {
+  let out = '';
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch !== '"' && ch !== "'") {
+      out += ch;
+      i += 1;
+      continue;
+    }
+    const delimiter = ch.repeat(3);
+    if (!text.startsWith(delimiter, i)) {
+      out += ch;
+      i += 1;
+      continue;
+    }
+    let j = i + 3;
+    while (j < text.length) {
+      if (text[j] === '\\') {
+        j += 2;
+        continue;
+      }
+      if (text.startsWith(delimiter, j)) {
+        j += 3;
+        break;
+      }
+      j += 1;
+    }
+    out += '\n'.repeat(text.slice(i, j).split('\n').length - 1);
+    i = j;
+  }
+  return out;
+}
+
 /** Non-relative `import x` / `from x import y`; relative and stdlib imports are noise. */
 function scanPythonImports(rel: string, text: string, out: Candidate[]): void {
   // Docstrings hold usage examples, not imports. Strip them before line matching.
-  const code = text.replace(/"""[\s\S]*?"""|'''[\s\S]*?'''/g, '');
+  const code = stripPythonTripleQuotes(text);
   for (const raw of code.split(/\r?\n/)) {
     for (const part of raw.split(';')) {
       const line = part.split('#')[0]?.trim() ?? '';
