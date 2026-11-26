@@ -236,9 +236,8 @@ After that, you use Claude / Codex / Gemini exactly as before. What changes:
 
 **What you can read without any tooling:** `lore export --md --out AGENTS.md` produces a plain
 markdown file of everything the agent knows, grouped by subject, with the evidence in comments.
-It is deterministic, so it reviews like a document in a pull request.
 
-**GUI:** The web dashboard (`lore ui`) is live; desktop packaging is tracked in [#66](https://github.com/529-studio/lore/issues/66).
+**GUI:** `lore ui`; desktop packaging: [#66](https://github.com/529-studio/lore/issues/66).
 
 ---
 
@@ -260,6 +259,8 @@ main ──────────●──────────────
   - if nothing applies, the merge **aborts with exit 2** and asks a human.
 - `lore resolve <subject> <predicate> --take theirs --reason "..."` records the decision, and the
   next merge applies it. Every decision is stored in `merge_decision` for audit.
+- Linked `git worktree` checkouts share the primary `.lore/` and use a per-worktree `agent/wt_<id>`
+  branch; see [team mode](docs/team-mode.md#git-worktrees).
 
 **Team identity.** Local mode trusts the OS user. Team mode (set `LORE_TEAM_SECRET`) requires an
 identity and enforces `lore.policy.yml`: `LORE_TOKEN` from `lore identity issue`, or `LORE_OIDC_EMAIL`

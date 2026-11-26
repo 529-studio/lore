@@ -1,6 +1,19 @@
-import { statSync } from 'node:fs';
+import { realpathSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import path from 'node:path';
 import type { DB } from './db.js';
 import { hashFile, resolveInside } from './extract/index.js';
+
+/** Stable id for a checkout; file paths are only unique inside one workspace. */
+function workspaceIdFor(root: string): string {
+  let real = path.resolve(root);
+  try {
+    real = realpathSync(real);
+  } catch {
+    // keep the resolved path
+  }
+  return createHash('sha1').update(real).digest('hex').slice(0, 16);
+}
 
 export interface CacheStats {
   hits: number;
@@ -26,11 +39,14 @@ export class HashCache {
   misses = 0;
   reads = 0;
   enabled = process.env.LORE_NO_CACHE !== '1';
+  private readonly workspaceId: string;
 
   constructor(
     private readonly db: DB,
     private readonly root: string,
-  ) {}
+  ) {
+    this.workspaceId = workspaceIdFor(root);
+  }
 
   hash(rel: string): string | null {
     const real = resolveInside(this.root, rel);
@@ -50,8 +66,8 @@ export class HashCache {
 
     if (this.enabled) {
       const row = this.db
-        .prepare('SELECT size, mtime_ns, ctime_ns, hash FROM file_hash WHERE path = ?')
-        .get(rel) as CachedRow | undefined;
+        .prepare('SELECT size, mtime_ns, ctime_ns, hash FROM file_hash WHERE workspace_id = ? AND path = ?')
+        .get(this.workspaceId, rel) as CachedRow | undefined;
       if (row && row.size === size && row.mtime_ns === mtime && row.ctime_ns === ctime) {
         this.hits += 1;
         return row.hash;
@@ -64,12 +80,12 @@ export class HashCache {
     if (hash && this.enabled) {
       this.db
         .prepare(
-          `INSERT INTO file_hash(path, size, mtime_ns, ctime_ns, hash, checked_at) VALUES (?, ?, ?, ?, ?, ?)
-           ON CONFLICT(path) DO UPDATE SET
+          `INSERT INTO file_hash(workspace_id, path, size, mtime_ns, ctime_ns, hash, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(workspace_id, path) DO UPDATE SET
              size = excluded.size, mtime_ns = excluded.mtime_ns, ctime_ns = excluded.ctime_ns,
              hash = excluded.hash, checked_at = excluded.checked_at`,
         )
-        .run(rel, size, mtime, ctime, hash, new Date().toISOString());
+        .run(this.workspaceId, rel, size, mtime, ctime, hash, new Date().toISOString());
     }
     return hash;
   }
@@ -79,13 +95,19 @@ export class HashCache {
   }
 }
 
-const caches = new WeakMap<DB, HashCache>();
+const caches = new WeakMap<DB, Map<string, HashCache>>();
 
 export function hashCache(db: DB, root: string): HashCache {
-  let cache = caches.get(db);
+  const key = path.resolve(root);
+  let byRoot = caches.get(db);
+  if (!byRoot) {
+    byRoot = new Map();
+    caches.set(db, byRoot);
+  }
+  let cache = byRoot.get(key);
   if (!cache) {
-    cache = new HashCache(db, root);
-    caches.set(db, cache);
+    cache = new HashCache(db, key);
+    byRoot.set(key, cache);
   }
   return cache;
 }
