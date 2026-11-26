@@ -259,8 +259,8 @@ main ──────────●──────────────
   - if nothing applies, the merge **aborts with exit 2** and asks a human.
 - `lore resolve <subject> <predicate> --take theirs --reason "..."` records the decision, and the
   next merge applies it. Every decision is stored in `merge_decision` for audit.
-- Linked `git worktree` checkouts share the primary `.lore/` and use a per-worktree `agent/wt_<id>`
-  branch; see [team mode](docs/team-mode.md#git-worktrees).
+- Linked worktrees share `.lore/`; a committed `.lore.yml` plus `lore join` attaches a fresh clone —
+  see [team mode](docs/team-mode.md#joining-a-clone).
 
 **Team identity.** Local mode trusts the OS user. Team mode (set `LORE_TEAM_SECRET`) requires an
 identity and enforces `lore.policy.yml`: `LORE_TOKEN` from `lore identity issue`, or `LORE_OIDC_EMAIL`

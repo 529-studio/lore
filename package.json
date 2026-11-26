@@ -31,6 +31,7 @@
     "smoke:sync": "node scripts/sync-adapter-smoke.mjs",
     "sync:tombstone": "node scripts/sync-tombstone-smoke.mjs",
     "worktree:smoke": "node scripts/worktree-smoke.mjs",
+    "join:smoke": "node scripts/join-smoke.mjs",
     "temporal:smoke": "node scripts/temporal-smoke.mjs",
     "vector:smoke": "node scripts/test-vector-search.mjs",
     "test:vector": "node scripts/test-vector-search.mjs",

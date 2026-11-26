@@ -24,4 +24,16 @@ if [ -n "$hits" ]; then
   exit 1
 fi
 
-echo "[OK] public-safety: no tokens, home paths or internal hosts in tracked files"
+# The committed project manifest must never carry credentials; it names env vars.
+manifests=$(printf '%s\n' "$files" | grep -E '(^|/)\.lore\.yml$' || true)
+if [ -n "$manifests" ]; then
+  mhits=$(printf '%s\n' "$manifests" | tr '\n' '\0' | xargs -0 grep -nEI '://[^/@[:space:]]+:[^/@[:space:]]+@|(^|[{,])[[:space:]]*(password|secret|token|api[_-]?key)[[:space:]]*:' 2>/dev/null || true)
+  if [ -n "$mhits" ]; then
+    echo "[ERR] public-safety: .lore.yml must not contain credentials:" >&2
+    printf '%s\n' "$mhits" | head -20 >&2
+    echo "Use url_env for postgres and keep secrets in the environment." >&2
+    exit 1
+  fi
+fi
+
+echo "[OK] public-safety: no tokens, home paths, internal hosts or manifest credentials in tracked files"
