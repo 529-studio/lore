@@ -5,11 +5,16 @@ import {
   authenticate,
   connect,
   ensureSchema,
+  getProposal,
   HubError,
   issueToken,
+  listProposals,
+  promoteProposal,
   pull,
   push,
+  reviewProposal,
   revokeToken,
+  saveProposal,
   tokenRepoAllowed,
   type HubPrincipal,
 } from './store.js';
@@ -77,6 +82,30 @@ const TOOLS = [
       required: ['repo_id', 'bundle'],
     },
   },
+  {
+    name: 'repo_propose',
+    description: 'Publish a contributor proposal under refs/proposals/<user>/<session> without touching main',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        repo_id: { type: 'string' },
+        session: { type: 'string' },
+        base_main: { type: ['string', 'null'] },
+        note: { type: 'string' },
+        bundle: { type: 'object' },
+      },
+      required: ['repo_id', 'session', 'bundle'],
+    },
+  },
+  {
+    name: 'repo_proposals',
+    description: 'List proposals for a repository, optionally filtered by status',
+    inputSchema: {
+      type: 'object',
+      properties: { repo_id: { type: 'string' }, status: { type: 'string' } },
+      required: ['repo_id'],
+    },
+  },
 ];
 
 async function handleRpc(
@@ -125,6 +154,28 @@ async function handleRpc(
         policy: typeof args.policy === 'string' ? args.policy : null,
       });
       return { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(result) }] } };
+    }
+    if (name === 'repo_propose') {
+      const bundle = args.bundle as Bundle | undefined;
+      const session = String(args.session ?? '');
+      if (!bundle || typeof bundle !== 'object') throw new HubError(400, 'bundle is required');
+      if (!session) throw new HubError(400, 'session is required');
+      const result = await saveProposal(client, {
+        repoId,
+        principal,
+        session,
+        baseMain: typeof args.base_main === 'string' ? args.base_main : null,
+        bundle,
+        note: typeof args.note === 'string' ? args.note : null,
+      });
+      return { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(result) }] } };
+    }
+    if (name === 'repo_proposals') {
+      const status = typeof args.status === 'string' ? args.status : null;
+      const proposals = (await listProposals(client, repoId)).filter(
+        (proposal) => !status || proposal.status === status,
+      );
+      return { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify({ proposals }) }] } };
     }
     throw new HubError(404, `unknown tool ${name}`);
   } finally {
@@ -202,7 +253,9 @@ export async function startHubServer(opts: { port?: number; host?: string } = {}
           return;
         }
 
-        const match = /^\/v1\/repos\/([^/]+)\/(pull|push)$/.exec(url.pathname);
+        const match = /^\/v1\/repos\/([^/]+)\/(pull|push|proposals(?:\/(?:list|get|review|promote))?)$/.exec(
+          url.pathname,
+        );
         if (!match) throw new HubError(404, 'not found');
         const repoId = decodeURIComponent(match[1]);
         assertSyncPrincipal(principal);
@@ -213,6 +266,71 @@ export async function startHubServer(opts: { port?: number; host?: string } = {}
           const since = Number(body.since_seq ?? 0);
           const sinceAuth = Number(body.since_auth_seq ?? 0);
           const result = await pull(client, repoId, since, sinceAuth);
+          send(res, 200, result);
+          return;
+        }
+
+        if (match[2].startsWith('proposals')) {
+          const action = match[2] === 'proposals' ? 'publish' : match[2].slice('proposals/'.length);
+          if (action === 'publish') {
+            const bundle = body.bundle as Bundle | undefined;
+            if (!bundle || typeof bundle !== 'object') throw new HubError(400, 'bundle is required');
+            const session = String(body.session ?? '');
+            if (!session) throw new HubError(400, 'session is required');
+            const proposal = await saveProposal(client, {
+              repoId,
+              principal,
+              session,
+              baseMain: typeof body.base_main === 'string' ? body.base_main : null,
+              bundle,
+              note: typeof body.note === 'string' ? body.note : null,
+            });
+            send(res, 200, { proposal });
+            return;
+          }
+          if (action === 'list') {
+            const status = typeof body.status === 'string' ? body.status : null;
+            const proposals = (await listProposals(client, repoId)).filter(
+              (proposal) => !status || proposal.status === status,
+            );
+            send(res, 200, { proposals });
+            return;
+          }
+          const user = String(body.user ?? '');
+          const session = String(body.session ?? '');
+          if (!user || !session) throw new HubError(400, 'user and session are required');
+          if (action === 'get') {
+            const result = await getProposal(client, repoId, user, session);
+            send(res, 200, result);
+            return;
+          }
+          if (action === 'review') {
+            const decision = String(body.action ?? '');
+            if (decision !== 'approve' && decision !== 'reject') {
+              throw new HubError(400, 'action must be approve or reject');
+            }
+            const proposal = await reviewProposal(client, {
+              repoId,
+              principal,
+              user,
+              session,
+              action: decision,
+              note: typeof body.note === 'string' ? body.note : null,
+            });
+            send(res, 200, { proposal });
+            return;
+          }
+          const bundle = body.bundle as Bundle | undefined;
+          if (!bundle || typeof bundle !== 'object') throw new HubError(400, 'bundle is required');
+          const result = await promoteProposal(client, {
+            repoId,
+            principal,
+            user,
+            session,
+            expectedMain: typeof body.expected_main === 'string' ? body.expected_main : null,
+            bundle,
+            policy: typeof body.policy === 'string' ? body.policy : null,
+          });
           send(res, 200, result);
           return;
         }
