@@ -2012,10 +2012,11 @@ async function refreshKnowledge() {
 }
 
 async function loadReview() {
-  const data = await (await fetch('/api/claims?status=draft&limit=200')).json();
+  const data = await (await fetch('/api/claims?status=draft&limit=1000')).json();
   const drafts = Array.isArray(data) ? data : (data.claims || []);
+  const total = Array.isArray(data) ? drafts.length : Number(data.total || 0);
   const box = $('drafts'); box.replaceChildren();
-  $('review-count').textContent = drafts.length ? drafts.length + ' draft(s)' : '';
+  $('review-count').textContent = total ? drafts.length + ' of ' + total + ' draft(s)' : '';
   $('approve-all').disabled = !drafts.length;
   if (!drafts.length) {
     box.append(el('div', 'Nothing to review. The agent has not proposed any new unverified claims.', 'muted'));
@@ -2536,7 +2537,7 @@ $('fresh').addEventListener('change', () => { loadClaims(true).catch((e) => bann
 $('load-more-claims').addEventListener('click', () => { loadClaims(false).catch((e) => banner(e.message, 'err')); });
 
 $('approve-all').onclick = async () => {
-  const data = await (await fetch('/api/claims?status=draft&limit=200')).json();
+  const data = await (await fetch('/api/claims?status=draft&limit=1000')).json();
   const drafts = Array.isArray(data) ? data : (data.claims || []);
   if (!drafts.length) return;
   if (!window.confirm('Approve all ' + drafts.length + ' draft(s)?')) return;
@@ -2671,13 +2672,17 @@ refreshKnowledge();
 
 let liveRefreshTimer = null;
 let liveRefreshRunning = false;
+let liveRefreshQueued = false;
 let lastLiveSignature = '';
 function scheduleLiveRefresh(signature) {
   if (signature && signature === lastLiveSignature) return;
   lastLiveSignature = signature || String(Date.now());
   clearTimeout(liveRefreshTimer);
   liveRefreshTimer = setTimeout(async () => {
-    if (liveRefreshRunning) return;
+    if (liveRefreshRunning) {
+      liveRefreshQueued = true;
+      return;
+    }
     liveRefreshRunning = true;
     try {
       await loadHealth();
@@ -2687,6 +2692,10 @@ function scheduleLiveRefresh(signature) {
       else if (currentTab === 'undo') await loadCommits();
     } finally {
       liveRefreshRunning = false;
+      if (liveRefreshQueued) {
+        liveRefreshQueued = false;
+        scheduleLiveRefresh('');
+      }
     }
   }, 250);
 }
@@ -2978,13 +2987,23 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
         try {
           if (url.pathname === '/api/approve') {
             const ids = Array.isArray(body.ids) ? body.ids.map(String) : body.claim ? [String(body.claim)] : [];
+            const draftRows = ids.length
+              ? (db
+                  .prepare(
+                    `SELECT id, session_id, authority, subject_id FROM claim
+                     WHERE state = 'draft' AND id IN (${ids.map(() => '?').join(',')})`,
+                  )
+                  .all(...ids) as Array<{ id: string; session_id: string | null; authority: number; subject_id: string }>)
+              : [];
+            // Authorize every group before the first commit so a denied subject
+            // cannot leave a partially approved batch behind.
+            for (const row of draftRows) {
+              requireAction(root, 'approve', { tier: row.authority, subject: row.subject_id });
+            }
             const groups = new Map<string, string[]>();
-            for (const id of ids) {
-              const row = db.prepare('SELECT session_id FROM claim WHERE id = ?').get(id) as
-                | { session_id: string | null }
-                | undefined;
-              const target = row?.session_id ? branchFor(row.session_id) : 'main';
-              groups.set(target, [...(groups.get(target) ?? []), id]);
+            for (const row of draftRows) {
+              const target = row.session_id ? branchFor(row.session_id) : 'main';
+              groups.set(target, [...(groups.get(target) ?? []), row.id]);
             }
             if (!groups.size) groups.set(ref, []);
             let changed: Array<{ claim_id: string; op: 'add' | 'retract' | 'restore' }> = [];
@@ -3128,10 +3147,18 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
                 return;
               }
               const principal = requireAction(root, 'resolve', { subject: row.subject_id });
+              const refs = db.prepare('SELECT name FROM ref ORDER BY name').all() as Array<{ name: string }>;
+              const holdsConflict = (name: string) => {
+                const tip = head(db, name);
+                if (!tip) return false;
+                const active = activeAt(db, tip);
+                return active.has(row.left_claim) || active.has(row.right_claim);
+              };
+              const resolveRef = [ref, 'main', ...refs.map((r) => r.name)].find(holdsConflict) ?? ref;
               const result = resolveFact(
                 db,
                 root,
-                'main',
+                resolveRef,
                 row.subject_id,
                 row.predicate,
                 take === 'ours' ? row.left_claim : row.right_claim,
@@ -3139,7 +3166,7 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
                 reason,
               );
               broadcastEvent('conflict:resolved', { kind, id, take, subject: row.subject_id, timestamp: new Date().toISOString() });
-              json(res, { ok: true, kind, take, applied: true, ...result });
+              json(res, { ok: true, kind, take, applied: true, ref: resolveRef, ...result });
               return;
             }
 
@@ -3160,14 +3187,20 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
             }
             requireAction(root, 'resolve', { subject: row.subject_id });
 
-            let targetRef = ref;
-            if (row.ours_tip && head(db, targetRef) !== row.ours_tip) {
-              const owner = db.prepare('SELECT name FROM ref WHERE commit_id = ? LIMIT 1').get(row.ours_tip) as
-                | { name: string }
-                | undefined;
+            let targetRef = head(db, ref) === row.ours_tip ? ref : null;
+            if (!targetRef && row.ours_tip) {
+              const owner = db
+                .prepare("SELECT name FROM ref WHERE commit_id = ? ORDER BY CASE WHEN name = 'main' THEN 0 ELSE 1 END, name LIMIT 1")
+                .get(row.ours_tip) as { name: string } | undefined;
               if (owner) targetRef = owner.name;
             }
-            const oursTip = head(db, targetRef) ?? row.ours_tip;
+            if (!targetRef) {
+              json(res, {
+                error: 'cannot identify the branch that produced this merge conflict; re-run lore merge on that branch',
+              }, 409);
+              return;
+            }
+            const oursTip = head(db, targetRef);
             if (!oursTip || !row.theirs_tip) {
               json(res, { error: 'merge conflict is missing branch tips' }, 400);
               return;
