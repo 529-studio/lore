@@ -153,10 +153,14 @@ try {
   const purgeAudit = bDb.prepare('SELECT * FROM purge_audit WHERE claim_id = ?').get(claimId);
   const orphanEvidence = bDb.prepare('SELECT COUNT(*) AS n FROM evidence WHERE claim_id = ?').get(claimId).n;
   const orphanEntries = bDb.prepare('SELECT COUNT(*) AS n FROM commit_entry WHERE claim_id = ?').get(claimId).n;
+  const orphanAttestations = bDb.prepare('SELECT COUNT(*) AS n FROM attestation WHERE claim_id = ?').get(claimId).n;
+  const staleRedaction = bDb.prepare('SELECT * FROM redaction WHERE claim_id = ?').get(claimId);
   bDb.close();
   check(!purgedClaim, 'purged claim was resurrected on store B');
   check(Boolean(purgeAudit), 'purge_audit did not propagate to store B');
   check(Number(orphanEvidence) === 0 && Number(orphanEntries) === 0, 'purge left dependent rows on store B');
+  check(Number(orphanAttestations) === 0, 'purge left an attestation pointing at the deleted claim');
+  check(!staleRedaction, 'purge did not supersede the older redaction record on store B');
 
   // B pushes its (stale) history back; A must not resurrect the claim.
   run(bRoot, ['push']);

@@ -250,28 +250,29 @@ export function importBundle(
 
   const counts = { entities: 0, claims: 0, commits: 0, merge: 'none' as ImportResult['merge'] };
 
-  // Tombstones are authoritative before any row is inserted: a purge is
-  // permanent, and a redaction pins the payload even if a peer still ships it.
-  const purgedIds = new Set(
-    (db.prepare('SELECT claim_id FROM purge_audit').all() as Array<{ claim_id: string }>).map((r) => r.claim_id),
-  );
-  for (const row of bundle.purge_audits ?? []) {
-    const id = String(row.claim_id ?? '');
-    if (id) purgedIds.add(id);
-  }
-  const redactedIds = new Set(
-    (db.prepare('SELECT claim_id FROM redaction').all() as Array<{ claim_id: string }>).map((r) => r.claim_id),
-  );
-  for (const row of bundle.redactions ?? []) {
-    const id = String(row.claim_id ?? '');
-    if (id) redactedIds.add(id);
-  }
-  // A purge is the stronger tombstone; a stale peer must not re-redact it.
-  for (const id of purgedIds) redactedIds.delete(id);
-  const skippedIds = new Set([...purgedIds, ...redactedIds]);
-
   const apply = db.transaction(() => {
     db.exec('PRAGMA defer_foreign_keys = ON');
+
+    // Tombstones are authoritative before any row is inserted: a purge is
+    // permanent, and a redaction pins the payload even if a peer still ships it.
+    // Read them under the write lock so a concurrent purge cannot be missed.
+    const purgedIds = new Set(
+      (db.prepare('SELECT claim_id FROM purge_audit').all() as Array<{ claim_id: string }>).map((r) => r.claim_id),
+    );
+    for (const row of bundle.purge_audits ?? []) {
+      const id = String(row.claim_id ?? '');
+      if (id) purgedIds.add(id);
+    }
+    const redactedIds = new Set(
+      (db.prepare('SELECT claim_id FROM redaction').all() as Array<{ claim_id: string }>).map((r) => r.claim_id),
+    );
+    for (const row of bundle.redactions ?? []) {
+      const id = String(row.claim_id ?? '');
+      if (id) redactedIds.add(id);
+    }
+    // A purge is the stronger tombstone; a stale peer must not re-redact it.
+    for (const id of purgedIds) redactedIds.delete(id);
+    const skippedIds = new Set([...purgedIds, ...redactedIds]);
 
     const deleteClaimRead = db.prepare('DELETE FROM claim_read WHERE claim_id = ?');
     const deleteCommitEntry = db.prepare('DELETE FROM commit_entry WHERE claim_id = ?');
@@ -341,7 +342,8 @@ export function importBundle(
       `INSERT INTO token_revocation (jti, sub, reason, revoked_by, revoked_at)
        VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(jti) DO UPDATE SET
-         sub = excluded.sub,
+         sub = CASE WHEN excluded.revoked_at > token_revocation.revoked_at
+                    THEN excluded.sub ELSE token_revocation.sub END,
          reason = CASE WHEN excluded.revoked_at > token_revocation.revoked_at
                        THEN excluded.reason ELSE token_revocation.reason END,
          revoked_by = CASE WHEN excluded.revoked_at > token_revocation.revoked_at
@@ -367,11 +369,13 @@ export function importBundle(
     );
     for (const row of bundle.attestations ?? []) {
       const claimId = String(row.claim_id ?? '');
-      if (!claimId || purgedIds.has(claimId)) continue;
+      const attestationClaimId = String(row.attestation_claim_id ?? '');
+      // Either endpoint being purged means the attestation must not survive.
+      if (!claimId || purgedIds.has(claimId) || purgedIds.has(attestationClaimId)) continue;
       const verdict = row.verdict === 'disagree' ? 'disagree' : 'agree';
       insertAttestation.run(
         claimId,
-        String(row.attestation_claim_id ?? ''),
+        attestationClaimId,
         verdict,
         String(row.actor ?? 'lore:sync'),
         String(row.ts ?? new Date().toISOString()),
@@ -511,9 +515,12 @@ export function importBundle(
       if (skippedIds.has(String(row.claim_id))) continue;
       insertEntry.run(row.commit_id, row.claim_id, row.op);
     }
+    return skippedIds;
   });
 
-  apply();
+  // IMMEDIATE takes the write lock before reading tombstones, so a purge or
+  // redaction committed by another process cannot race the import snapshot.
+  const skippedIds = apply.immediate();
 
   for (const row of bundle.claims) {
     const id = String(row.id);
