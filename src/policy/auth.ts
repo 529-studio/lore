@@ -215,6 +215,13 @@ export function checkAuthorization(
 
   // Lifecycle action: approve
   if (action === 'approve') {
+    const guarded = protectedRoles(policy, ctx.subject);
+    if (guarded) {
+      if (guarded.some((r) => isMember(policy, r, principal))) return principal;
+      throw new Error(
+        `approve protected subject ${ctx.subject} requires role ${guarded.join(' or ')}; ${principal.id} is ${principal.role} (policy: ${path.basename(policyPath(root))})`,
+      );
+    }
     const key = `t${ctx.tier ?? 4}`;
     const roles = policy?.approve?.[key] ?? policy?.approve?.t4 ?? ['maintainers'];
     if (roles.some((r) => isMember(policy, r, principal))) return principal;

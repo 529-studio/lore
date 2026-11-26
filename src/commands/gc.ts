@@ -10,6 +10,7 @@ import {
 import { runClaimRetractHooks } from '../model.js';
 import { ensureSession } from '../session.js';
 import { pruneHashCache } from '../hash-cache.js';
+import { requireAction } from '../policy.js';
 
 export interface GcOptions {
   root?: string;
@@ -97,6 +98,8 @@ export function gcCommand(opts: GcOptions): void {
 
   if (opts.purgeTombstones) {
     if (tombstoneList.length) {
+      // Permanent deletion needs the purge role; dry runs returned above.
+      requireAction(root, 'purge');
       const purged = purgeTombstones(db, tombstoneList, 'lore:gc');
       console.log(
         `${pc.green('✓')} purged ${purged} tombstone(s) older than ${opts.tombstoneTtlDays ?? 30} day(s); recorded in purge_audit`,

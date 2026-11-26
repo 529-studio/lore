@@ -117,6 +117,8 @@ export async function wrapupCommand(opts: WrapupOptions = {}): Promise<void> {
     if (plan.mode === 'up-to-date') {
       console.log(pc.dim(`  ${into} is already up to date with ${fromRef}`));
     } else if (plan.mode === 'fast-forward') {
+      // Moving main is a promotion, exactly like the three-way path below.
+      requireAction(root, 'promote');
       db.prepare(
         'INSERT INTO ref(name, commit_id) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET commit_id = excluded.commit_id',
       ).run(into, fromTip);

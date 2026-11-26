@@ -175,9 +175,12 @@ Three kinds of approver:
 | Machine | policy version + the rule it applied | only for T0/T1 |
 | N-of-M | one human plus one audit attestation | for protected subjects |
 
-Enforcement lives in one function (`requireAction`) used by `approve`, `resolve`, `redact`, `purge`,
-`promote` and the MCP `memory_approve` tool. The principal is written into the commit author and into
-`merge_decision.actor`.
+Enforcement lives in one function (`requireAction`). Every mutating entry point calls it: CLI `write`,
+`supersede`, `approve`/`reject`, `resolve` (including `--auto-semantic`), `redact`, `purge`, `promote`,
+`wrapup` (fast-forward and three-way), `gc --purge-tombstones`, and MCP `memory_write` /
+`memory_approve`. `protected` subjects are checked on approval as well as write. `lore identity issue`
+requires the admin role once the caller presents an identity; possession of the signing secret alone can
+bootstrap the first token. The principal is written into the commit author and `merge_decision.actor`.
 
 **Attestation is implemented** as `lore attest <claim> --verdict agree|disagree --reason`. It writes a
 claim `claim:<id> — attested_by — <verdict>` with authority T2, links it in the `attestation` table, and

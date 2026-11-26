@@ -19,6 +19,13 @@ export function identityCommand(opts: IdentityOptions): void {
     const secret = process.env.LORE_TEAM_SECRET;
     if (!secret) throw new Error('set LORE_TEAM_SECRET before issuing a token');
     if (!opts.user) throw new Error('identity issue requires --user <email>');
+    // Holders of the signing secret can bootstrap the first token. Once a
+    // caller presents an identity, issuing another role is an admin action.
+    const authenticated = Boolean(
+      process.env.LORE_TOKEN || process.env.LORE_OIDC_EMAIL || process.env.LORE_MACHINE === '1',
+    );
+    const stateRoot = findStateRoot();
+    if (stateRoot && authenticated) requireAction(stateRoot, 'admin');
     const role: Role = opts.role === 'contributor' ? 'contributor' : 'maintainer';
     const token = issueToken(opts.user, role, secret, Number(opts.days ?? 30), opts.jti);
     console.log(token);
