@@ -213,16 +213,16 @@ try {
     '--object', 'docs/adr/ADR-001.md', '--kind', 'human', '--ref', 'README.md',
   ];
   assert.match(
-    loreFails(team, writeArgs, { LORE_TOKEN: '', LORE_TEAM_SECRET: '', LORE_OIDC_EMAIL: '' }),
+    loreFails(team, writeArgs, { LORE_TOKEN: '', LORE_TEAM_SECRET: '', LORE_OIDC_EMAIL: '', LORE_MACHINE: '' }),
     /declares team_mode but LORE_TEAM_SECRET is missing/,
     'a declared team repo must fail closed without verification credentials',
   );
   assert.match(
-    loreFails(team, writeArgs, { LORE_TEAM_SECRET: '', LORE_OIDC_EMAIL: 'bob@company', LORE_OIDC_ROLE: 'contributor' }),
+    loreFails(team, writeArgs, { LORE_TOKEN: '', LORE_TEAM_SECRET: '', LORE_OIDC_EMAIL: 'bob@company', LORE_OIDC_ROLE: 'contributor', LORE_MACHINE: '' }),
     /write to rule:no-orms requires role maintainers/,
     'declared team mode must apply lore.policy.yml without the signing secret',
   );
-  lore(team, writeArgs, { LORE_TEAM_SECRET: '', LORE_OIDC_EMAIL: 'alice@company', LORE_OIDC_ROLE: 'maintainer' });
+  lore(team, writeArgs, { LORE_TOKEN: '', LORE_TEAM_SECRET: '', LORE_OIDC_EMAIL: 'alice@company', LORE_OIDC_ROLE: 'maintainer', LORE_MACHINE: '' });
   console.log('[OK] declared team mode fails closed and enforces policy without LORE_TEAM_SECRET');
 
   console.log('JOIN SMOKE OK — manifest adoption, one-command clone, no-fetch, mismatch and secret rejection');

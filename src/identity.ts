@@ -95,6 +95,9 @@ export function resolvePrincipal(root = findWorkspaceRoot()): Principal {
   }
 
   if (process.env.LORE_MACHINE === '1') {
+    // A local machine principal is accepted only with the team signing secret,
+    // which is checked above for a declaring repository. A machine token is the
+    // per-host alternative for teams that do not export the shared secret.
     return { id: 'machine:local', role: 'machine', source: 'local' };
   }
 
