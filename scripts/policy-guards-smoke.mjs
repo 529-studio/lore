@@ -305,7 +305,19 @@ protected:
   if (!check(protectedDraft, 'failed to create the protected draft')) throw new Error('cannot continue');
   expectDenied(['approve', protectedDraft], bobEnv, 'protected', 'CLI approve protected draft');
 
-  // 7. MCP memory_write and memory_approve enforce the same ACL.
+  // 7. Canon confirmation is an approval and must honor protected subjects.
+  expectOk(
+    ['write', '--subject', 'doc:locked.md', '--predicate', 'enforced_by', '--object', 'canon target', '--kind', 'agent', '--ref', 'README.md', '--author', 'agent:alice'],
+    { ...aliceEnv, LORE_SESSION: 'alice' },
+  );
+  const canonClaim = claimIdFor('doc:locked.md', 'enforced_by');
+  if (!check(canonClaim, 'failed to create the canon confirmation claim')) throw new Error('cannot continue');
+  const canonDb = openDb();
+  canonDb.prepare("UPDATE claim SET state = 'active', trust = 'canonical' WHERE id = ?").run(canonClaim);
+  canonDb.close();
+  expectDenied(['canon', 'confirm', canonClaim], bobEnv, 'protected', 'canon confirm protected claim');
+
+  // 8. MCP memory_write and memory_approve enforce the same ACL.
 
   const mcp = startMcp({ ...bobEnv, LORE_SESSION: 'mcp-bob' });
   try {
