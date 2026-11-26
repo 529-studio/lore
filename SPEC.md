@@ -450,7 +450,7 @@ No LLM judge. Outcome metrics on real repositories:
 | agent/human writes are draft only | permissive trust mode (`lore init --solo`) auto-promotes writes in solo mode | solo developers need immediate retrieval without approval overhead |
 | static 3-bullet agent rules | rich ontology guidelines (`lore rules [--update]`) with entity prefixes and tiers | prevents hallucinated predicates without namespace guidance |
 | manual review and promote commands | unified 1-step session wrapup (`lore wrapup [--yes]`, `lore session`) | multi-agent sessions left unreviewed drafts behind before promote |
-| bare init creates store only | `lore init --full` auto-discovers agents, rules, codebase, and MCPs | pre-existing repos need zero-friction activation |
+| bare init creates store only | `init --full`/`onboard` ingest on a fresh branch and promote it to `main`, then configure MCPs | agents forked from `main` must see the baseline |
 | onboard prints hardcoded Claude command | `lore onboard` auto-detects agents and wires MCP configs directly | multi-agent repos require dynamic agent wiring |
 | sync is batch push/fetch only | bi-directional sync adapter (`lore sync`, `memory_sync`) | nodes need atomic sync without lock collisions |
 | concurrency verified on 4x25 writes only | multi-worker concurrency benchmark (`scripts/bench-concurrency.mjs`) | clusters require soak testing for latency and WAL integrity |
