@@ -72,7 +72,22 @@ export function statusCommand(opts: StatusOptions = {}): void {
 
   const session = ensureSession(db, root);
   const ref = branchFor(session);
-  const branchActive = activeAt(db, head(db, ref) ?? head(db, 'main')).size;
+  const branchIds = activeAt(db, head(db, ref) ?? head(db, 'main'));
+
+  // Live drift is computed from evidence hashes, above. Count claims, not
+  // evidence rows, so one claim with several drifted files counts once.
+  const staleClaimIds = new Set(stale.map((s) => s.claim_id));
+  let branchStale = 0;
+  let branchContested = 0;
+  if (branchIds.size) {
+    const claimStmt = db.prepare('SELECT trust FROM claim WHERE id = ?');
+    for (const id of branchIds.keys()) {
+      const row = claimStmt.get(id) as { trust: string } | undefined;
+      if (!row) continue;
+      if (row.trust === 'stale' || staleClaimIds.has(id)) branchStale += 1;
+      if (row.trust === 'contested') branchContested += 1;
+    }
+  }
 
   const conflicts = (db.prepare('SELECT COUNT(*) n FROM merge_conflict WHERE resolved = 0').get() as { n: number }).n;
   const canon = canonStatus(db);
@@ -81,15 +96,20 @@ export function statusCommand(opts: StatusOptions = {}): void {
   const storage = getDatabaseStorageStats(db);
 
   console.log(pc.bold('lore status'));
-  console.log(`  claims     ${pc.bold(String(total))} total  ${pc.green(`${byState.get('active') ?? 0} active`)}  ${pc.yellow(`${byState.get('draft') ?? 0} draft`)}  ${pc.red(`${byState.get('retracted') ?? 0} retracted`)}`);
+  console.log(`  claims     ${pc.bold(String(total))} total  ${pc.green(`${byState.get('active') ?? 0} active`)}  ${pc.yellow(`${byState.get('draft') ?? 0} draft`)}  ${pc.red(`${byState.get('retracted') ?? 0} retracted`)}  ${pc.dim('(store-wide)')}`);
   console.log(
     `  trust      ${pc.green(`${canon.trust.canonical} canonical`)}  ${pc.yellow(`${canon.trust.candidate} candidate`)}  ` +
       `${canon.trust.contested ? pc.red(`${canon.trust.contested} contested`) : pc.dim('0 contested')}  ` +
-      `${canon.trust.stale ? pc.red(`${canon.trust.stale} stale`) : pc.dim('0 stale')}  ` +
-      `${canon.trust.retracted ? pc.red(`${canon.trust.retracted} retracted`) : pc.dim('0 retracted')}`,
+      `${canon.trust.retracted ? pc.red(`${canon.trust.retracted} retracted`) : pc.dim('0 retracted')}  ` +
+      `${pc.dim('(persisted canon state, store-wide)')}`,
   );
   const permissive = isPermissiveTrust(root);
-  console.log(`  branch     ${ref}  ${pc.dim(`${branchActive} claims in the active set`)}  ${pc.dim(`[mode: ${permissive ? 'permissive' : 'strict'}]`)}`);
+  console.log(
+    `  branch     ${ref}  ${pc.dim(`${branchIds.size} in active set`)}  ` +
+      `${branchStale ? pc.red(`${branchStale} stale`) : pc.dim('0 stale')}  ` +
+      `${branchContested ? pc.red(`${branchContested} contested`) : pc.dim('0 contested')}  ` +
+      `${pc.dim(`(this branch, live) [mode: ${permissive ? 'permissive' : 'strict'}]`)}`,
+  );
   console.log(`  commits    ${commits}   branches ${branches}`);
 
   const config = readConfig(root);
@@ -106,7 +126,10 @@ export function statusCommand(opts: StatusOptions = {}): void {
     const label = remoteLabel(config.remote);
     console.log(`  remote     ${label} ${pc.dim(`(${state})`)}`);
   }
-  console.log(`  stale      ${stale.length ? pc.red(String(stale.length)) : pc.green('0')} ${pc.dim('(evidence hash no longer matches)')}`);
+  console.log(
+    `  stale      ${staleClaimIds.size ? pc.red(String(staleClaimIds.size)) : pc.green('0')} ` +
+      `${pc.dim('(evidence hash no longer matches; live drift, store-wide)')}`,
+  );
   console.log(`  ahead      ${ahead.length ? pc.yellow(String(ahead.length)) : pc.green('0')} ${pc.dim('(claim observed on newer code than this checkout)')}`);
   console.log(`  conflicts  ${conflicts ? pc.red(String(conflicts)) : pc.green('0')} ${pc.dim('(unresolved merges)')}  ${canon.unresolved_conflicts ? pc.red(String(canon.unresolved_conflicts)) : pc.green('0')} ${pc.dim('(tier-1 facts)')}`);
   const gcParts = [
@@ -143,7 +166,7 @@ export function statusCommand(opts: StatusOptions = {}): void {
   if (opts.strict) {
     const maxStale = Number(opts.maxStale ?? 15);
     const maxConflicts = Number(opts.maxConflicts ?? 0);
-    const stalePct = total > 0 ? (stale.length / total) * 100 : 0;
+    const stalePct = total > 0 ? (staleClaimIds.size / total) * 100 : 0;
     const reasons: string[] = [];
     if (stalePct > maxStale) {
       reasons.push(`stale ${stalePct.toFixed(1)}% > ${maxStale}%`);

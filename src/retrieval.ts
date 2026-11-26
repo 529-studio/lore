@@ -37,6 +37,8 @@ export interface SearchHit {
   claim: ClaimRow;
   score: number;
   reasons: string[]; // human-readable scoring breakdown
+  /** Lexical precedence: 2 exact phrase, 1 full token coverage, 0 partial. */
+  lexicalTier: number;
   stale: boolean;
   /** The claim describes newer code than this checkout. */
   ahead: boolean;
@@ -57,11 +59,26 @@ export interface SearchResult {
 
 const BUDGET_DEFAULT = 2000;
 
-// Weights — SPEC §9. Not configurable: keep the contract stable for M4.
+// Weights — SPEC §9 and §15 (issue #181). Not configurable: keep the contract
+// stable for M4.
+//
+// Relevance is split into three terms so that an exact multi-token match is not
+// buried by boilerplate that happens to share one token:
+//   - coverage: fraction of the query tokens present in the claim. Full
+//     coverage ("X-Telemetry-Key" -> x/telemetry/key) is a strong signal.
+//   - phrase: the normalized query appears contiguously in the claim text.
+//     This is what separates a rule that literally names the queried phrase
+//     from claims that merely mention one of its words.
+//   - similarity: Jaccard overlap, kept at its old small weight as a
+//     tie-breaker; it penalizes long claims, so it must not decide relevance.
+// Authority and verification keep their SPEC §9 weights: tier still matters
+// between equally relevant claims, just not more than a full exact match.
 const W_ANCHOR = 3.0;
 const W_PROXIMITY = 2.0;
 const W_AUTHORITY = 1.5;
 const W_VERIFIED = 1.0;
+const W_COVERAGE = 2.0;
+const W_PHRASE = 2.5;
 const W_SIMILARITY = 0.5;
 const W_STALE = -10.0;
 
@@ -148,7 +165,14 @@ function pathBase(p: string): string {
 }
 
 function tokenize(text: string): Set<string> {
-  return new Set(text.toLowerCase().match(/[a-z0-9_]{2,}/g) ?? []);
+  // Single-character tokens are kept: identifiers like `X-Telemetry-Key` are
+  // three tokens (x, telemetry, key), not two.
+  return new Set(text.toLowerCase().match(/[a-z0-9_]+/g) ?? []);
+}
+
+/** Lowercase, punctuation-insensitive words for contiguous phrase matching. */
+function normalizePhrase(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9_]+/g, ' ').trim();
 }
 
 function jaccard(a: Set<string>, b: Set<string>): number {
@@ -163,6 +187,12 @@ interface ScoreParts {
   reasons: string[];
   /** True when the query or scope actually touches this claim. */
   relevant: boolean;
+  /**
+   * Lexical precedence: 2 = exact phrase, 1 = every query token present,
+   * 0 = partial coverage. Phrase and full coverage must outrank single-token
+   * boilerplate even when that boilerplate earns anchor/proximity bonuses.
+   */
+  lexicalTier: number;
 }
 
 interface ScopeContext {
@@ -219,6 +249,7 @@ function scoreClaim(
   const parts: number[] = [];
   const reasons: string[] = [];
   let relevant = false;
+  let lexicalTier = 0;
 
   // --- anchor: evidence ref or subject path inside the task scope -------------
   const anchorRefs: string[] = [];
@@ -286,16 +317,39 @@ function scoreClaim(
     } catch {
       // keep raw json
     }
-    const claimTokens = tokenize(`${claim.subject_id} ${claim.predicate} ${objectText}`);
+    const claimText = `${claim.subject_id} ${claim.predicate} ${objectText}`;
+    const claimTokens = tokenize(claimText);
     const lexicalSim = jaccard(ctx.queryTokens, claimTokens);
+    let matched = 0;
+    for (const token of ctx.queryTokens) if (claimTokens.has(token)) matched++;
+    const tokenCoverage = ctx.queryTokens.size ? matched / ctx.queryTokens.size : 0;
+    const queryPhrase = ctx.queryText ? normalizePhrase(ctx.queryText) : '';
+    // Boundary-anchored: "bar baz" must not match "foobar bazooka".
+    const phraseHit =
+      Boolean(queryPhrase) &&
+      queryPhrase.split(' ').length >= 2 &&
+      ` ${normalizePhrase(claimText)} `.includes(` ${queryPhrase} `);
+
+    if (tokenCoverage > 0 || phraseHit) relevant = true;
+    if (phraseHit) lexicalTier = 2;
+    else if (tokenCoverage === 1) lexicalTier = 1;
+    if (tokenCoverage > 0) {
+      const part = W_COVERAGE * tokenCoverage;
+      parts.push(part);
+      reasons.push(`+${part.toFixed(1)} coverage (${matched}/${ctx.queryTokens.size} query tokens)`);
+    }
+    if (phraseHit) {
+      parts.push(W_PHRASE);
+      reasons.push(`+${W_PHRASE.toFixed(1)} phrase (exact "${queryPhrase}")`);
+    }
 
     if (ctx.semantic && ctx.queryEmbedding) {
       const claimVector = getOrComputeClaimVector(db, claim);
       const vectorSim = Math.max(0, cosineSimilarity(ctx.queryEmbedding, claimVector));
       const hybridSim = computeHybridSimilarity(lexicalSim, vectorSim, ctx.vectorWeight);
 
+      if (hybridSim >= 0.08) relevant = true;
       if (hybridSim >= 0.08 || lexicalSim > 0) {
-        relevant = true;
         const part = W_SIMILARITY * hybridSim;
         parts.push(part);
         reasons.push(
@@ -303,7 +357,6 @@ function scoreClaim(
         );
       }
     } else if (lexicalSim > 0) {
-      relevant = true;
       const part = W_SIMILARITY * lexicalSim;
       parts.push(part);
       reasons.push(`+${part.toFixed(1)} text (token overlap ${lexicalSim.toFixed(2)})`);
@@ -315,7 +368,7 @@ function scoreClaim(
     reasons.push(`${W_STALE.toFixed(1)} stale (evidence hash no longer matches)`);
   }
 
-  return { score: parts.reduce((sum, v) => sum + v, 0), reasons, relevant };
+  return { score: parts.reduce((sum, v) => sum + v, 0), reasons, relevant, lexicalTier };
 }
 
 /** Approximate context cost of a hit, in tokens (chars/4 — SPEC §9 budget). */
@@ -480,13 +533,17 @@ export function searchMemory(db: DB, root: string, opts: SearchOptions = {}): Se
     if (ahead && !opts.trustRemote) continue;
     const evidence = hashlessEvidence.get(c.id) ?? [];
     const subjectPath = pathFromEntity(c.subject_id);
-    const { score, reasons, relevant } = scoreClaim(db, c, evidence, subjectPath, ctx, stale);
+    const { score, reasons, relevant, lexicalTier } = scoreClaim(db, c, evidence, subjectPath, ctx, stale);
     // A query must touch the claim: authority and freshness alone are not relevance.
     if (ctx.queryTokens && !relevant) continue;
-    hits.push({ claim: c, score, reasons, stale, ahead });
+    hits.push({ claim: c, score, reasons, lexicalTier, stale, ahead });
   }
 
   hits.sort((a, b) => {
+    // Exact phrase and full coverage beat partial matches before score:
+    // anchor/proximity bonuses must not let single-token boilerplate bury an
+    // exact rule (#181).
+    if (a.lexicalTier !== b.lexicalTier) return b.lexicalTier - a.lexicalTier;
     if (a.score !== b.score) return b.score - a.score;
     const key = (h: SearchHit) => `${h.claim.subject_id}\u0000${h.claim.predicate}`;
     return key(a).localeCompare(key(b));
