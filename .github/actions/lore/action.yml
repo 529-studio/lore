@@ -16,9 +16,17 @@ inputs:
   lore-ref:
     description: Git ref of the Lore CLI to build when lore-version is empty.
     required: false
-    default: v0.1.3
+    default: v0.4.0
   lore-version:
     description: Published version to install from npm instead of building from source.
+    required: false
+    default: ''
+  hub-url:
+    description: lore-hub URL. When set, the action pulls the shared team baseline before diffing.
+    required: false
+    default: ''
+  hub-token:
+    description: Token for hub-url. Store it as a secret; never commit it.
     required: false
     default: ''
   strict:
@@ -37,6 +45,9 @@ outputs:
   stale:
     description: Number of claims invalidated by this pull request.
     value: ${{ steps.report.outputs.stale }}
+  team-stale:
+    description: Number of invalidated claims that were taught by a teammate or agent.
+    value: ${{ steps.report.outputs.team_stale }}
 
 runs:
   using: composite
@@ -53,8 +64,20 @@ runs:
         LORE_REF: ${{ inputs.lore-ref }}
       run: |
         set -euo pipefail
-        # Cloned outside the workspace: actions/checkout refuses paths outside it,
-        # and a tool checkout inside the workspace would be ingested as claims.
+        # A local action (`uses: ./.github/actions/lore`) must exercise the
+        # checked-out CLI, or a PR that changes the action would run it against
+        # an older release that lacks its JSON commands.
+        if [ -n "${GITHUB_ACTION_PATH:-}" ] && [[ "${GITHUB_ACTION_PATH}" == "${GITHUB_WORKSPACE}/"* ]]; then
+          echo "local action: building the CLI from ${GITHUB_WORKSPACE}"
+          cd "${GITHUB_WORKSPACE}"
+          npm ci --no-audit --no-fund
+          npm run build
+          npm link
+          exit 0
+        fi
+        # Remote action: cloned outside the caller workspace, since
+        # actions/checkout refuses paths outside it and a tool checkout inside
+        # the workspace would be ingested as claims.
         git clone --depth 1 --branch "${LORE_REF}" https://github.com/529-studio/lore.git "${RUNNER_TEMP}/lore-tool"
         cd "${RUNNER_TEMP}/lore-tool"
         npm ci --no-audit --no-fund
@@ -80,6 +103,9 @@ runs:
           git worktree add "${RUNNER_TEMP}/lore-base" "${BASE_SHA}"
           (
             cd "${RUNNER_TEMP}/lore-base"
+            # A linked worktree otherwise shares the primary checkout's store;
+            # the base memory must be isolated and copied into the workspace.
+            export LORE_STATE_DIR="${RUNNER_TEMP}/lore-base/.lore"
             LORE_SESSION=base lore init > /dev/null
             LORE_SESSION=base lore ingest > /dev/null
             LORE_SESSION=base lore promote > /dev/null
@@ -87,6 +113,25 @@ runs:
         fi
         rm -rf .lore
         cp -r "${RUNNER_TEMP}/lore-base/.lore" .lore
+
+    - name: Pull the team memory baseline
+      if: inputs.hub-url != ''
+      shell: bash
+      env:
+        HUB_URL: ${{ inputs.hub-url }}
+        LORE_HUB_TOKEN: ${{ inputs.hub-token }}
+        NO_COLOR: '1'
+        FORCE_COLOR: '0'
+      run: |
+        set -euo pipefail
+        if [ -z "${LORE_HUB_TOKEN}" ]; then
+          echo "::error::hub-url requires hub-token so the action can read shared team memory"
+          exit 1
+        fi
+        # Same repository id as the checked-out manifest, then merge the hub main
+        # into the base store so team claims participate in drift detection.
+        lore remote --hub "${HUB_URL}" --token-env LORE_HUB_TOKEN > /dev/null
+        LORE_SESSION=head lore fetch
 
     - name: Detect memory invalidated by this pull request
       shell: bash
@@ -96,7 +141,7 @@ runs:
       run: |
         set -euo pipefail
         # Run before ingest: ingest re-observes changed files and would hide the drift.
-        LORE_SESSION=head lore status > "${RUNNER_TEMP}/lore-status.txt" || true
+        LORE_SESSION=head lore status --json > "${RUNNER_TEMP}/lore-status.json"
 
     - name: Ingest this pull request
       shell: bash
@@ -106,7 +151,7 @@ runs:
       run: |
         set -euo pipefail
         LORE_SESSION=head lore ingest > /dev/null
-        LORE_SESSION=head lore diff main..agent/head > "${RUNNER_TEMP}/lore-diff.txt" || true
+        LORE_SESSION=head lore diff main..agent/head --json > "${RUNNER_TEMP}/lore-diff.json"
 
     - name: Write the comment
       id: report
@@ -115,54 +160,75 @@ runs:
         MAX_CLAIMS: ${{ inputs.max-claims }}
       run: |
         set -euo pipefail
-        python3 - "${RUNNER_TEMP}/lore-diff.txt" "${RUNNER_TEMP}/lore-status.txt" \
+        python3 - "${RUNNER_TEMP}/lore-status.json" "${RUNNER_TEMP}/lore-diff.json" \
           "${RUNNER_TEMP}/lore-comment.md" "${RUNNER_TEMP}/lore-metrics.txt" "${MAX_CLAIMS}" <<'PY'
+        import json
         import re
         import sys
 
-        diff_path, status_path, out_path, metrics_path, max_claims = sys.argv[1:6]
+        status_path, diff_path, out_path, metrics_path, max_claims = sys.argv[1:6]
         max_claims = int(max_claims)
-        ANSI = re.compile(r"\x1b\[[0-9;]*m")
-        diff = [ANSI.sub("", line) for line in open(diff_path, encoding="utf-8").read().splitlines()]
-        status = ANSI.sub("", open(status_path, encoding="utf-8").read())
+        with open(status_path, encoding="utf-8") as handle:
+            status = json.load(handle)
+        with open(diff_path, encoding="utf-8") as handle:
+            diff = json.load(handle)
 
-        added = [line[2:].strip() for line in diff if line.startswith("+ ")]
-        removed = [line[2:].strip() for line in diff if line.startswith("- ")]
-        match = re.search(r"stale\s+(\d+)", status)
-        stale = int(match.group(1)) if match else 0
-        invalidated = [
-            f"{claim} {ref.strip()}"
-            for claim, ref in re.findall(r"•\s+(c_\w+)\s+(.+)", status)
-        ]
+        added = diff.get("added") or []
+        removed = diff.get("removed") or []
+        stale_claims = status.get("stale_claims") or []
+        stale = int(status.get("stale") or len(stale_claims))
+
+        def taught_by_team(claim):
+            return re.match(r"^(human|agent):", str(claim.get("author") or "")) is not None
+
+        team_invalidated = [claim for claim in stale_claims if taught_by_team(claim)]
+        other_invalidated = [claim for claim in stale_claims if not taught_by_team(claim)]
+
+        def bullet(claim):
+            text = f'{claim.get("id", "?")} {claim.get("subject", "?")} — {claim.get("predicate", "?")}'
+            if claim.get("author"):
+                text += f' ({claim["author"]})'
+            return text
 
         lines = ["<!-- lore-memory -->", "## Lore memory", ""]
         if added or removed:
-            lines.append(
-                f"This pull request adds **{len(added)}** claim(s) and removes **{len(removed)}**."
-            )
+            lines.append(f"This pull request adds **{len(added)}** claim(s) and removes **{len(removed)}**.")
         else:
             lines.append("This pull request does not change what the agent knows.")
-        lines.append(f"It invalidates **{stale}** existing claim(s).")
+        lines.append(
+            f"It invalidates **{stale}** existing claim(s); "
+            f"**{len(team_invalidated)}** were taught by a teammate or agent."
+        )
 
-        if invalidated:
-            lines += ["", "<details><summary>Invalidated claims</summary>", ""]
-            lines += [f"- {item}" for item in invalidated[:max_claims]]
-            if len(invalidated) > max_claims:
-                lines.append(f"- … and {len(invalidated) - max_claims} more")
+        if team_invalidated:
+            lines += ["", "<details><summary>Invalidated team claims</summary>", ""]
+            lines += [f"- {bullet(claim)}" for claim in team_invalidated[:max_claims]]
+            if len(team_invalidated) > max_claims:
+                lines.append(f"- ... and {len(team_invalidated) - max_claims} more")
+            lines += ["", "</details>"]
+
+        if other_invalidated:
+            lines += ["", "<details><summary>Other invalidated claims</summary>", ""]
+            lines += [f"- {bullet(claim)}" for claim in other_invalidated[:max_claims]]
+            if len(other_invalidated) > max_claims:
+                lines.append(f"- ... and {len(other_invalidated) - max_claims} more")
             lines += ["", "</details>"]
 
         if added:
             lines += ["", "<details><summary>Added claims</summary>", ""]
-            lines += [f"- {item}" for item in added[:max_claims]]
+            lines += [f"- {bullet(claim)}" for claim in added[:max_claims]]
             if len(added) > max_claims:
-                lines.append(f"- … and {len(added) - max_claims} more")
+                lines.append(f"- ... and {len(added) - max_claims} more")
             lines += ["", "</details>"]
 
         lines += ["", "_Generated by Lore. Approve or revert with the CLI; see docs/mcp.md._"]
-        open(out_path, "w", encoding="utf-8").write("\n".join(lines) + "\n")
-        open(metrics_path, "w", encoding="utf-8").write(
-            f"added={len(added)}\nremoved={len(removed)}\nstale={stale}\n"
-        )
+        with open(out_path, "w", encoding="utf-8") as handle:
+            handle.write("\n".join(lines) + "\n")
+        with open(metrics_path, "w", encoding="utf-8") as handle:
+            handle.write(
+                f"added={len(added)}\nremoved={len(removed)}\n"
+                f"stale={stale}\nteam_stale={len(team_invalidated)}\n"
+            )
         PY
         cat "${RUNNER_TEMP}/lore-metrics.txt" >> "${GITHUB_OUTPUT}"
 

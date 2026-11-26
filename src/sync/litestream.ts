@@ -293,10 +293,17 @@ export async function listReplicaGenerations(
 }
 
 export class LitestreamSyncAdapter implements SyncAdapter {
+  /**
+   * Single-writer backup only: Litestream replicates whole SQLite files, so two
+   * writers on one replica lose each other's commits. Team sync uses the
+   * configured http/postgres/dir adapter instead.
+   */
+  readonly kind = 'litestream' as const;
+
   constructor(
     private db: DB,
     private root: string,
-    private opts: SyncOptions,
+    private opts: SyncOptions & { replicaUrl: string },
   ) {}
 
   async push(opts?: { author?: string }): Promise<SyncPushResult> {
@@ -404,6 +411,10 @@ export class LitestreamSyncAdapter implements SyncAdapter {
   }
 }
 
-export async function createSyncAdapter(db: DB, root: string, opts: SyncOptions): Promise<SyncAdapter> {
+export async function createSyncAdapter(
+  db: DB,
+  root: string,
+  opts: SyncOptions & { replicaUrl: string },
+): Promise<SyncAdapter> {
   return new LitestreamSyncAdapter(db, root, opts);
 }

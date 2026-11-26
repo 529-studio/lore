@@ -11,21 +11,25 @@ function connect(url: string): Client {
   return new Client({ connectionString: url, connectionTimeoutMillis: 10_000 });
 }
 
-export async function pgFetch(
-  url: string,
-  repoId: string,
-  importFn: (bundle: Bundle) => ImportResult,
-): Promise<ImportResult> {
+export async function pgReadBundle(url: string, repoId: string): Promise<Bundle> {
   const client = connect(url);
   await client.connect();
   try {
     await client.query(TABLE);
     const { rows } = await client.query('SELECT bundle FROM lore_bundles WHERE repo_id = $1', [repoId]);
     if (!rows[0]) throw new Error(`no bundle for repo ${repoId} in postgres; push one first`);
-    return importFn(rows[0].bundle as Bundle);
+    return rows[0].bundle as Bundle;
   } finally {
     await client.end();
   }
+}
+
+export async function pgFetch(
+  url: string,
+  repoId: string,
+  importFn: (bundle: Bundle) => ImportResult,
+): Promise<ImportResult> {
+  return importFn(await pgReadBundle(url, repoId));
 }
 
 /**

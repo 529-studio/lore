@@ -12,6 +12,7 @@ export interface LoreManifest {
   repo_id: string;
   team_mode?: boolean;
   remote?: RemoteConfig;
+  auto_sync?: boolean;
   extractors?: string[];
   /** Repo-relative ESM files that may register deterministic extractors. */
   plugins?: string[];
@@ -124,7 +125,14 @@ export function readManifest(root: string): LoreManifest | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) invalid('expected a mapping');
   const doc = raw as Record<string, unknown>;
   assertNoSecrets(doc, '');
-  const topKeys: Record<string, true> = { repo_id: true, team_mode: true, remote: true, extractors: true, plugins: true };
+  const topKeys: Record<string, true> = {
+    repo_id: true,
+    team_mode: true,
+    remote: true,
+    auto_sync: true,
+    extractors: true,
+    plugins: true,
+  };
   for (const key of Object.keys(doc)) {
     if (!Object.hasOwn(topKeys, key)) invalid(`unknown key ${key}`);
   }
@@ -138,6 +146,10 @@ export function readManifest(root: string): LoreManifest | null {
     manifest.team_mode = doc.team_mode;
   }
   if (doc.remote !== undefined) manifest.remote = parseRemote(doc.remote, root);
+  if (doc.auto_sync !== undefined) {
+    if (typeof doc.auto_sync !== 'boolean') invalid('auto_sync must be true or false');
+    manifest.auto_sync = doc.auto_sync;
+  }
   if (doc.extractors !== undefined) {
     if (!Array.isArray(doc.extractors) || !doc.extractors.every((e) => typeof e === 'string')) {
       invalid('extractors must be a list of names');
@@ -163,6 +175,7 @@ export function applyManifest(config: LoreConfig, manifest: LoreManifest): LoreC
   const next: LoreConfig = { ...config, repo_id: manifest.repo_id };
   if (manifest.remote) next.remote = manifest.remote;
   if (manifest.team_mode !== undefined) next.team_mode = manifest.team_mode;
+  if (manifest.auto_sync !== undefined) next.auto_sync = manifest.auto_sync;
   if (manifest.extractors) next.extractors = manifest.extractors;
   if (manifest.plugins) next.plugins = manifest.plugins;
   return next;

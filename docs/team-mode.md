@@ -52,14 +52,13 @@ delta sync, and server-side policy — see [hub](hub.md).
   reachable. Nothing blocks on the network.
 - **Air-gapped sharing uses bundles.** `lore bundle export` writes the missing commits, signed and
   encrypted; `lore bundle import` merges them. This replaces passing `AGENTS.md` around by hand.
-- **Streaming SQLite replication with Litestream.** For distributed multi-agent swarms and continuous backups,
-  `lore replicate` streams SQLite WAL frames in real time to S3, Cloudflare R2, Azure Blob, or GCS without
-  locking reads or writes. `lore replicate restore` restores a pristine local SQLite store from the replica.
-- **Bi-directional synchronization (`lore sync`, `memory_sync`).** Distributed multi-agent nodes
-  synchronize bi-directionally without database lock contention or file corruption: the sync adapter restores
-  the remote replica into an isolated scratch DB, reconciles incoming claims via the CRDT 3-way merge
-  ladder, fast-forwards the session branch, issues an atomic WAL checkpoint flush (`PRAGMA wal_checkpoint(TRUNCATE)`),
-  and writes `SYNC_INCOMING` and `SYNC_OUTGOING` audit logs.
+- **Streaming SQLite replication is backup only.** `lore replicate` streams SQLite WAL frames to S3,
+  Cloudflare R2, Azure Blob, or GCS for an explicit single-writer backup. It is not a team transport:
+  two writers on one replica lose each other's commits, so team sync never selects it implicitly.
+- **Bi-directional synchronization (`lore sync`, `memory_sync`).** `createSyncAdapter` dispatches on
+  the configured remote (`http` -> lore-hub, `postgres`, `dir`), reconciles incoming claims through
+  the 3-way merge ladder, fast-forwards the session branch, and writes `SYNC_INCOMING` /
+  `SYNC_OUTGOING` audit rows. MCP sessions also pull a non-blocking delta on `initialize`.
 
 ## Joining a clone
 
@@ -115,71 +114,49 @@ either fail with `not inside a lore repo` or create a second `repo_id`.
 - If Git cannot name the primary checkout (`git init --separate-git-dir`), Lore fails closed and asks
   for `LORE_STATE_DIR` instead of silently forking the store.
 
-## Bi-directional synchronization workflow
+## Synchronization lifecycle
 
-When multiple autonomous agents or distributed nodes run in parallel, continuous streaming replication via Litestream requires safe bi-directional coordination. Modifying or restoring active SQLite database files while other agents hold locks leads to `SQLITE_BUSY` errors or database corruption.
+The transport comes from the configured remote, never from the Litestream binary:
 
-The `LitestreamSyncAdapter` (invoked via `lore sync` in the CLI or `memory_sync` in MCP) coordinates multi-node synchronization in two phases: pull and push.
+| Remote | Adapter | Pull | Push |
+|---|---|---|---|
+| `http` (lore-hub) | `HttpSyncAdapter` | delta since `hub_seq`, CAS-aware | pull, delta vs hub main, policy |
+| `postgres` | `PgSyncAdapter` | read the `lore_bundles` row and import | advisory-lock read-modify-write |
+| `dir` | `DirSyncAdapter` | read `<repo_id>.lorebundle` | import, then write the bundle |
+| `--replica <url>` | `LitestreamSyncAdapter` | restore a scratch DB and import main | WAL checkpoint only |
 
-```
-Remote Replica (S3/R2/GCS)
-       │  1. Litestream restore into isolated scratch DB
-       ▼
-Scratch DB (/tmp/lore-sync-pull-*)
-       │  2. Build bundle from remote main tip
-       ▼
-Local Lore DB (.lore/lore.db)
-       │  3. CRDT 3-way merge ladder (T0 > T1 > T2 > T4, verified > stale)
-       │  4. Fast-forward session branch & log SYNC_INCOMING
-       │  5. Unlink scratch DB
-       │  6. WAL checkpoint flush: PRAGMA wal_checkpoint(TRUNCATE)
-       │  7. Log SYNC_OUTGOING
-       ▼
-Litestream Replication Stream ──► Remote Replica
-```
+`lore sync` and MCP `memory_sync` use this adapter. Single-writer backup stays available through
+`lore replicate ...` and `lore sync --replica <url>`; both print a warning because whole-file
+replication cannot merge concurrent writers.
 
-### 1. Isolated scratch database restore (Pull)
-1. **Isolated scratch space**: Creates a unique temporary scratch directory (`/tmp/lore-sync-pull-*`).
-2. **Restore**: Invokes Litestream restore to populate `.lore/lore.db` inside the scratch directory directly from the remote replica without touching the live local database file or acquiring local locks.
-3. **Bundle extraction**: Opens the scratch database in isolation, retrieves the remote `main` branch tip, and generates an in-memory commit bundle.
-4. **Cleanup**: Closes the scratch database and recursively removes the temporary directory.
+### Session start (MCP initialize)
 
-### 2. CRDT 3-way merge ladder
-1. Passes the remote commit bundle to `importBundle` and `mergeTip`.
-2. Evaluates claims according to Lore's deterministic merge ladder:
-   - Authority precedence: `T0 test` > `T1 file/tool` > `T2 human` > `T4 inference`.
-   - Staleness: verified evidence prevails over stale claims.
-   - Deletions: retract/delete operations take precedence over edits.
-   - Cardinality: single-cardinality conflicts without an authority winner are marked contested rather than corrupting memory.
-3. Automatically fast-forwards the agent's current working session branch (`agent/<session>`) so newly merged canonical facts are immediately available for retrieval.
+When a remote is configured and `auto_sync` is on (the default; `auto_sync: false` in `.lore.yml`
+or `LORE_AUTO_SYNC=0` disables it), the MCP server answers `initialize` first and pulls the delta
+in the background. A failed pull only logs `auto_sync skipped, working offline`; the handshake and
+every tool keep working. `memory_status` reports `remote_behind` (commits and rows), the last
+observed remote main and the last error.
 
-### 3. WAL checkpoint flush (Push)
-1. Executes `PRAGMA wal_checkpoint(TRUNCATE)` on the local SQLite connection.
-2. Flushes all WAL pages into the database file, ensuring Litestream's replication daemon immediately detects and streams newly committed transactions to the remote replica.
+### Merge and audit
 
-### 4. Audit logging
-Every synchronization event is recorded in `agent_action_log` for complete multi-agent traceability:
-- **`SYNC_INCOMING`**: Records the sync author (`sync:pull` or agent ID), remote tip commit hash, timestamp, and a JSON payload with entity, claim, and commit counts along with merge strategy (`fast-forward`, `merge`, or `up-to-date`).
-- **`SYNC_OUTGOING`**: Records the sync author (`sync:push` or agent ID), local tip commit hash, timestamp, and confirms the WAL checkpoint.
+1. The adapter imports the remote bundle through `importBundle`, which applies the 3-way ladder:
+   authority (`T0` > `T1` > `T2` > `T4`), verified over stale, deletion over edit, and contested
+   instead of corrupting memory for cardinality-one conflicts.
+2. `fastForwardSession` moves `agent/<session>` forward when it is strictly behind main.
+3. `SYNC_INCOMING` records the remote tip, counts and merge strategy; `SYNC_OUTGOING` records the
+   pushed tip. `LitestreamSyncAdapter` alone flushes WAL (`PRAGMA wal_checkpoint(TRUNCATE)`).
 
 ### CLI and MCP usage
 
-CLI invocation:
 ```bash
-lore sync                                 # sync with configured replica URL
-lore sync --replica s3://my-bucket/lore   # explicit replica URL
-lore sync --author agent:gemini           # attribute sync action
+lore remote --hub https://lore.example --token-env LORE_HUB_TOKEN
+export LORE_HUB_TOKEN=<token>
+lore sync                                 # dispatch on the configured remote
+lore sync --replica file:///backup/lore.db  # explicit single-writer backup, warns
 ```
 
-MCP invocation (autonomous agent tool):
 ```json
-{
-  "name": "memory_sync",
-  "arguments": {
-    "replica": "s3://my-bucket/lore",
-    "author": "agent:claude"
-  }
-}
+{ "name": "memory_sync", "arguments": { "author": "agent:claude" } }
 ```
 
 ### Two kinds of freshness

@@ -30,8 +30,8 @@ import { branchFor, currentSession, recordReads } from '../session.js';
 import { installCanon } from '../canon/index.js';
 import { loadOntology } from '../ontology.js';
 import { oneLine } from '../util/text.js';
-import { createSyncAdapter } from '../sync/adapter.js';
-import { ensureConfig, readConfig } from '../config.js';
+import { createSyncAdapter, probeRemote } from '../sync/adapter.js';
+import { ensureConfig, readConfig, remoteLabel } from '../config.js';
 import { buildBundle } from '../sync.js';
 import { httpPropose, type HttpRemote } from '../remotes/http.js';
 
@@ -101,6 +101,52 @@ function context(): Context {
   const branch = branchFor(session);
   const branchActive = activeAt(db, head(db, branch) ?? head(db, 'main'));
   return { db, root, session, branch, branchActive };
+}
+
+// --- session-start team sync -------------------------------------------------------
+// The handshake must answer first: a slow or unreachable remote never blocks
+// initialize. A delta pull runs in the background and only logs a warning.
+const autoSyncRoots = new Set<string>();
+
+function autoSyncEnabled(config: { auto_sync?: boolean; remote?: unknown }): boolean {
+  const env = (process.env.LORE_AUTO_SYNC ?? '').trim().toLowerCase();
+  if (env === '0' || env === 'false' || env === 'off') return false;
+  if (env === '1' || env === 'true' || env === 'on') return true;
+  if (config.auto_sync === false) return false;
+  return config.auto_sync === true || Boolean(config.remote);
+}
+
+async function autoSyncOnInitialize(): Promise<void> {
+  let root: string;
+  try {
+    root = requireRoot();
+  } catch {
+    return; // not inside a lore repo: nothing to sync, handshake already answered
+  }
+  if (autoSyncRoots.has(root)) return;
+  autoSyncRoots.add(root);
+  try {
+    const config = ensureConfig(root);
+    if (!config.remote || !autoSyncEnabled(config)) return;
+    const db = openDb(root);
+    try {
+      const adapter = await createSyncAdapter(db, root, { remote: config.remote });
+      const pulled = await adapter.pull({ author: 'agent:mcp:auto' });
+      log(
+        `auto_sync: ${adapter.kind} pulled ${pulled.commits} commit(s), ${pulled.claims} claim(s) (merge: ${pulled.merge})`,
+      );
+    } finally {
+      db.close();
+    }
+  } catch (error) {
+    const cause = error instanceof Error && 'cause' in error ? error.cause : undefined;
+    const message = error instanceof Error ? error.message : String(error);
+    log(
+      `auto_sync skipped, working offline: ${message}${cause instanceof Error && cause.message ? ` (${cause.message})` : ''}`,
+    );
+  } finally {
+    autoSyncRoots.delete(root);
+  }
 }
 
 // --- resource definitions and subscription protocol -------------------------------
@@ -466,7 +512,7 @@ function toolBlame(args: BlameArgs): ToolResult {
   }
 }
 
-function toolStatus(_args: Record<string, never>): ToolResult {
+async function toolStatus(_args: Record<string, never>): Promise<ToolResult> {
   const ctx = context();
   try {
     // Drafts are never committed, so they cannot be counted from the branch fold.
@@ -481,6 +527,17 @@ function toolStatus(_args: Record<string, never>): ToolResult {
       if (freshness === 'ahead') ahead++;
     }
     const permissive = isPermissiveTrust(ctx.root);
+    // Read-only probe with a short timeout; an offline session still answers.
+    const remote = await probeRemote(ctx.db, ctx.root);
+    const remoteState = !remote.configured
+      ? 'not-configured'
+      : remote.reachable === null
+        ? 'unknown'
+        : remote.reachable
+          ? remote.behind
+            ? 'behind'
+            : 'synced'
+          : 'unreachable';
     const summary = {
       branch: ctx.branch,
       session: ctx.session,
@@ -489,12 +546,32 @@ function toolStatus(_args: Record<string, never>): ToolResult {
       stale,
       ahead,
       trust_mode: permissive ? 'permissive' : 'strict',
+      remote_behind: remote.behind,
+      remote_rows_behind: remote.behind_rows,
+      remote_state: remoteState,
+      remote: remote.configured
+        ? {
+            reachable: remote.reachable,
+            behind: remote.behind,
+            rows_behind: remote.behind_rows,
+            main: remote.main,
+            checked_at: remote.checked_at,
+            error: remote.error,
+          }
+        : null,
     };
+    const remoteLine = remote.configured
+      ? `\nremote ${remoteState}` +
+        (remote.behind !== null ? ` (${remote.behind} commit(s), ${remote.behind_rows ?? 0} row(s) behind)` : '') +
+        (remote.error ? `: ${oneLine(remote.error)}` : '')
+      : '';
     return {
       content: [
         {
           type: 'text',
-          text: `branch ${summary.branch} — ${summary.active_set} active, ${drafts} draft, ${stale} stale, ${ahead} ahead of checkout (trust mode: ${summary.trust_mode})`,
+          text:
+            `branch ${summary.branch} — ${summary.active_set} active, ${drafts} draft, ${stale} stale, ${ahead} ahead of checkout (trust mode: ${summary.trust_mode})` +
+            remoteLine,
         },
       ],
       structuredContent: summary,
@@ -640,21 +717,21 @@ async function toolSync(args: SyncArgs): Promise<ToolResult> {
   const ctx = context();
   try {
     const config = ensureConfig(ctx.root);
-    const replicaUrl =
-      args.replica ??
-      args.replica_url ??
-      config.litestream?.replica_url ??
-      (config.remote?.type === 'dir' ? config.remote.path : undefined);
+    // An explicit replica is the single-writer Litestream backup path. Team
+    // remotes dispatch through the adapter (http, postgres, dir).
+    const replicaUrl = args.replica ?? args.replica_url;
+    const remote = replicaUrl ? undefined : config.remote;
 
-    if (!replicaUrl) {
+    if (!replicaUrl && !remote) {
       throw new Error(
-        'replica URL is required (specify replica_url or configure via lore replicate config --replica <url>)',
+        'no remote configured; run `lore remote --hub <url>` / `--postgres` / `<dir>`, or pass replica_url for a single-writer Litestream backup',
       );
     }
-
+    const target = replicaUrl ?? remoteLabel(remote!);
     const adapter = await createSyncAdapter(ctx.db, ctx.root, {
       replicaUrl,
       configPath: config.litestream?.config_path,
+      remote,
     });
     const author = args.author ?? 'agent:mcp';
     const pullRes = await adapter.pull({ author });
@@ -665,11 +742,12 @@ async function toolSync(args: SyncArgs): Promise<ToolResult> {
       content: [
         {
           type: 'text',
-          text: `synced with ${replicaUrl}: pulled ${pullRes.commits} commit(s), ${pullRes.claims} claim(s) (merge: ${pullRes.merge}); pushed tip ${pushRes.tip ? pushRes.tip.slice(0, 7) : 'empty'} (checkpointed: ${pushRes.walCheckpointed})`,
+          text: `synced ${adapter.kind} ${target}: pulled ${pullRes.commits} commit(s), ${pullRes.claims} claim(s) (merge: ${pullRes.merge}); pushed tip ${pushRes.tip ? pushRes.tip.slice(0, 7) : 'empty'} (checkpointed: ${pushRes.walCheckpointed})`,
         },
       ],
       structuredContent: {
-        replica_url: replicaUrl,
+        kind: adapter.kind,
+        replica_url: target,
         pull: pullRes,
         push: pushRes,
       },
@@ -995,6 +1073,20 @@ const OUTPUT_SCHEMAS: Record<string, Record<string, unknown>> = {
       stale: { type: 'integer', minimum: 0 },
       ahead: { type: 'integer', minimum: 0 },
       trust_mode: { type: 'string' },
+      remote_behind: { type: ['integer', 'null'], minimum: 0 },
+      remote_rows_behind: { type: ['integer', 'null'], minimum: 0 },
+      remote_state: { type: 'string', enum: ['not-configured', 'unknown', 'synced', 'behind', 'unreachable'] },
+      remote: {
+        type: ['object', 'null'],
+        properties: {
+          reachable: { type: ['boolean', 'null'] },
+          behind: { type: ['integer', 'null'] },
+          rows_behind: { type: ['integer', 'null'] },
+          main: { type: ['string', 'null'] },
+          checked_at: { type: ['string', 'null'] },
+          error: { type: ['string', 'null'] },
+        },
+      },
     },
   },
   memory_diff: {
@@ -1019,8 +1111,9 @@ const OUTPUT_SCHEMAS: Record<string, Record<string, unknown>> = {
   },
   memory_sync: {
     type: 'object',
-    required: ['replica_url', 'pull', 'push'],
+    required: ['kind', 'replica_url', 'pull', 'push'],
     properties: {
+      kind: { type: 'string', enum: ['http', 'postgres', 'dir', 'litestream'] },
       replica_url: { type: 'string' },
       pull: {
         type: 'object',
@@ -1109,6 +1202,8 @@ async function handleRequest(id: JsonId, method: string, params: Record<string, 
         serverInfo: { name: 'lore', version: SERVER_VERSION },
         instructions: 'Versioned, verifiable memory. Read docs/mcp.md; each session writes to agent/<session>.',
       });
+      // Answer the handshake first, then pull the team delta without blocking.
+      void autoSyncOnInitialize();
       return;
     }
     case 'resources/list':

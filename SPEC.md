@@ -458,25 +458,26 @@ No LLM judge. Outcome metrics on real repositories:
 | UI lacks multi-agent sync | sync indicators and `/api/sync/status` (`src/ui/server.ts`) | agents need live convergence signals |
 | lexical retrieval | semantic hybrid (`src/search/vector.ts`) | synonyms missed |
 | equal-tier merge aborts | semantic 3-way resolver (`src/merge.ts`) | confidence and vectors break ties |
-| MCP supports tools only | resource subscription (`resources/list`, `read`, `subscribe`, notifications) | agents need push updates on memory changes |
+| MCP supports tools only | resource subscription (`resources/list`, `read`, `subscribe`, notifications) | agents need push updates |
 | secret detection throws | scrubbing + ZK attestations (`src/security/scrub.ts`) | credentials must be redacted |
 | main-thread UI graph | worker force layout + quadtree (`/graph-worker.js`) | 1k+ nodes freeze UI |
 | packaging needs host node | portable bundles (`scripts/package-binary.mjs`) | air-gapped hosts |
 | omitted predicates default to `one` | `many` fallback for extractor predicates (`src/ontology.ts`) | avoids day-0 tier-1 conflicts |
 | MCP/lifecycle trusted callers | all writes enforce roles + protected (`src/policy/auth.ts`) | no policy bypass |
-| `.lore` beside worktree | shared primary store, per-worktree sessions (`src/scope.ts`) | agents must not fork memory |
+| `.lore` beside worktree | shared primary store, per-worktree sessions | agents must not fork memory |
 | config only in gitignored `.lore/config.json` | `.lore.yml` + `lore join` adopt `repo_id`/remote; `init` keeps it | clones must not fork team memory |
 | team mode needs the env secret | `team_mode: true` activates policy and fails closed without credentials | no silent downgrade |
-| direct Postgres sync | `lore-hub`: http delta + CAS + per-user tokens (`src/hub/`) | no DB creds on dev machines |
+| direct Postgres sync | `lore-hub`: http delta + CAS + per-user tokens | no DB creds on dev machines |
 | repo memory is local | `publish:`/`links:` over lore-hub; `ext:<slug>/` ids and `[EXT]` freshness | scoped foreign memory |
-| sync dropped `agent/*` refs and ignored `resolution` rows | `push --propose` + hub refs; `proposals`; `review --remote`; `mergeTip` replays `resolution` and records `merge_conflict` | review needs no `main` write |
+| sync dropped `agent/*` refs and `resolution` | `push --propose` + hub refs; `proposals`; `review --remote`; `mergeTip` replays `resolution` | review needs no `main` write |
 | hosts hardcoded in `setup` | personal/repo plugin scopes | extend without core edits |
-| status trusts persisted counts; GC uses row age | status separates trust, drift, branch/store; GC ages drafts from last observation | fresh-draft warnings (#181) |
-| similarity = Jaccard token overlap | coverage and exact-phrase weights rank before authority | one token must not bury an exact rule |
-| ingest reads root manifests only | package.json, Makefile, docker-compose*, Python and go manifests at any depth | monorepos are common |
-| retrieval ranks by scope and similarity | predicate classes and a query-text gate; static AST/TOC facts demoted, never deleted | guardrails survive structural noise (#193) |
-| markdown rules stop at any heading | nested rules under numbered headings; dated logs yield known bugs/guardrails; 1,200-char cap | nested rules and non-`LNN` logs dropped (#193) |
-| no readiness command; store has no schema version | `lore doctor` checks store shape (tables/columns, WAL, integrity), branch parity, MCP configs, ontology, health | one actionable report; shape drift is detected |
+| status trusts persisted counts; GC uses row age | status separates trust, drift, branch/store; GC ages drafts from last observation | fresh-draft warnings |
+| similarity = Jaccard token overlap | coverage and exact-phrase weights rank before authority | no single token buries an exact rule |
+| ingest reads root manifests | package.json, Makefile, docker-compose*, Python requirements/pyproject/imports, go.mod | monorepos are the common shape |
+| retrieval ranks by scope and similarity | predicate classes + query-text gate; static facts demoted, never deleted | guardrails survive structural noise (#193) |
+| markdown rules stop at any heading | nested `###` rules kept; dated logs yield `has_known_bug`/`has_guardrail`; 1,200-char prose cap | nested rules and non-`LNN` logs were dropped |
+| no readiness command | `lore doctor` checks store shape, WAL, integrity, branch parity, MCP configs, ontology | one actionable report |
+| Litestream for multi-writer team sync | adapter by remote (http/postgres/dir); MCP `initialize` pulls a delta; Litestream is backup only | loses concurrent commits (#196) |
 
 ## Glossary
 

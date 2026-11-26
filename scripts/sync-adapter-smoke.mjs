@@ -1,8 +1,11 @@
 #!/usr/bin/env node
-// Smoke test for bi-directional remote sync adapter (Litestream / storage target)
+// Smoke test for remote sync dispatch: Litestream single-writer backup plus the
+// http adapter selected from a configured lore-hub remote.
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -91,6 +94,28 @@ exit 0
       );
     }
     return res;
+  }
+
+  // The mock hub lives in this process: spawnSync would block its event loop.
+  function loreAsync(repoPath, args, extraEnv = {}) {
+    return new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [CLI, ...args], {
+        cwd: repoPath,
+        env: { ...process.env, LORE_TRUST_MODE: 'permissive', NO_COLOR: '1', FORCE_COLOR: '0', ...extraEnv },
+      });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk;
+      });
+      child.stderr.on('data', (chunk) => {
+        stderr += chunk;
+      });
+      child.on('exit', (code) => {
+        if (code === 0) resolve({ stdout, stderr });
+        else reject(new Error(`lore ${args.join(' ')} failed (${code}):\n${stdout}\n${stderr}`));
+      });
+    });
   }
 
   // Set up repo workspaces with sample project files
@@ -241,6 +266,95 @@ exit 0
   dbBInspect.close();
 
   console.log('[OK] Scenario 3: Action log inspection passed');
+
+  // Scenario 4: a configured http remote selects HttpSyncAdapter, not Litestream.
+  const httpRepoId = randomUUID();
+  const sharedDir = path.join(work, 'hub-shared');
+  mkdirSync(sharedDir, { recursive: true });
+
+  const hubRepo = path.join(work, 'hub-repo');
+  mkdirSync(path.join(hubRepo, 'src'), { recursive: true });
+  writeFileSync(path.join(hubRepo, '.lore.yml'), `repo_id: ${httpRepoId}\n`);
+  writeFileSync(path.join(hubRepo, 'package.json'), JSON.stringify({ name: 'hub-repo' }, null, 2), 'utf8');
+  writeFileSync(path.join(hubRepo, 'src', 'auth.ts'), 'export const team = true;\n', 'utf8');
+  lore(hubRepo, ['init']);
+  lore(hubRepo, ['ingest']);
+  lore(hubRepo, [
+    'write',
+    '--subject',
+    'sym:src/auth.ts#team',
+    '--predicate',
+    'enforces_invariant',
+    '--object',
+    'team auth is hub-synced',
+    '--kind',
+    'file',
+    '--ref',
+    'src/auth.ts',
+  ]);
+  lore(hubRepo, ['promote']);
+  lore(hubRepo, ['push', '--path', sharedDir]);
+  const hubBundle = JSON.parse(readFileSync(path.join(sharedDir, `${httpRepoId}.lorebundle`), 'utf8'));
+  const hubMain = hubBundle.refs.find((ref) => ref.name === 'main')?.commit_id ?? null;
+
+  let pulls = 0;
+  let pushes = 0;
+  const hub = createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+      res.setHeader('content-type', 'application/json');
+      if (req.url.endsWith('/pull')) {
+        pulls += 1;
+        res.end(JSON.stringify({ bundle: hubBundle, main: hubMain, seq: pulls, auth_seq: 0 }));
+        return;
+      }
+      if (req.url.endsWith('/push')) {
+        pushes += 1;
+        const pushedMain = body.bundle?.refs?.find((ref) => ref.name === 'main')?.commit_id ?? hubMain;
+        res.end(JSON.stringify({ main: pushedMain, seq: pulls, auth_seq: 0 }));
+        return;
+      }
+      res.statusCode = 404;
+      res.end(JSON.stringify({ error: 'not found' }));
+    });
+  });
+  await new Promise((resolve) => hub.listen(0, '127.0.0.1', resolve));
+  const hubUrl = `http://127.0.0.1:${hub.address().port}`;
+
+  try {
+    const clientRepo = path.join(work, 'hub-client');
+    mkdirSync(clientRepo, { recursive: true });
+    writeFileSync(path.join(clientRepo, '.lore.yml'), `repo_id: ${httpRepoId}\n`);
+    writeFileSync(path.join(clientRepo, 'package.json'), JSON.stringify({ name: 'hub-client' }, null, 2), 'utf8');
+    lore(clientRepo, ['init'], { LORE_LITESTREAM_PATH: '' });
+    lore(clientRepo, ['remote', '--hub', hubUrl, '--token-env', 'LORE_HUB_TOKEN'], {
+      LORE_HUB_ALLOW_INSECURE: '1',
+      LORE_HUB_TOKEN: 'smoke-token',
+      LORE_LITESTREAM_PATH: '',
+    });
+
+    const clientEnv = {
+      LORE_HUB_ALLOW_INSECURE: '1',
+      LORE_HUB_TOKEN: 'smoke-token',
+      LORE_LITESTREAM_PATH: '',
+    };
+    const synced = await loreAsync(clientRepo, ['sync'], clientEnv);
+    assert.match(synced.stdout, /sync:pull via http/);
+    assert.match(synced.stdout, /\[OK\] pulled \d+ commits, [1-9]\d* claims/);
+    assert.doesNotMatch(synced.stdout, /litestream/i);
+    // Blame reads the store regardless of evidence freshness in this checkout.
+    const found = await loreAsync(clientRepo, ['blame', 'sym:src/auth.ts#team'], clientEnv);
+    assert.match(found.stdout, /sym:src\/auth\.ts#team/);
+    assert.match(found.stdout, /team auth is hub-synced/);
+    assert.ok(pulls >= 2, `expected pull before and during push, saw ${pulls}`);
+    assert.equal(pushes, 1);
+  } finally {
+    await new Promise((resolve) => hub.close(resolve));
+  }
+
+  console.log('[OK] Scenario 4: http remote dispatches to HttpSyncAdapter');
   console.log('[OK] All end-to-end sync adapter smoke tests passed cleanly');
 } finally {
   rmSync(work, { recursive: true, force: true });

@@ -48,6 +48,12 @@ export interface LoreConfig {
   /** Linked worktrees share the primary store by default; `isolated` keeps their own `.lore`. */
   worktree_mode?: 'shared' | 'isolated';
   team_mode?: boolean;
+  /**
+   * Pull the team delta when an MCP session initializes. Default: on when a
+   * remote is configured. A flaky network downgrades to a warning, never a
+   * failed handshake.
+   */
+  auto_sync?: boolean;
   extractors?: string[];
   plugins?: string[];
   [key: string]: unknown;

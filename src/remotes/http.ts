@@ -35,14 +35,15 @@ function allowedUrl(raw: string): string {
 
 async function call<T>(
   remote: HttpRemote,
-  path: string,
+  requestPath: string,
   body: unknown,
+  timeoutMs = 60_000,
 ): Promise<{ status: number; json: T }> {
-  const response = await fetch(`${allowedUrl(remote.url)}${path}`, {
+  const response = await fetch(`${allowedUrl(remote.url)}${requestPath}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${hubToken(remote)}` },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(60_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const text = await response.text();
   let json: unknown = {};
@@ -65,12 +66,13 @@ async function call<T>(
 export async function httpPull(
   remote: HttpRemote,
   repoId: string,
-  opts: { sinceSeq: number; sinceAuthSeq: number; knownMain: string | null },
+  opts: { sinceSeq: number; sinceAuthSeq: number; knownMain: string | null; timeoutMs?: number },
 ): Promise<{ bundle: Bundle; main: string | null; seq: number; auth_seq: number }> {
   const { json } = await call<{ bundle: Bundle; main: string | null; seq: number; auth_seq: number }>(
     remote,
     `/v1/repos/${encodeURIComponent(repoId)}/pull`,
     { since_seq: opts.sinceSeq, since_auth_seq: opts.sinceAuthSeq, known_main: opts.knownMain },
+    opts.timeoutMs,
   );
   return json;
 }

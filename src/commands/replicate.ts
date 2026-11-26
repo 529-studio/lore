@@ -28,6 +28,13 @@ export async function replicateCommand(
 ): Promise<void> {
   const root = requireRoot();
   const subAction = action ?? 'status';
+  if (subAction !== 'check') {
+    console.log(
+      pc.yellow(
+        '[WARN] Litestream replicates one SQLite writer: use it for an explicit single-writer backup, never as multi-writer team sync. Team sync: lore remote + fetch/push or lore sync.',
+      ),
+    );
+  }
 
   if (subAction === 'check') {
     const res = checkLitestreamInstalled();
