@@ -1,26 +1,47 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import type { DB } from './db.js';
+import { stateDirFor } from './scope.js';
+import { gitDir, isLinkedGitWorktree } from './util/git.js';
 
-const SESSION_FILE = '.lore/session';
+const SESSION_FILE = 'session';
+
+/**
+ * A session maps to a branch: agent/<session>. The session file follows the
+ * checkout, not the shared store: each linked worktree gets its own deterministic
+ * id unless `LORE_SESSION` is set, so concurrent worktrees never share a branch.
+ */
+function sessionFileFor(root: string): string {
+  if (isLinkedGitWorktree(root)) {
+    const dir = gitDir(root);
+    if (dir) return path.join(dir, 'lore-session');
+  }
+  return path.join(stateDirFor(root), SESSION_FILE);
+}
+
+function worktreeSession(root: string): string {
+  const digest = createHash('sha1').update(path.resolve(root)).digest('hex').slice(0, 10);
+  return `wt_${digest}`;
+}
 
 /** A session maps to a branch: agent/<session>. Stable across CLI invocations. */
 export function currentSession(root: string, override?: string): string {
   if (override) return override;
   if (process.env.LORE_SESSION) return process.env.LORE_SESSION;
-  const file = path.join(root, SESSION_FILE);
+  const file = sessionFileFor(root);
   if (existsSync(file)) {
     const stored = readFileSync(file, 'utf8').trim();
     if (stored) return stored;
   }
-  const id = `ses_${Date.now().toString(36)}`;
-  writeFileSync(file, id);
+  const id = isLinkedGitWorktree(root) ? worktreeSession(root) : `ses_${Date.now().toString(36)}`;
+  writeFileSync(file, `${id}\n`);
   return id;
 }
 
-/** Rotate the active session to a fresh ID in .lore/session. */
+/** Rotate the active session to a fresh ID in the checkout's session file. */
 export function rotateSession(root: string): string {
-  const file = path.join(root, SESSION_FILE);
+  const file = sessionFileFor(root);
   const id = `ses_${Date.now().toString(36)}`;
   writeFileSync(file, `${id}\n`);
   return id;

@@ -5,7 +5,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { parse } from 'yaml';
-import { openDb, type DB } from '../db.js';
+import { openDb, stateDirFor, type DB } from '../db.js';
 import { initCommand } from '../commands/init.js';
 import { claimFreshness } from '../merge.js';
 import { activeAt, head, inBranch, makeCommit, supersedeClaim, upsertClaim, type ClaimRow } from '../model.js';
@@ -2711,7 +2711,7 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
               return;
             }
             const targetPath = path.resolve(chosen);
-            if (!existsSync(path.join(targetPath, '.lore'))) {
+            if (!existsSync(stateDirFor(targetPath))) {
               initCommand({ root: targetPath });
             }
             db.close();
@@ -2736,7 +2736,7 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
               json(res, { error: `Directory does not exist: ${targetPath}` }, 400);
               return;
             }
-            if (!existsSync(path.join(targetPath, '.lore'))) {
+            if (!existsSync(stateDirFor(targetPath))) {
               initCommand({ root: targetPath });
             }
             db.close();

@@ -124,12 +124,14 @@ CREATE TABLE IF NOT EXISTS claim_conflict (
 CREATE INDEX IF NOT EXISTS claim_conflict_open ON claim_conflict(resolved, subject_id, predicate);
 
 CREATE TABLE IF NOT EXISTS file_hash (
-  path       TEXT PRIMARY KEY,
-  size       INTEGER NOT NULL,
-  mtime_ns   TEXT NOT NULL,
-  ctime_ns   TEXT NOT NULL DEFAULT '',
-  hash       TEXT NOT NULL,
-  checked_at TEXT NOT NULL
+  workspace_id TEXT NOT NULL,
+  path         TEXT NOT NULL,
+  size         INTEGER NOT NULL,
+  mtime_ns     TEXT NOT NULL,
+  ctime_ns     TEXT NOT NULL DEFAULT '',
+  hash         TEXT NOT NULL,
+  checked_at   TEXT NOT NULL,
+  PRIMARY KEY (workspace_id, path)
 );
 
 CREATE TABLE IF NOT EXISTS redaction (

@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { SCHEMA } from './schema.js';
 import { readConfig } from './config.js';
+import { findStateRoot, stateDirFor } from './scope.js';
+export { findStateRoot, findWorkspaceRoot, resolveScope, stateDirFor } from './scope.js';
 
 export type DB = Database.Database;
 
@@ -13,19 +15,9 @@ export function stateRootFor(db: DB): string | null {
   return stateRoots.get(db) ?? null;
 }
 
-/** Walk up until we find a .lore directory. */
-export function findStateRoot(start = process.cwd()): string | null {
-  let dir = path.resolve(start);
-  for (;;) {
-    if (existsSync(path.join(dir, '.lore'))) return dir;
-    const parent = path.dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
-  }
-}
-
+/** Path to the store for a workspace root; the database lives in the shared state dir. */
 export function dbPathFor(root: string): string {
-  return path.join(root, '.lore', 'lore.db');
+  return path.join(stateDirFor(root), 'lore.db');
 }
 
 /** Idempotent schema upgrades for stores created by older versions. */
@@ -38,6 +30,27 @@ function migrate(db: DB): void {
   const hashCols = db.prepare('PRAGMA table_info(file_hash)').all() as Array<{ name: string }>;
   if (!hashCols.some((c) => c.name === 'ctime_ns')) {
     db.exec("ALTER TABLE file_hash ADD COLUMN ctime_ns TEXT NOT NULL DEFAULT ''");
+  }
+  if (!hashCols.some((c) => c.name === 'workspace_id')) {
+    // File paths are only unique inside one checkout: two worktrees on
+    // different branches may hold different content at the same relative path.
+    // Legacy rows are kept under an empty workspace id and simply miss once.
+    db.exec(`
+      ALTER TABLE file_hash RENAME TO file_hash_legacy;
+      CREATE TABLE file_hash (
+        workspace_id TEXT NOT NULL,
+        path         TEXT NOT NULL,
+        size         INTEGER NOT NULL,
+        mtime_ns     TEXT NOT NULL,
+        ctime_ns     TEXT NOT NULL DEFAULT '',
+        hash         TEXT NOT NULL,
+        checked_at   TEXT NOT NULL,
+        PRIMARY KEY (workspace_id, path)
+      );
+      INSERT INTO file_hash(workspace_id, path, size, mtime_ns, ctime_ns, hash, checked_at)
+        SELECT '', path, size, mtime_ns, ctime_ns, hash, checked_at FROM file_hash_legacy;
+      DROP TABLE file_hash_legacy;
+    `);
   }
 
   // Backfill reads evidence.commit_id, so the evidence column must exist first.
@@ -239,7 +252,7 @@ export function openDb(root: string): DB {
 }
 
 export function createDb(root: string): DB {
-  mkdirSync(path.join(root, '.lore'), { recursive: true });
+  mkdirSync(stateDirFor(root), { recursive: true });
   const db = new Database(dbPathFor(root));
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
