@@ -6,7 +6,7 @@ import { activeAt, head, makeCommit, upsertClaim } from '../model.js';
 import { hashCache } from '../hash-cache.js';
 import { SecretDetected } from '../secrets.js';
 import { gitHead } from '../util/git.js';
-import { gateTier } from '../policy.js';
+import { gateTier, requireWriteSubjects } from '../policy.js';
 import { loadOntology } from '../ontology.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
 
@@ -32,6 +32,13 @@ export function ingestCommand(opts: { root?: string; author?: string; session?: 
     db.close();
     return;
   }
+
+  // Extraction is a bulk write: a contributor must not ingest a protected
+  // subject. Check the whole candidate set before the first row is written.
+  requireWriteSubjects(
+    root,
+    candidates.map((c) => c.subject),
+  );
 
   const apply = db.transaction(() => {
     const present = activeAt(db, head(db, ref) ?? head(db, 'main'));

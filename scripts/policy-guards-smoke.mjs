@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Regression for #189b: every write/lifecycle entry point must enforce the
 // same policy as `lore write`. A contributor token must fail closed on
-// protected subjects, auto-resolve, fast-forward wrapup, tombstone purge,
-// token issuance, and MCP memory_write / memory_approve.
+// protected subjects (write, supersede, rename, ingest, approve, UI, MCP),
+// auto-resolve, wrapup, tombstone purge, and token issuance.
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -28,8 +28,11 @@ function check(cond, message) {
 }
 
 function run(args, env = {}) {
+  return runAt(work, args, env);
+}
+function runAt(cwd, args, env = {}) {
   return spawnSync(process.execPath, [CLI, ...args], {
-    cwd: work,
+    cwd,
     encoding: 'utf8',
     env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0', ...env },
   });
@@ -42,7 +45,10 @@ function expectOk(args, env = {}) {
   return result.stdout;
 }
 function expectDenied(args, env, needle, label) {
-  const result = run(args, env);
+  return expectDeniedAt(work, args, env, needle, label);
+}
+function expectDeniedAt(cwd, args, env, needle, label) {
+  const result = runAt(cwd, args, env);
   if (result.status === 0) {
     fail(`${label}: command unexpectedly succeeded\n${result.stdout}`);
     return result;
@@ -137,6 +143,7 @@ try {
 approve:
   t0: ["*"]
   t1: ["*"]
+  t2: [maintainers]
   t4: ["*"]
 resolve: [maintainers]
 promote: [maintainers]
@@ -145,6 +152,8 @@ redact: [maintainers]
 admin: [maintainers]
 protected:
   "doc:locked.md": [maintainers]
+  "doc:tier.md": [contributors, maintainers]
+  "doc:AGENTS.md*": [maintainers]
 `,
   );
 
@@ -176,7 +185,31 @@ protected:
     'supersede protected',
   );
 
-  // 2. auto-semantic resolve must be authorized before recording anything.
+  // 2. Renaming a protected entity rewrites its claim subjects.
+  expectDenied(['rename', 'doc:locked.md', 'doc:renamed.md'], bobEnv, 'protected', 'rename protected entity');
+  const afterRename = openDb();
+  const lockedEntity = afterRename.prepare("SELECT id FROM entity WHERE id = 'doc:locked.md'").get();
+  afterRename.close();
+  check(Boolean(lockedEntity), 'denied rename still moved the protected entity');
+
+  // 3. Bulk ingest must not write a protected extracted subject.
+  writeFileSync(path.join(work, 'AGENTS.md'), '# AGENTS\n\n## 1. Guardrail\n\nNever bypass policy.\n');
+  expectDenied(['ingest'], { ...bobEnv, LORE_SESSION: 'bob' }, 'protected', 'ingest protected document');
+
+  // 4. Protected membership must not bypass the tier approval rule.
+  expectOk(
+    ['write', '--subject', 'doc:tier.md', '--predicate', 'has_section', '--object', 'tier draft', '--kind', 'human', '--ref', 'README.md', '--author', 'human:alice'],
+    { ...aliceEnv, LORE_SESSION: 'alice' },
+  );
+  const tierDraft = claimIdFor('doc:tier.md', 'has_section');
+  if (!check(tierDraft, 'failed to create the tier draft')) throw new Error('cannot continue');
+  expectDenied(['approve', tierDraft], bobEnv, 'approve t2', 'protected membership must not skip the tier rule');
+  const afterTier = openDb();
+  const tierState = afterTier.prepare('SELECT state FROM claim WHERE id = ?').get(tierDraft)?.state;
+  afterTier.close();
+  check(tierState === 'draft', 'denied tier approval still approved the draft');
+
+  // 5. auto-semantic resolve must be authorized before recording anything.
   const db = openDb();
   db.prepare(
     `INSERT INTO merge_conflict (ours_tip, theirs_tip, subject_id, predicate, ours_claim, theirs_claim, base_claim, reason, ts)
@@ -201,6 +234,19 @@ protected:
   afterWrapup.close();
   check(Boolean(bobTip) && bobTip !== mainTip, 'denied wrapup still moved main');
 
+  // A denied wrapup must not approve its drafts before failing.
+  expectOk(
+    ['write', '--subject', 'doc:bob-draft.md', '--predicate', 'has_section', '--object', 'bob draft', '--kind', 'agent', '--ref', 'README.md'],
+    { ...bobEnv, LORE_SESSION: 'bob' },
+  );
+  const bobDraft = claimIdFor('doc:bob-draft.md', 'has_section');
+  if (!check(bobDraft, 'failed to create the wrapup draft')) throw new Error('cannot continue');
+  expectDenied(['wrapup', '--yes', '--session', 'bob'], bobEnv, 'promote requires role', 'wrapup partial');
+  const afterWrapupDraft = openDb();
+  const bobDraftState = afterWrapupDraft.prepare('SELECT state FROM claim WHERE id = ?').get(bobDraft)?.state;
+  afterWrapupDraft.close();
+  check(bobDraftState === 'draft', 'denied wrapup still approved its drafts');
+
   // 4. gc --purge-tombstones permanently deletes -> purge role required.
   expectOk(
     ['write', '--subject', 'doc:gc.md', '--predicate', 'has_section', '--object', 'expire me', '--kind', 'file', '--ref', 'README.md'],
@@ -210,23 +256,43 @@ protected:
   if (!check(gcId, 'failed to create the gc claim')) throw new Error('cannot continue');
   expectOk(['promote'], { ...aliceEnv, LORE_SESSION: 'alice' });
   expectOk(['redact', gcId, '--reason', 'smoke tombstone'], { ...aliceEnv, LORE_SESSION: 'alice' });
+
+  // An eligible draft must also survive a denied purge invocation.
+  expectOk(
+    ['write', '--subject', 'doc:gc-draft.md', '--predicate', 'has_section', '--object', 'gc draft', '--kind', 'agent', '--ref', 'README.md'],
+    { ...aliceEnv, LORE_SESSION: 'gcdraft' },
+  );
+  const gcDraftId = claimIdFor('doc:gc-draft.md', 'has_section');
+  if (!check(gcDraftId, 'failed to create the gc draft')) throw new Error('cannot continue');
+  runAt(work, ['status'], { LORE_SESSION: 'gcother1' });
+  runAt(work, ['status'], { LORE_SESSION: 'gcother2' });
+
   expectDenied(
-    ['gc', '--purge-tombstones', '--tombstone-ttl-days', '0'],
+    ['gc', '--ttl-sessions', '1', '--purge-tombstones', '--tombstone-ttl-days', '0'],
     bobEnv,
     'purge requires role',
     'gc --purge-tombstones',
   );
   const afterGc = openDb();
   const gcRow = afterGc.prepare('SELECT id FROM claim WHERE id = ?').get(gcId);
+  const gcDraft = afterGc.prepare('SELECT state FROM claim WHERE id = ?').get(gcDraftId);
   afterGc.close();
   check(Boolean(gcRow), 'denied gc still purged the tombstone');
+  check(gcDraft?.state === 'draft', 'denied gc still retracted its drafts');
 
-  // 5. A token holder cannot mint another role.
+  // 5. A token holder cannot mint another role, even outside a repository.
   expectDenied(
     ['identity', 'issue', '--user', 'evil@company', '--role', 'maintainer', '--jti', 'evil-1'],
     bobEnv,
     'admin requires role',
     'identity issue as contributor',
+  );
+  expectDeniedAt(
+    tmpdir(),
+    ['identity', 'issue', '--user', 'evil@company', '--role', 'maintainer', '--jti', 'evil-2'],
+    bobEnv,
+    'admin requires role',
+    'identity issue outside a repository',
   );
 
   // 6. Approving a protected draft is denied even when the tier itself is open.
@@ -299,9 +365,16 @@ protected:
       predicate: 'has_section',
       object: 'ui bypass',
     });
-    check(uiWrite.status >= 400, `UI /api/claim to a protected subject returned ${uiWrite.status}`);
+    const uiWriteBody = await uiWrite.text();
+    check(uiWrite.status === 403, `UI /api/claim to a protected subject returned ${uiWrite.status}`);
+    check(uiWriteBody.includes('protected'), `UI /api/claim denial did not mention the protected subject: ${uiWriteBody}`);
     const uiSupersede = await post('/api/supersede', { claim: lockedId, object: 'ui hack' });
-    check(uiSupersede.status >= 400, `UI /api/supersede on a protected subject returned ${uiSupersede.status}`);
+    const uiSupersedeBody = await uiSupersede.text();
+    check(uiSupersede.status === 403, `UI /api/supersede on a protected subject returned ${uiSupersede.status}`);
+    check(
+      uiSupersedeBody.includes('protected'),
+      `UI /api/supersede denial did not mention the protected subject: ${uiSupersedeBody}`,
+    );
   } finally {
     await ui.close();
     if (savedToken === undefined) delete process.env.LORE_TOKEN;
@@ -314,7 +387,7 @@ protected:
     console.error(`[ERR] ${failures} policy guard check(s) failed`);
     process.exitCode = 1;
   } else {
-    console.log('[OK] supersede, auto-resolve, wrapup, gc, identity issue and MCP writes fail closed for contributors');
+    console.log('[OK] supersede, rename, ingest, approve tiers, auto-resolve, wrapup, gc, identity issue, UI and MCP fail closed for contributors');
   }
 } finally {
   rmSync(work, { recursive: true, force: true });

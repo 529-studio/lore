@@ -16,6 +16,14 @@ export type Action =
   | 'read'
   | 'admin';
 
+/** A policy denial, mapped to 403 by the dashboard instead of a generic 500. */
+export class PolicyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PolicyError';
+  }
+}
+
 export interface TokenRevocationRecord {
   jti: string;
   sub: string;
@@ -159,87 +167,121 @@ export function protectedRoles(policy: GranularPolicyFile | null, subject: strin
   return null;
 }
 
-export function checkAuthorization(
-  root: string,
-  action: Action,
-  ctx: { tier?: number; subject?: string } = {},
-): Principal {
+/** Resolve the caller and reject revoked tokens before any policy decision. */
+function authorizePrincipal(root: string): Principal {
   const principal = resolvePrincipal();
-
-  // If principal authenticated via token, verify token has not been revoked
   if (principal.source === 'token') {
     const revCheck = isTokenRevoked(root, { jti: principal.jti, sub: principal.id });
     if (revCheck.revoked) {
       throw new Error(`token has been revoked: ${revCheck.record?.reason ?? 'administrative revocation'}`);
     }
   }
+  return principal;
+}
+
+function assertWriteAllowed(
+  principal: Principal,
+  policy: GranularPolicyFile | null,
+  root: string,
+  subject: string | undefined,
+): void {
+  if (!subject) return;
+  const policyName = path.basename(policyPath(root));
+  if (policy?.write) {
+    for (const [pattern, roles] of Object.entries(policy.write)) {
+      if (matchSubject(pattern, subject) && !roles.some((r) => isMember(policy, r, principal))) {
+        throw new PolicyError(
+          `write to ${subject} requires role ${roles.join(' or ')}; ${principal.id} is ${principal.role} (policy: ${policyName})`,
+        );
+      }
+    }
+  }
+  if (policy?.protected) {
+    for (const [pattern, roles] of Object.entries(policy.protected)) {
+      if (matchSubject(pattern, subject) && !roles.some((r) => isMember(policy, r, principal))) {
+        throw new PolicyError(
+          `subject ${subject} is protected; requires role ${roles.join(' or ')}; ${principal.id} is ${principal.role} (policy: ${policyName})`,
+        );
+      }
+    }
+  }
+}
+
+/**
+ * Batch write check: resolves the principal and loads the policy once, then
+ * verifies every unique subject. Used by bulk producers such as `lore ingest`
+ * so a contributor cannot write a protected subject by extraction.
+ */
+export function requireWriteSubjects(root: string, subjects: Iterable<string>): Principal {
+  const principal = authorizePrincipal(root);
+  if (!teamMode()) return principal;
+  const policy = loadGranularPolicy(root);
+  for (const subject of new Set(subjects)) assertWriteAllowed(principal, policy, root, subject);
+  return principal;
+}
+
+export function checkAuthorization(
+  root: string,
+  action: Action,
+  ctx: { tier?: number; subject?: string } = {},
+): Principal {
+  const principal = authorizePrincipal(root);
 
   // Machine approver rule: machines may only approve T0/T1 claims
   if (principal.role === 'machine' && action === 'approve' && (ctx.tier ?? 4) > 1) {
-    throw new Error('a machine approver may only approve T0/T1 evidence-backed claims');
+    throw new PolicyError('a machine approver may only approve T0/T1 evidence-backed claims');
   }
 
   if (!teamMode()) return principal;
 
   const policy = loadGranularPolicy(root);
+  const policyName = path.basename(policyPath(root));
 
   // Admin action check (e.g. revoking tokens, configuring policies)
   if (action === 'admin') {
     const adminRoles = policy?.admin ?? ['maintainers'];
     if (adminRoles.some((r) => isMember(policy, r, principal))) return principal;
-    throw new Error(`admin requires role ${adminRoles.join(' or ')}; ${principal.id} is ${principal.role}`);
+    throw new PolicyError(`admin requires role ${adminRoles.join(' or ')}; ${principal.id} is ${principal.role}`);
   }
 
   // Granular write authorization check
   if (action === 'write') {
-    if (policy?.write && ctx.subject) {
-      for (const [pattern, roles] of Object.entries(policy.write)) {
-        if (matchSubject(pattern, ctx.subject)) {
-          if (!roles.some((r) => isMember(policy, r, principal))) {
-            throw new Error(`write to ${ctx.subject} requires role ${roles.join(' or ')}; ${principal.id} is ${principal.role} (policy: ${path.basename(policyPath(root))})`);
-          }
-        }
-      }
-    }
-    if (policy?.protected && ctx.subject) {
-      for (const [pattern, roles] of Object.entries(policy.protected)) {
-        if (matchSubject(pattern, ctx.subject)) {
-          if (!roles.some((r) => isMember(policy, r, principal))) {
-            throw new Error(`subject ${ctx.subject} is protected; requires role ${roles.join(' or ')}; ${principal.id} is ${principal.role} (policy: ${path.basename(policyPath(root))})`);
-          }
-        }
-      }
-    }
+    assertWriteAllowed(principal, policy, root, ctx.subject);
     return principal;
   }
 
-  // Lifecycle action: approve
+  // Lifecycle action: approve. Protected access is an additional gate, not an
+  // alternative to the tier rule.
   if (action === 'approve') {
     const guarded = protectedRoles(policy, ctx.subject);
-    if (guarded) {
-      if (guarded.some((r) => isMember(policy, r, principal))) return principal;
-      throw new Error(
-        `approve protected subject ${ctx.subject} requires role ${guarded.join(' or ')}; ${principal.id} is ${principal.role} (policy: ${path.basename(policyPath(root))})`,
+    if (guarded && !guarded.some((r) => isMember(policy, r, principal))) {
+      throw new PolicyError(
+        `approve protected subject ${ctx.subject} requires role ${guarded.join(' or ')}; ${principal.id} is ${principal.role} (policy: ${policyName})`,
       );
     }
     const key = `t${ctx.tier ?? 4}`;
     const roles = policy?.approve?.[key] ?? policy?.approve?.t4 ?? ['maintainers'];
     if (roles.some((r) => isMember(policy, r, principal))) return principal;
-    throw new Error(`approve t${ctx.tier ?? 4} requires role ${roles.join(' or ')}; ${principal.id} is ${principal.role} (policy: ${path.basename(policyPath(root))})`);
+    throw new PolicyError(
+      `approve t${ctx.tier ?? 4} requires role ${roles.join(' or ')}; ${principal.id} is ${principal.role} (policy: ${policyName})`,
+    );
   }
 
   // Lifecycle action: resolve
   if (action === 'resolve') {
     const guarded = protectedRoles(policy, ctx.subject);
-    if (guarded) {
-      if (guarded.some((r) => isMember(policy, r, principal))) return principal;
-      throw new Error(`resolve requires role ${guarded.join(' or ')}; ${principal.id} is ${principal.role} (policy: ${path.basename(policyPath(root))})`);
+    if (guarded && !guarded.some((r) => isMember(policy, r, principal))) {
+      throw new PolicyError(
+        `resolve requires role ${guarded.join(' or ')}; ${principal.id} is ${principal.role} (policy: ${policyName})`,
+      );
     }
     const roles = Array.isArray(policy?.resolve)
       ? policy.resolve
       : (policy?.resolve as Record<string, string[]> | undefined)?.['*'] ?? ['maintainers'];
     if (roles.some((r) => isMember(policy, r, principal))) return principal;
-    throw new Error(`resolve requires role ${roles.join(' or ')}; ${principal.id} is ${principal.role} (policy: ${path.basename(policyPath(root))})`);
+    throw new PolicyError(
+      `resolve requires role ${roles.join(' or ')}; ${principal.id} is ${principal.role} (policy: ${policyName})`,
+    );
   }
 
   // Other lifecycle actions: redact, purge, promote, attest, revert
@@ -247,5 +289,7 @@ export function checkAuthorization(
   const roles = Array.isArray(direct) ? direct : ['maintainers'];
   if (roles.some((r) => isMember(policy, r, principal))) return principal;
 
-  throw new Error(`${action} requires role ${roles.join(' or ')}; ${principal.id} is ${principal.role} (policy: ${path.basename(policyPath(root))})`);
+  throw new PolicyError(
+    `${action} requires role ${roles.join(' or ')}; ${principal.id} is ${principal.role} (policy: ${policyName})`,
+  );
 }

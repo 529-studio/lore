@@ -13,7 +13,7 @@ import { branchFor, currentSession } from '../session.js';
 import { readConfig } from '../config.js';
 import { ActionError, approveDrafts, attestClaim, rejectDraft, revertCommit } from '../actions.js';
 import { resolvePrincipal, teamMode } from '../identity.js';
-import { describePolicy, isPermissiveTrust, requireAction } from '../policy.js';
+import { describePolicy, isPermissiveTrust, requireAction, PolicyError } from '../policy.js';
 import { installCanon } from '../canon/index.js';
 import { explainClaim } from '../canon/explain.js';
 import { gitHead } from '../util/git.js';
@@ -2470,6 +2470,10 @@ function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
 }
 
 function sendActionError(res: ServerResponse, error: unknown): void {
+  if (error instanceof PolicyError) {
+    json(res, { error: error.message, code: 'policy' }, 403);
+    return;
+  }
   if (error instanceof ActionError) {
     const status = error.code === 'not_found' ? 404 : error.code === 'policy' ? 403 : 400;
     json(res, { error: error.message, code: error.code }, status);

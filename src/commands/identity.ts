@@ -24,8 +24,9 @@ export function identityCommand(opts: IdentityOptions): void {
     const authenticated = Boolean(
       process.env.LORE_TOKEN || process.env.LORE_OIDC_EMAIL || process.env.LORE_MACHINE === '1',
     );
-    const stateRoot = findStateRoot();
-    if (stateRoot && authenticated) requireAction(stateRoot, 'admin');
+    // An authenticated caller must be an admin even outside a repository:
+    // otherwise `cd /tmp && lore identity issue` would bypass the check.
+    if (authenticated) requireAction(findStateRoot() ?? process.cwd(), 'admin');
     const role: Role = opts.role === 'contributor' ? 'contributor' : 'maintainer';
     const token = issueToken(opts.user, role, secret, Number(opts.days ?? 30), opts.jti);
     console.log(token);

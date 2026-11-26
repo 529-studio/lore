@@ -79,6 +79,10 @@ export function gcCommand(opts: GcOptions): void {
     return;
   }
 
+  // Authorize the destructive part before retracting drafts: a denied purge
+  // must not leave the invocation half-applied.
+  if (opts.purgeTombstones && tombstoneList.length) requireAction(root, 'purge');
+
   if (draftCandidates.length) {
     const update = db.prepare("UPDATE claim SET state = 'retracted', trust = 'retracted' WHERE id = ?");
     db.transaction(() => {
@@ -98,8 +102,6 @@ export function gcCommand(opts: GcOptions): void {
 
   if (opts.purgeTombstones) {
     if (tombstoneList.length) {
-      // Permanent deletion needs the purge role; dry runs returned above.
-      requireAction(root, 'purge');
       const purged = purgeTombstones(db, tombstoneList, 'lore:gc');
       console.log(
         `${pc.green('✓')} purged ${purged} tombstone(s) older than ${opts.tombstoneTtlDays ?? 30} day(s); recorded in purge_audit`,
