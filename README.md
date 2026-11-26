@@ -143,10 +143,9 @@ lore setup opencode   # OpenCode (opencode.json)
 
 Or configure manually: `claude mcp add lore --scope project --env LORE_SESSION=claude -- node "$(command -v lore)" mcp`.
 
-Each client sets its own `LORE_SESSION` (a branch `agent/<session>`); agents never write to `main`.
-Team sessions pull the remote delta on initialize (`auto_sync`; `LORE_AUTO_SYNC=0` disables it).
-`memory_status` reports `remote_behind`; `memory_sync` dispatches to the http, postgres or dir
-adapter. Full details: [docs/mcp.md](docs/mcp.md).
+Each client sets `LORE_SESSION` (a branch `agent/<session>`); agents never write to `main`.
+Team sessions pull the delta on initialize; `memory_status` shows `remote_behind`, `memory_sync`
+uses it. Full details: [docs/mcp.md](docs/mcp.md).
 
 ### Daily workflow
 
@@ -203,10 +202,11 @@ lore setup [agent]             configure MCP for agents
 lore rules [--update]          install or update agent rules
 lore config [action]           view or edit project configuration (list, get, set, unset)
 lore check-update              check npm registry for newer versions of lore
+lore doctor [--json] [--fix]   readiness: store, branch parity, MCP configs, ontology
 lore mcp                       MCP server over stdio
 ```
 
-Exit codes: `0` ok · `2` unresolved merge conflict · `3` stale above threshold.
+Exit codes: `0` ok · `1` doctor errors · `2` unresolved merge conflict · `3` stale above threshold.
 
 `search` ranks invariant predicates above routes and static AST/TOC facts, and a query must match
 the claim text; structural facts stay retrievable but never fill the budget ahead of a rule. See

@@ -5,6 +5,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 
 ## [Unreleased]
 
+### Added
+
+- `lore doctor [--json] [--fix]` (#184): one readiness command for store health (path, WAL,
+  `quick_check`, required tables and migrated columns), branch parity (`main` empty while an
+  `agent/*` branch holds the ingested baseline), agent MCP configs (`.mcp.json`,
+  `.agents/mcp_config.json`, `.codex/config.toml`, `.cursor/mcp.json`, `.gemini/settings.json`,
+  `opencode.json`), `lore` on `PATH`, extractor predicates in `lore.ontology.yml`, stale claims and
+  unresolved conflicts. Malformed JSON/TOML is reported as `[ERR]` with a line number by a narrow
+  built-in TOML validator, not a throw. `--json` emits `{ ok, checks }`; exit code is non-zero when
+  any check is `[ERR]`. `--fix` only promotes a safe baseline into `main`. `npm run doctor:smoke`
+  covers the healthy, broken-TOML and parity-skew scenarios.
+
 ### Fixed
 
 - Dashboard (#183): `/api/claims` now supports server-backed `q` and `offset` pagination with a

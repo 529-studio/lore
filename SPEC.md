@@ -428,7 +428,7 @@ No LLM judge. Outcome metrics on real repositories:
 | retrieval filters drafts/stale | retrieval also requires `trust = canonical`; contested facts warn | trust is orthogonal to membership |
 | stale derived on read | `canon decay` persists `trust = stale`; read path lazily checks TTL/paths | shared memory needs a durable stale answer |
 | evidence commit must be an ancestor | a non-ancestor stays `ahead-of-checkout`, not stale | an older checkout must not invalidate a newer observation |
-| sync carries commits only | bundle import merges trust (retracted wins, newer verification wins); tombstones applied; `lore replicate` streams WAL | a fetch must not resurrect a value; real-time clusters |
+| sync carries commits only | bundle import merges trust (retracted wins, newer verification wins) and tombstones; `lore replicate` streams WAL | a fetch must not resurrect a value |
 | trust changes via evidence | `canon resolve` keeps one value; redact/purge close the pair | contested memory needs an auditable exit |
 | no team sync | `lore remote` + `fetch`/`push` over directory or Postgres, `bundle` for air gaps | air-gapped repos cannot depend on git hosts |
 | `--as-of` reads the commit at that instant | folds the whole ancestry, skipping commits after the instant | sibling branches hide facts |
@@ -444,22 +444,22 @@ No LLM judge. Outcome metrics on real repositories:
 | Windows installer unsigned | CI Authenticode + SHA-256 | verifiable binaries |
 | tokens immutable for 30d | revocation registry + JTI checks (`lore identity revoke`) | revoke without re-keying |
 | writes are draft only | permissive trust mode (`init --solo`) auto-promotes | solo retrieval without approval overhead |
-| static 3-bullet agent rules | rich ontology guidelines (`lore rules [--update]`) with entity prefixes and tiers | prevents hallucinated predicates |
+| static 3-bullet agent rules | `lore rules [--update]` with entity prefixes and tiers | prevents hallucinated predicates |
 | manual review and promote | `lore wrapup [--yes]` / `lore session` | sessions left unreviewed drafts behind |
-| bare init creates store only | `init --full`/`onboard` ingest on a fresh branch and promote it to `main` | new sessions must see the baseline |
-| onboard prints hardcoded Claude command | `lore onboard` auto-detects agents and wires MCP configs directly | multi-agent repos need dynamic wiring |
+| bare init creates store only | `init --full`/`onboard` ingest then promote the baseline to `main` | new sessions must see the baseline |
+| onboard prints hardcoded Claude command | `lore onboard` detects agents and wires MCP configs | multi-agent repos need dynamic wiring |
 | sync is batch push/fetch only | bi-directional sync adapter (`lore sync`, `memory_sync`) | nodes need atomic sync without lock collisions |
 | concurrency verified on 4x25 writes only | multi-worker benchmark (`scripts/bench-concurrency.mjs`) | clusters need soak tests |
 | gossip convergence untested on clusters | multi-replica gossip simulator (`scripts/bench-cluster.mjs`) | clusters need convergence benchmarks |
-| SQLite WAL static 1000-page autocheckpoint | adaptive WAL checkpoint auto-tuning (`LORE_WAL_AUTOCHECKPOINT`) | high-write sessions need scaling |
+| static WAL autocheckpoint | adaptive WAL checkpoint auto-tuning (`LORE_WAL_AUTOCHECKPOINT`) | high-write sessions need scaling |
 | temporal query requires absolute timestamps | relative temporal query parsing (`src/canon/temporal.ts`) | agents query memory with relative expressions |
-| GC only soft-retracts drafts | GC compaction & tombstone purging (`src/gc.ts`) | stores accumulate tombstones and fragmented SQLite pages |
-| benchmark is terminal-only | Prometheus/OTel export | dashboards need metrics |
-| UI lacks multi-agent sync | sync indicators and `/api/sync/status` | agents need convergence signals |
+| GC only soft-retracts drafts | GC compaction & tombstone purging (`src/gc.ts`) | stores accumulate tombstones and fragmentation |
+| benchmark is terminal-only | Prometheus/OTel export (`exportPrometheusMetrics`) | dashboards need metrics |
+| UI lacks multi-agent sync | sync indicators and `/api/sync/status` (`src/ui/server.ts`) | agents need live convergence signals |
 | lexical retrieval | semantic hybrid (`src/search/vector.ts`) | synonyms missed |
 | equal-tier merge aborts | semantic 3-way resolver (`src/merge.ts`) | confidence and vectors break ties |
-| MCP supports tools only | resource subscription (list, read, subscribe, notifications) | agents need push updates |
-| secret detection throws | scrubbing + ZK attestations | credentials must be redacted |
+| MCP supports tools only | resource subscription (`resources/list`, `read`, `subscribe`, notifications) | agents need push updates on memory changes |
+| secret detection throws | scrubbing + ZK attestations (`src/security/scrub.ts`) | credentials must be redacted |
 | main-thread UI graph | worker force layout + quadtree (`/graph-worker.js`) | 1k+ nodes freeze UI |
 | packaging needs host node | portable bundles (`scripts/package-binary.mjs`) | air-gapped hosts |
 | omitted predicates default to `one` | `many` fallback for extractor predicates (`src/ontology.ts`) | avoids day-0 tier-1 conflicts |
@@ -468,14 +468,15 @@ No LLM judge. Outcome metrics on real repositories:
 | config only in gitignored `.lore/config.json` | `.lore.yml` + `lore join` adopt `repo_id`/remote; `init` keeps it | clones must not fork team memory |
 | team mode needs the env secret | `team_mode: true` activates policy and fails closed without credentials | no silent downgrade |
 | direct Postgres sync | `lore-hub`: http delta + CAS + per-user tokens (`src/hub/`) | no DB creds on dev machines |
-| sync dropped `agent/*` refs and ignored `resolution` rows | proposal refs + `proposals`/`review --remote`; `mergeTip` replays `resolution`, records `merge_conflict` and the origin ref | review must not need `main` write |
+| sync dropped `agent/*` refs and ignored `resolution` rows | `push --propose` + hub proposal refs, `review --remote`; `mergeTip` replays `resolution`, records `merge_conflict` | review must not need `main` write |
 | hosts hardcoded in `setup` | personal/repo plugin scopes (`src/plugins/loader.ts`) | extend without core edits |
-| status trusts persisted counts; GC uses row age | status separates trust, drift, branch/store; GC ages drafts from last observation | contradictory counts (#181) |
-| similarity = Jaccard token overlap | coverage and exact-phrase weights rank before authority | one token must not bury an exact rule (#181) |
-| ingest reads root manifests only | package.json, Makefile, docker-compose* at any depth; Python requirements/pyproject/imports; go.mod | monorepos are the common shape |
-| retrieval ranks by scope and similarity | predicate classes (invariants > routes > static AST/TOC facts) and a query-text gate; static facts demoted, never deleted | guardrails must survive structural noise (#193) |
-| markdown rules stop at any heading | nested `###` rules kept under numbered headings; dated lessons-log entries yield `has_known_bug`/`has_guardrail`; 1,200-char prose cap | nested rules and non-`LNN` logs were dropped (#193) |
-| Litestream for multi-writer team sync | adapter dispatch by remote (http/postgres/dir); MCP `initialize` pulls a delta; Litestream is backup only | replication loses concurrent commits (#196) |
+| status trusts persisted counts; GC uses row age | status separates trust, drift, branch/store; GC ages drafts from last observation | fresh-draft warnings (#181) |
+| similarity = Jaccard token overlap | coverage and exact-phrase weights rank before authority | one token must not bury an exact rule |
+| ingest reads root manifests | package.json, Makefile, docker-compose*, Python requirements/pyproject/imports, go.mod | monorepos are the common shape |
+| retrieval ranks by scope and similarity | predicate classes + query-text gate; static facts demoted, never deleted | guardrails survive structural noise (#193) |
+| markdown rules stop at any heading | nested `###` rules kept; dated logs yield `has_known_bug`/`has_guardrail`; 1,200-char prose cap | nested rules and non-`LNN` logs were dropped |
+| no readiness command | `lore doctor` checks store shape, WAL, integrity, branch parity, MCP configs, ontology, health | one actionable report |
+| Litestream for multi-writer team sync | adapter by remote (http/postgres/dir); MCP `initialize` pulls a delta; Litestream is backup only | loses concurrent commits (#196) |
 
 ## Glossary
 
