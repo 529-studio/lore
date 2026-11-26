@@ -225,36 +225,50 @@ export async function pull(
   const state = await repoState(client, repoId);
   const since = Number.isFinite(sinceSeq) && sinceSeq > 0 ? sinceSeq : 0;
   const sinceAuth = Number.isFinite(sinceAuthSeq) && sinceAuthSeq > 0 ? sinceAuthSeq : 0;
-  const cursor = await repoCursor(client, repoId);
-  const auth = await authCursor(client);
-  const q = async (sql: string): Promise<Array<Record<string, unknown>>> =>
-    (await client.query(sql, [repoId, since])).rows.map((row) => row.payload as Record<string, unknown>);
-  const rows = {
-    commits: await q('SELECT payload FROM repo_commits WHERE repo_id = $1 AND seq > $2 ORDER BY seq'),
-    claims: await q('SELECT payload FROM repo_claims WHERE repo_id = $1 AND seq > $2 ORDER BY seq'),
-    evidence: await q('SELECT payload FROM repo_evidence WHERE repo_id = $1 AND seq > $2 ORDER BY seq'),
-    entities: await q('SELECT payload FROM repo_entities WHERE repo_id = $1 AND seq > $2 ORDER BY seq'),
-    entries: await q('SELECT payload FROM repo_commit_entries WHERE repo_id = $1 AND seq > $2 ORDER BY seq'),
-    conflicts: await q('SELECT payload FROM repo_conflicts WHERE repo_id = $1 AND seq > $2 ORDER BY seq'),
-    redactions: await q("SELECT payload FROM repo_tombstones WHERE repo_id = $1 AND kind = 'redaction' AND seq > $2 ORDER BY seq"),
-    purges: await q("SELECT payload FROM repo_tombstones WHERE repo_id = $1 AND kind = 'purge' AND seq > $2 ORDER BY seq"),
-    revocations: [] as Array<Record<string, unknown>>,
-  };
-  // auth_revocations stores columns, not a JSON payload; map explicitly.
-  const revocations = (
-    await client.query(
-      'SELECT jti, sub, reason, revoked_by, revoked_at FROM auth_revocations WHERE seq > $1 ORDER BY seq',
-      [sinceAuth],
-    )
-  ).rows.map((row) => ({
-    jti: row.jti,
-    sub: row.sub,
-    reason: row.reason,
-    revoked_by: row.revoked_by,
-    revoked_at: new Date(row.revoked_at).toISOString(),
-  }));
-  rows.revocations = revocations;
-  return { bundle: rowsToBundle(repoId, rows, state.main), main: state.main, seq: cursor, auth_seq: auth };
+  await client.query('BEGIN');
+  try {
+    // Writers hold this lock from before allocating a revocation seq until
+    // commit, so max(seq) here sees every row below the cursor.
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('lore_hub_auth'))");
+    const cursor = await repoCursor(client, repoId);
+    const auth = await authCursor(client);
+    const q = async (sql: string): Promise<Array<Record<string, unknown>>> =>
+      (await client.query(sql, [repoId, since])).rows.map((row) => row.payload as Record<string, unknown>);
+    const rows = {
+      commits: await q('SELECT payload FROM repo_commits WHERE repo_id = $1 AND seq > $2 ORDER BY seq'),
+      claims: await q('SELECT payload FROM repo_claims WHERE repo_id = $1 AND seq > $2 ORDER BY seq'),
+      evidence: await q('SELECT payload FROM repo_evidence WHERE repo_id = $1 AND seq > $2 ORDER BY seq'),
+      entities: await q('SELECT payload FROM repo_entities WHERE repo_id = $1 AND seq > $2 ORDER BY seq'),
+      entries: await q('SELECT payload FROM repo_commit_entries WHERE repo_id = $1 AND seq > $2 ORDER BY seq'),
+      conflicts: await q('SELECT payload FROM repo_conflicts WHERE repo_id = $1 AND seq > $2 ORDER BY seq'),
+      redactions: await q("SELECT payload FROM repo_tombstones WHERE repo_id = $1 AND kind = 'redaction' AND seq > $2 ORDER BY seq"),
+      purges: await q("SELECT payload FROM repo_tombstones WHERE repo_id = $1 AND kind = 'purge' AND seq > $2 ORDER BY seq"),
+      revocations: [] as Array<Record<string, unknown>>,
+    };
+    // auth_revocations stores columns, not a JSON payload; map explicitly.
+    const revocations = (
+      await client.query(
+        'SELECT jti, sub, reason, revoked_by, revoked_at FROM auth_revocations WHERE seq > $1 ORDER BY seq',
+        [sinceAuth],
+      )
+    ).rows.map((row) => ({
+      jti: row.jti,
+      sub: row.sub,
+      reason: row.reason,
+      revoked_by: row.revoked_by,
+      revoked_at: new Date(row.revoked_at).toISOString(),
+    }));
+    rows.revocations = revocations;
+    await client.query('COMMIT');
+    return { bundle: rowsToBundle(repoId, rows, state.main), main: state.main, seq: cursor, auth_seq: auth };
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      /* transaction already closed */
+    }
+    throw error;
+  }
 }
 
 function principalIdentity(principal: HubPrincipal): {
@@ -460,6 +474,11 @@ export async function push(client: Client, input: PushInput): Promise<PushResult
         [repoId, 'purge', row.claim_id, row],
       );
     }
+    if ((bundle.token_revocations?.length ?? 0) > 0) {
+      // Global revocation cursors rely on allocation order matching commit
+      // order; hold this lock until commit so no lower seq commits later.
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('lore_hub_auth'))");
+    }
     for (const row of bundle.token_revocations ?? []) {
       if (!row.jti) continue;
       await client.query(
@@ -481,12 +500,12 @@ export async function push(client: Client, input: PushInput): Promise<PushResult
     }
     const nextMain = mainRef ?? currentMain;
     await client.query('UPDATE repos SET main_commit = $2, updated_at = now() WHERE repo_id = $1', [repoId, nextMain]);
+    // Compute under the transaction so the returned cursors cover exactly the
+    // rows the client is about to have after a pull.
+    const seq = await repoCursor(client, repoId);
+    const authSeq = await authCursor(client);
     await client.query('COMMIT');
-    return {
-      main: nextMain,
-      seq: await repoCursor(client, repoId),
-      auth_seq: await authCursor(client),
-    };
+    return { main: nextMain, seq, auth_seq: authSeq };
   } catch (error) {
     if (!(error instanceof HubError) || error.status !== 409) {
       try {
