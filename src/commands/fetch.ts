@@ -24,6 +24,8 @@ export async function fetchCommand(opts: FetchOptions): Promise<void> {
     result = fetchFromDir(db, root, opts.path, config.repo_id, author);
   } else if (config.remote!.type === 'dir') {
     result = fetchFromDir(db, root, config.remote!.path, config.repo_id, author);
+  } else if (config.remote!.type === 'hub') {
+    throw new Error('hub remotes need lore-hub sync (#194); this build supports dir and postgres');
   } else {
     const url = config.remote!.url ?? (config.remote!.url_env ? process.env[config.remote!.url_env] : undefined);
     if (!url) throw new Error(`remote url is not set (env ${config.remote!.url_env ?? 'LORE_REMOTE_URL'})`);

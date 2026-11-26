@@ -4,7 +4,7 @@ import { hashCache } from '../hash-cache.js';
 import { gcCandidates, tombstoneCandidates, getDatabaseStorageStats } from '../gc.js';
 import { activeAt, head } from '../model.js';
 import { claimFreshness } from '../merge.js';
-import { readConfig } from '../config.js';
+import { readConfig, remoteLabel } from '../config.js';
 import { isAncestor } from '../sync.js';
 import { isPermissiveTrust } from '../policy.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
@@ -103,12 +103,7 @@ export function statusCommand(opts: StatusOptions = {}): void {
       else if (isAncestor(db, local, remote)) state = 'behind — run lore fetch';
       else state = 'diverged';
     }
-    const label =
-      config.remote.type === 'dir'
-        ? config.remote.path
-        : config.remote.url_env
-          ? `postgres ($${config.remote.url_env})`
-          : 'postgres';
+    const label = remoteLabel(config.remote);
     console.log(`  remote     ${label} ${pc.dim(`(${state})`)}`);
   }
   console.log(`  stale      ${stale.length ? pc.red(String(stale.length)) : pc.green('0')} ${pc.dim('(evidence hash no longer matches)')}`);

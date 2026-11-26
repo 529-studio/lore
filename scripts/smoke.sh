@@ -633,6 +633,9 @@ node "$LORE_ROOT/scripts/sync-adapter-smoke.mjs"
 # --- linked git worktrees -----------------------------------------------------
 node "$LORE_ROOT/scripts/worktree-smoke.mjs"
 
+# --- committed project manifest & lore join ----------------------------------
+node "$LORE_ROOT/scripts/join-smoke.mjs"
+
 # --- bi-temporal search & timeline -------------------------------------------
 node "$LORE_BIN" timeline doc:README.md | grep -q "Bi-temporal Timeline" || fail "timeline must display bi-temporal revisions"
 node "$LORE_BIN" timeline doc:README.md --json | grep -q "claimId" || fail "timeline --json must output valid JSON"
@@ -652,4 +655,4 @@ grep -q "Standard Predicates" AGENTS.md || fail "rules --update must update AGEN
 node "$LORE_BIN" session status | grep -q "session:" || fail "session status must show session"
 node "$LORE_BIN" wrapup --yes >/dev/null || fail "wrapup must succeed on clean session"
 
-echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge, identity, policy, machine, attest, entities, alias, rename, reject, review, onboard, litestream, bidirectional-sync, worktrees, temporal, permissive-trust, agent-rules, session-wrapup"
+echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge, identity, policy, machine, attest, entities, alias, rename, reject, review, onboard, litestream, bidirectional-sync, worktrees, join, temporal, permissive-trust, agent-rules, session-wrapup"

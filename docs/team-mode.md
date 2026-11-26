@@ -60,6 +60,36 @@ read the local store.
   ladder, fast-forwards the session branch, issues an atomic WAL checkpoint flush (`PRAGMA wal_checkpoint(TRUNCATE)`),
   and writes `SYNC_INCOMING` and `SYNC_OUTGOING` audit logs.
 
+## Joining a clone
+
+A shared repository commits `.lore.yml` at its root:
+
+```yaml
+repo_id: 1f0c2f7e-4f0a-4a8f-9f0d-2b6f7c9e1a33
+team_mode: true
+remote:
+  type: postgres
+  url_env: LORE_TEAM_DB_URL
+extractors: [code, docs]
+```
+
+Never put a URL with credentials, a password, or a token in this file. `npm run check:public` rejects
+those in any tracked `.lore.yml`.
+
+`lore join` in a fresh clone reads the manifest, initialises `.lore/` with the committed `repo_id`
+(never a random UUID), writes the local remote, and fetches the team baseline so `lore search` works
+immediately. `url_env` stays an environment-variable name; a `dir` path resolves relative to the
+checkout. `--no-fetch` configures the store without pulling. A warning is printed when `team_mode`
+is true but `LORE_TEAM_SECRET` is unset.
+
+`lore init` and `lore onboard` in a manifest repo adopt the same `repo_id` and remote. If the local
+store already belongs to another `repo_id`, they refuse to continue instead of forking team memory
+or overwriting the manifest.
+
+Remote forms: `postgres` with `url_env` (recommended), `hub` with an https URL (served by #194), or
+`dir` with a relative path for local/offline sharing. The manifest carries no secrets and no personal
+agent configuration.
+
 ## Git worktrees
 
 Linked worktrees (`git worktree add`, agent orchestrators, Cursor/Claude parallel checkouts) share

@@ -446,10 +446,10 @@ No LLM judge. Outcome metrics on real repositories:
 | UI is static on read | live Server-Sent Events (`/api/events`) with SQLite version detection | mutations must reflect live without manual refresh |
 | UI graph is uniform radial scatter | semantic visual clustering and predicate relationship filtering | graphs need domain grouping |
 | Windows installer unsigned | CI Authenticode + SHA-256 | verifiable binaries |
-| identity tokens are immutable for 30d | token revocation registry and JTI validation (`lore identity revoke`) | compromised tokens need revocation without re-keying |
-| agent/human writes are draft only | permissive trust mode (`lore init --solo`) auto-promotes writes in solo mode | solo developers need immediate retrieval without approval overhead |
+| tokens immutable for 30d | revocation registry and JTI checks (`lore identity revoke`) | revoke without re-keying |
+| writes are draft only | permissive trust mode (`init --solo`) auto-promotes | solo retrieval without approval overhead |
 | static 3-bullet agent rules | rich ontology guidelines (`lore rules [--update]`) with entity prefixes and tiers | prevents hallucinated predicates without namespace guidance |
-| manual review and promote commands | unified 1-step session wrapup (`lore wrapup [--yes]`, `lore session`) | multi-agent sessions left unreviewed drafts behind before promote |
+| manual review and promote | `lore wrapup [--yes]` / `lore session` | sessions left unreviewed drafts behind |
 | bare init creates store only | `init --full`/`onboard` ingest on a fresh branch and promote it to `main`, then configure MCPs | agents forked from `main` must see the baseline |
 | onboard prints hardcoded Claude command | `lore onboard` auto-detects agents and wires MCP configs directly | multi-agent repos require dynamic agent wiring |
 | sync is batch push/fetch only | bi-directional sync adapter (`lore sync`, `memory_sync`) | nodes need atomic sync without lock collisions |
@@ -470,6 +470,7 @@ No LLM judge. Outcome metrics on real repositories:
 | sync carries commits only | bundle applies redaction/purge/revocation tombstones (`src/sync.ts`) | no resurrection after fetch |
 | MCP/lifecycle commands trusted callers | all write paths enforce roles and protected subjects (`src/policy/auth.ts`) | no policy bypass |
 | `.lore` beside worktree | shared primary store, per-worktree sessions, workspace-keyed hash cache (`src/scope.ts`) | parallel agents must not fork memory |
+| config only in gitignored `.lore/config.json` | `.lore.yml` + `lore join` adopt `repo_id`/remote; `init` keeps it | clones must not fork team memory |
 
 ## Glossary
 
