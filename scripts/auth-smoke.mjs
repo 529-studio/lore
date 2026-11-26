@@ -64,6 +64,18 @@ admin: [maintainers]
 `
   );
 
+  // 4b. A contributor token cannot mint a maintainer token.
+  const bobIssue = lore(
+    ['identity', 'issue', '--user', 'evil@company', '--role', 'maintainer'],
+    { LORE_TEAM_SECRET: TEAM_SECRET, LORE_TOKEN: bobToken },
+  );
+  if (bobIssue.code === 0) {
+    throw new Error('contributor must NOT be allowed to issue tokens');
+  }
+  if (!bobIssue.stderr.includes('admin requires role')) {
+    throw new Error(`expected admin gate on identity issue, got: ${bobIssue.stderr}`);
+  }
+
   // 5. Test granular write ACL: bob (contributor) cannot write to env:DATABASE_URL
   const bobWriteEnv = lore(
     ['write', '--subject', 'env:DATABASE_URL', '--predicate', 'read_by', '--object', 'README.md', '--kind', 'file', '--ref', 'README.md'],

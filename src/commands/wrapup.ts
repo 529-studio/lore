@@ -95,6 +95,10 @@ export async function wrapupCommand(opts: WrapupOptions = {}): Promise<void> {
     }
   }
 
+  // Authorize the promotion before approving drafts: a denied wrapup must not
+  // leave the branch half-approved.
+  const promotePrincipal = requireAction(root, 'promote');
+
   // 1. Approve drafts
   if (drafts.length > 0) {
     const draftIds = drafts.map((d) => d.id);
@@ -117,6 +121,7 @@ export async function wrapupCommand(opts: WrapupOptions = {}): Promise<void> {
     if (plan.mode === 'up-to-date') {
       console.log(pc.dim(`  ${into} is already up to date with ${fromRef}`));
     } else if (plan.mode === 'fast-forward') {
+      // Moving main is a promotion, authorized before approval above.
       db.prepare(
         'INSERT INTO ref(name, commit_id) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET commit_id = excluded.commit_id',
       ).run(into, fromTip);
@@ -131,7 +136,6 @@ export async function wrapupCommand(opts: WrapupOptions = {}): Promise<void> {
       db.close();
       return;
     } else {
-      const promotePrincipal = requireAction(root, 'promote');
       db.transaction(() => {
         const id = makeCommit(db, {
           ref: into,

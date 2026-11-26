@@ -71,6 +71,9 @@ jobs:
       - name: Sync tombstones (redact, purge, revocation propagation)
         run: npm run sync:tombstone
 
+      - name: Policy guards (MCP, supersede, resolve, wrapup, gc, identity)
+        run: npm run policy:smoke
+
       - name: Outcome eval (self fixture)
         run: npm run eval -- --fixtures 1
 

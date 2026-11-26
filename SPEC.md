@@ -460,14 +460,15 @@ No LLM judge. Outcome metrics on real repositories:
 | GC only soft-retracts drafts | GC compaction & tombstone purging (`src/gc.ts`) | stores accumulate tombstones and fragmented SQLite pages |
 | benchmark emits terminal table only | Prometheus/OTel exporter (`exportPrometheusMetrics`) | dashboards require standard metrics exposition |
 | UI lacks multi-agent sync indicators | real-time sync indicators and diagnostics (`src/ui/server.ts`, `/api/sync/status`) | multi-agent sessions need live visual indicators of convergence |
-| retrieval uses lexical overlap only | semantic hybrid search layer (`src/search/vector.ts`, `lore search --semantic`) | queries with synonyms or stem variants fail verbatim token matching |
+| lexical retrieval only | semantic hybrid layer (`src/search/vector.ts`) | synonyms failed token matching |
 | merge aborts equal-tier inference disagreements | semantic 3-way conflict resolver (`src/merge.ts`, `lore merge --semantic`) | equal-tier inference claims aborted without confidence or vector evaluation |
 | MCP supports tools only | MCP resource subscription protocol (`resources/list`, `read`, `subscribe`, notifications) | agents need event-driven updates on memory changes without polling |
-| secret detection throws only | secret scrubbing & ZK attestations (`src/security/scrub.ts`, `lore attest --zk`) | pipelines need redaction & ZK proofs |
+| secret detection throws only | secret scrubbing and ZK attestations (`src/security/scrub.ts`) | credentials must be redacted |
 | main-thread UI graph | Web Worker force layout & quadtree (`/graph-worker.js`) | graphs >1k nodes freeze main thread |
 | packaging needs host node | portable desktop bundles (`scripts/package-binary.mjs`, `desktop.yml`) | air-gapped hosts need self-contained binaries |
 | omitted predicates default to `one` | built-in `many` fallback for omitted extractor predicates (`src/ontology.ts`) | prevents day-0 false tier-1 conflicts |
-| sync carries commits only | bundle carries redaction/purge/revocation tombstones and applies them before inserts (`src/sync.ts`) | a fetch must not resurrect deleted memory |
+| sync carries commits only | bundle applies redaction/purge/revocation tombstones (`src/sync.ts`) | no resurrection after fetch |
+| MCP/lifecycle commands trusted callers | every write entry point enforces roles and protected subjects (`src/policy/auth.ts`) | no bypass of `lore.policy.yml` |
 
 ## Glossary
 

@@ -14,7 +14,15 @@ import { readConfig } from './config.js';
 export type Action = AuthAction;
 export type PolicyFile = GranularPolicyFile;
 export type { TokenRevocationRecord, GranularPolicyFile };
-export { revokeToken, isTokenRevoked, listRevocations, matchSubject, policyPath } from './policy/auth.js';
+export {
+  revokeToken,
+  isTokenRevoked,
+  listRevocations,
+  matchSubject,
+  policyPath,
+  requireWriteSubjects,
+  PolicyError,
+} from './policy/auth.js';
 
 /**
  * Returns true if permissive trust mode is enabled for local solo development.
