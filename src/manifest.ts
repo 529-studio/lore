@@ -44,10 +44,24 @@ function parseRemote(raw: unknown, root: string): RemoteConfig {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) invalid('remote must be an object');
   const remote = raw as Record<string, unknown>;
 
-  if (remote.type === 'postgres') {
-    if (remote.url !== undefined) {
-      invalid('postgres remote must use url_env, never a raw URL or credentials');
+  if (remote.type === 'postgres' && remote.url !== undefined) {
+    invalid('postgres remote must use url_env, never a raw URL or credentials');
+  }
+  const remoteKeys: Record<string, true> | null =
+    remote.type === 'dir'
+      ? { type: true, path: true }
+      : remote.type === 'postgres'
+        ? { type: true, url_env: true }
+        : remote.type === 'hub'
+          ? { type: true, url: true }
+          : null;
+  if (remoteKeys) {
+    for (const key of Object.keys(remote)) {
+      if (!remoteKeys[key]) invalid(`unknown remote key ${key}`);
     }
+  }
+
+  if (remote.type === 'postgres') {
     const env = remote.url_env;
     if (typeof env !== 'string' || !ENV_NAME.test(env)) {
       invalid('postgres remote needs url_env naming an environment variable');
@@ -97,6 +111,10 @@ export function readManifest(root: string): LoreManifest | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) invalid('expected a mapping');
   const doc = raw as Record<string, unknown>;
   assertNoSecrets(doc, '');
+  const topKeys: Record<string, true> = { repo_id: true, team_mode: true, remote: true, extractors: true };
+  for (const key of Object.keys(doc)) {
+    if (!topKeys[key]) invalid(`unknown key ${key}`);
+  }
 
   const repoId = typeof doc.repo_id === 'string' ? doc.repo_id.trim() : '';
   if (!UUID.test(repoId)) invalid('repo_id must be the repository UUID');

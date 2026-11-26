@@ -120,6 +120,8 @@ try {
   const bad = path.join(work, 'bad-manifest');
   mkdirSync(bad, { recursive: true });
   git(bad, ['init', '-q', '-b', 'main']);
+  git(bad, ['config', 'user.email', 'smoke@lore.test']);
+  git(bad, ['config', 'user.name', 'Lore Smoke']);
   writeFileSync(
     path.join(bad, '.lore.yml'),
     `repo_id: ${repoId}\nremote:\n  type: postgres\n  url: postgres://user:pass@db.example.com/lore\n`,
@@ -154,6 +156,35 @@ try {
   );
   assert.match(loreFails(badDir, ['join']), /relative path/, 'absolute dir remote must be rejected');
   console.log('[OK] absolute dir remotes are rejected from the manifest');
+
+  // Unknown keys cannot smuggle credentials past validation.
+  const badAuth = path.join(work, 'bad-auth');
+  mkdirSync(badAuth, { recursive: true });
+  writeFileSync(
+    path.join(badAuth, '.lore.yml'),
+    `repo_id: ${repoId}\nremote:\n  type: dir\n  path: ../shared\n  auth: "Bearer hunter2"\n`,
+    'utf8',
+  );
+  assert.match(loreFails(badAuth, ['join']), /unknown remote key auth/, 'unknown remote keys must be rejected');
+  console.log('[OK] unknown manifest keys are rejected');
+
+  // check:public must also catch flow-style secret keys.
+  const badFlow = path.join(work, 'bad-flow');
+  mkdirSync(badFlow, { recursive: true });
+  git(badFlow, ['init', '-q', '-b', 'main']);
+  git(badFlow, ['config', 'user.email', 'smoke@lore.test']);
+  git(badFlow, ['config', 'user.name', 'Lore Smoke']);
+  writeFileSync(
+    path.join(badFlow, '.lore.yml'),
+    `repo_id: ${repoId}\nremote: {type: dir, path: ../shared, password: hunter2}\n`,
+    'utf8',
+  );
+  git(badFlow, ['add', '-A']);
+  git(badFlow, ['commit', '-q', '-m', 'flow-style secret']);
+  const flowRun = spawnSync('bash', [PUBLIC_CHECK], { cwd: badFlow, encoding: 'utf8' });
+  assert.notEqual(flowRun.status, 0, 'check:public must reject flow-style secret keys');
+  assert.match(flowRun.stderr, /must not contain credentials/);
+  console.log('[OK] flow-style secret keys are rejected');
 
   console.log('JOIN SMOKE OK — manifest adoption, one-command clone, no-fetch, mismatch and secret rejection');
 } finally {

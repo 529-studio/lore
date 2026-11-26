@@ -27,7 +27,7 @@ fi
 # The committed project manifest must never carry credentials; it names env vars.
 manifests=$(printf '%s\n' "$files" | grep -E '(^|/)\.lore\.yml$' || true)
 if [ -n "$manifests" ]; then
-  mhits=$(printf '%s\n' "$manifests" | tr '\n' '\0' | xargs -0 grep -nEI '://[^/@[:space:]]+:[^/@[:space:]]+@|^[[:space:]]*(password|secret|token|api[_-]?key)[[:space:]]*:' 2>/dev/null || true)
+  mhits=$(printf '%s\n' "$manifests" | tr '\n' '\0' | xargs -0 grep -nEI '://[^/@[:space:]]+:[^/@[:space:]]+@|(^|[{,])[[:space:]]*(password|secret|token|api[_-]?key)[[:space:]]*:' 2>/dev/null || true)
   if [ -n "$mhits" ]; then
     echo "[ERR] public-safety: .lore.yml must not contain credentials:" >&2
     printf '%s\n' "$mhits" | head -20 >&2
