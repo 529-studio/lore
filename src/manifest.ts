@@ -35,10 +35,11 @@ function assertNoSecrets(value: unknown, where: string): void {
     return;
   }
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (/password|secret|token|api[_-]?key/i.test(key)) {
-      invalid(`${where ? `${where}.` : ''}${key} must not be committed; use an environment variable`);
+    const full = where ? `${where}.${key}` : key;
+    if (/password|secret|token|api[_-]?key/i.test(key) && full !== 'remote.token_env') {
+      invalid(`${full} must not be committed; use an environment variable`);
     }
-    assertNoSecrets(entry, `${where}.${key}`);
+    assertNoSecrets(entry, full);
   }
 }
 
@@ -56,7 +57,9 @@ function parseRemote(raw: unknown, root: string): RemoteConfig {
         ? { type: true, url_env: true }
         : remote.type === 'hub'
           ? { type: true, url: true }
-          : null;
+          : remote.type === 'http'
+            ? { type: true, url: true, token_env: true }
+            : null;
   if (remoteKeys) {
     for (const key of Object.keys(remote)) {
       if (!Object.hasOwn(remoteKeys, key)) invalid(`unknown remote key ${key}`);
@@ -79,18 +82,26 @@ function parseRemote(raw: unknown, root: string): RemoteConfig {
     return { type: 'dir', path: path.resolve(root, dir) };
   }
 
-  if (remote.type === 'hub') {
+  if (remote.type === 'hub' || remote.type === 'http') {
     const url = remote.url;
-    if (typeof url !== 'string') invalid('hub remote needs url');
+    if (typeof url !== 'string') invalid(`${remote.type} remote needs url`);
     let parsed: URL;
     try {
       parsed = new URL(url);
     } catch {
       invalid('hub url is not a valid URL');
     }
-    if (parsed.protocol !== 'https:') invalid('hub url must use https');
+    const loopback = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(parsed.hostname);
+    if (parsed.protocol !== 'https:' && !(remote.type === 'http' && loopback && parsed.protocol === 'http:')) {
+      invalid('hub url must use https');
+    }
     if (parsed.username || parsed.password) invalid('hub url must not embed credentials');
-    return { type: 'hub', url: parsed.toString() };
+    if (remote.type === 'hub') return { type: 'hub', url: parsed.toString() };
+    const tokenEnv = remote.token_env;
+    if (tokenEnv !== undefined && (typeof tokenEnv !== 'string' || !ENV_NAME.test(tokenEnv))) {
+      invalid('http remote token_env must name an environment variable');
+    }
+    return { type: 'http', url: parsed.toString(), ...(tokenEnv ? { token_env: tokenEnv } : {}) };
   }
 
   invalid(`unknown remote type ${String(remote.type)}`);

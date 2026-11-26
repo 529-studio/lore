@@ -68,6 +68,9 @@ jobs:
       - name: Postgres sync (two stores, concurrent pushes)
         run: npm run pg:smoke
 
+      - name: Hub sync (per-user tokens, delta, CAS, tombstones)
+        run: npm run hub:smoke
+
       - name: Sync tombstones (redact, purge, revocation propagation)
         run: npm run sync:tombstone
 

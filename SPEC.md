@@ -460,18 +460,19 @@ No LLM judge. Outcome metrics on real repositories:
 | GC only soft-retracts drafts | GC compaction & tombstone purging (`src/gc.ts`) | stores accumulate tombstones and fragmented SQLite pages |
 | benchmark is terminal-only | Prometheus/OTel exporter (`exportPrometheusMetrics`) | dashboards need standard metrics |
 | UI lacks multi-agent sync | sync indicators and `/api/sync/status` (`src/ui/server.ts`) | agents need live convergence signals |
-| lexical retrieval only | semantic hybrid layer (`src/search/vector.ts`) | synonyms failed token matching |
+| lexical retrieval | semantic hybrid (`src/search/vector.ts`) | synonyms missed |
 | equal-tier merge aborts | semantic 3-way resolver (`src/merge.ts`) | confidence and vectors break ties |
 | MCP supports tools only | resource subscription (`resources/list`, `read`, `subscribe`, notifications) | agents need push updates on memory changes |
 | secret detection throws | scrubbing + ZK attestations (`src/security/scrub.ts`) | credentials must be redacted |
 | main-thread UI graph | worker force layout + quadtree (`/graph-worker.js`) | 1k+ nodes freeze UI |
 | packaging needs host node | portable bundles (`scripts/package-binary.mjs`) | air-gapped hosts |
 | omitted predicates default to `one` | `many` fallback for extractor predicates (`src/ontology.ts`) | avoids day-0 tier-1 conflicts |
-| sync carries commits only | bundle applies redaction/purge/revocation tombstones (`src/sync.ts`) | no resurrection after fetch |
-| MCP/lifecycle commands trusted callers | all write paths enforce roles and protected subjects (`src/policy/auth.ts`) | no policy bypass |
-| `.lore` beside worktree | shared primary store, per-worktree sessions, workspace-keyed hash cache (`src/scope.ts`) | parallel agents must not fork memory |
+| sync carries commits | tombstones applied (`src/sync.ts`) | no resurrection after fetch |
+| MCP/lifecycle trusted callers | all writes enforce roles + protected (`src/policy/auth.ts`) | no policy bypass |
+| `.lore` beside worktree | shared primary store, per-worktree sessions (`src/scope.ts`) | agents must not fork memory |
 | config only in gitignored `.lore/config.json` | `.lore.yml` + `lore join` adopt `repo_id`/remote; `init` keeps it | clones must not fork team memory |
 | team mode needs the env secret | `team_mode: true` activates policy and fails closed without credentials | no silent downgrade |
+| direct Postgres sync | `lore-hub`: http delta + CAS + per-user tokens (`src/hub/`) | no DB creds on dev machines |
 | hosts hardcoded in `setup` | personal/repo plugin scopes (`src/plugins/loader.ts`) | extend without core edits |
 
 ## Glossary
