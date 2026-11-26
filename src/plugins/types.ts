@@ -29,8 +29,8 @@ export interface AgentHostAdapter {
 }
 
 export interface PluginHooks {
-  beforeSession?(ctx: Required<Pick<PluginContext, 'workspaceRoot' | 'stateDir'>> & { session: string }): void;
-  afterWrapup?(ctx: Required<Pick<PluginContext, 'workspaceRoot'>> & { session: string; into: string }): void;
+  beforeSession?(ctx: Required<Pick<PluginContext, 'workspaceRoot' | 'stateDir'>> & { session: string }): void | Promise<void>;
+  afterWrapup?(ctx: Required<Pick<PluginContext, 'workspaceRoot'>> & { session: string; into: string }): void | Promise<void>;
 }
 
 export interface PluginExtractor {

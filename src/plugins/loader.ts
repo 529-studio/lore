@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -157,15 +157,23 @@ export async function loadRepoPlugins(root: string, opts: LoadPluginsOptions = {
   const loaded: LoadedPlugin[] = [];
   for (const entry of entries) {
     const file = path.resolve(root, entry);
-    if (!file.startsWith(`${path.resolve(root)}${path.sep}`)) {
-      throw new Error(`repository plugin must stay inside the checkout: ${entry}`);
-    }
     if (!existsSync(file)) {
       opts.warn?.(`repository plugin not found: ${entry}`);
       continue;
     }
+    let target: string;
     try {
-      const plugin = await loadFile(file, 'repo');
+      target = realpathSync(file);
+    } catch (error) {
+      opts.warn?.(`cannot resolve repository plugin ${entry}: ${(error as Error).message}`);
+      continue;
+    }
+    const realRoot = realpathSync(root);
+    if (target !== realRoot && !target.startsWith(`${realRoot}${path.sep}`)) {
+      throw new Error(`repository plugin must stay inside the checkout: ${entry}`);
+    }
+    try {
+      const plugin = await loadFile(target, 'repo');
       const dropped: string[] = [];
       enforceScope(plugin, dropped);
       for (const message of plugin.warnings) opts.warn?.(message);
@@ -231,10 +239,15 @@ export function runSessionHook(
   warn: (message: string) => void = () => {},
 ): void {
   for (const loaded of personalCache) {
-    const fn = loaded.plugin.hooks?.[hook] as ((arg: typeof ctx) => void) | undefined;
+    const fn = loaded.plugin.hooks?.[hook] as ((arg: typeof ctx) => void | Promise<void>) | undefined;
     if (!fn) continue;
     try {
-      fn(ctx);
+      const result = fn(ctx);
+      if (result && typeof (result as Promise<void>).then === 'function') {
+        (result as Promise<void>).catch((error: unknown) => {
+          warn(`hook ${hook} failed in ${path.basename(loaded.file)}: ${(error as Error).message}`);
+        });
+      }
     } catch (error) {
       warn(`hook ${hook} failed in ${path.basename(loaded.file)}: ${(error as Error).message}`);
     }

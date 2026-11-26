@@ -63,7 +63,7 @@ export default {
   hooks: {
     beforeSession(ctx) { writeFileSync(${JSON.stringify(marker)}, ctx.session); },
   },
-  extractors: [{ name: 'personal-extractor', extract() { return []; } }],
+  extractors: [{ name: 'personal-extractor', extract() { return [{ subject: 'doc:PERSONAL.md', predicate: 'has_section', object: 'Personal marker', evidenceRef: 'README.md' }]; } }],
 };
 `,
     'utf8',
@@ -115,6 +115,7 @@ export default {
   // Repository extractor runs in ingest; a repo plugin cannot add hosts.
   const dry = ok(['ingest', '--dry-run']);
   assert.match(dry, /doc:PLUGIN\.md \| has_section \| Plugin marker/);
+  assert.doesNotMatch(dry, /doc:PERSONAL\.md/, 'personal extractors must never reach ingest');
   const first = ok(['ingest']);
   assert.match(first, /cannot register agentHosts/);
   const diff = ok(['diff', 'main..agent/plugin_sess']);
