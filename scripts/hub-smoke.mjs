@@ -203,6 +203,17 @@ try {
   run(f, ['fetch'], { LORE_HUB_TOKEN: ownerToken });
   assert.match(run(f, ['search', 'hub-purge2-marker']), /hub-purge2-marker/);
 
+  // A cursor saved from an empty pull must not skip the first later row.
+  const g = repo('repo-g');
+  run(g, ['init']);
+  configure(g, ownerToken);
+  run(g, ['fetch'], { LORE_HUB_TOKEN: ownerToken });
+  run(a, ['write', '--subject', 'doc:smoke/first-row.md', '--predicate', 'has_section', '--object', 'hub-first-row-marker', '--kind', 'file', '--ref', 'README.md']);
+  run(a, ['promote']);
+  run(a, ['push'], { LORE_HUB_TOKEN: ownerToken });
+  run(g, ['fetch'], { LORE_HUB_TOKEN: ownerToken });
+  assert.match(run(g, ['search', 'hub-first-row-marker']), /hub-first-row-marker/);
+
   // MCP transport accepts a repository token and lists the sync tools.
   const mcp = await fetch(`${HUB}/mcp`, {
     method: 'POST',
