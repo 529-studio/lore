@@ -26,7 +26,13 @@ function hubUrl(value?: string): string {
 async function adminPost(path: string, body: unknown, url?: string, envName = 'LORE_HUB_ADMIN_TOKEN'): Promise<unknown> {
   const token = process.env[envName];
   if (!token) throw new Error(`set ${envName} to issue or revoke hub tokens`);
-  const response = await fetch(`${hubUrl(url)}${path}`, {
+  const hubBase = hubUrl(url);
+  const parsedUrl = new URL(hubBase);
+  const loopback = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(parsedUrl.hostname);
+  if (parsedUrl.protocol !== 'https:' && !(loopback && process.env.LORE_HUB_ALLOW_INSECURE === '1')) {
+    throw new Error('refusing to send the admin token over plain http; use https');
+  }
+  const response = await fetch(`${hubBase}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
     body: JSON.stringify(body),

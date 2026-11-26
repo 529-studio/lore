@@ -48,6 +48,12 @@ function send(res: ServerResponse, status: number, body: unknown): void {
   res.end(text);
 }
 
+function assertSyncPrincipal(principal: HubPrincipal): void {
+  if (principal.sub === 'admin' && principal.jti === null) {
+    throw new HubError(403, 'the admin token may only issue or revoke tokens; use a repository token');
+  }
+}
+
 const TOOLS = [
   {
     name: 'repo_pull',
@@ -77,6 +83,7 @@ async function handleRpc(
   principal: HubPrincipal,
   payload: Record<string, unknown>,
 ): Promise<Record<string, unknown> | null> {
+  assertSyncPrincipal(principal);
   const method = String(payload.method ?? '');
   const id = payload.id ?? null;
   const params = (payload.params ?? {}) as Record<string, unknown>;
@@ -100,7 +107,7 @@ async function handleRpc(
   const args = (params.arguments ?? {}) as Record<string, unknown>;
   const repoId = String(args.repo_id ?? '');
   if (!repoId) throw new HubError(400, 'repo_id is required');
-  tokenRepoAllowed(principal, repoId, principal.repoId);
+  tokenRepoAllowed(principal, repoId);
   const client = await connect();
   try {
     if (name === 'repo_pull') {
@@ -198,7 +205,8 @@ export async function startHubServer(opts: { port?: number; host?: string } = {}
         const match = /^\/v1\/repos\/([^/]+)\/(pull|push)$/.exec(url.pathname);
         if (!match) throw new HubError(404, 'not found');
         const repoId = decodeURIComponent(match[1]);
-        tokenRepoAllowed(principal, repoId, principal.repoId);
+        assertSyncPrincipal(principal);
+        tokenRepoAllowed(principal, repoId);
         const body = await readJson(req);
 
         if (match[2] === 'pull') {

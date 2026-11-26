@@ -32,8 +32,10 @@ CREATE TABLE IF NOT EXISTS repos (
   repo_id text PRIMARY KEY,
   main_commit text,
   policy jsonb,
+  seq bigint NOT NULL DEFAULT 0,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE repos ADD COLUMN IF NOT EXISTS seq bigint NOT NULL DEFAULT 0;
 CREATE TABLE IF NOT EXISTS repo_commits (
   repo_id text NOT NULL, id text NOT NULL, payload jsonb NOT NULL,
   seq bigint NOT NULL DEFAULT nextval('hub_seq'), PRIMARY KEY (repo_id, id)
@@ -127,9 +129,9 @@ export async function authenticate(client: Client, token: string): Promise<HubPr
   return { sub: row.sub, role: row.role, jti: hash, repoId: row.repo_id };
 }
 
-export function tokenRepoAllowed(principal: HubPrincipal, repoId: string, rowRepoId?: string | null): void {
-  if (principal.role === 'maintainer' || !rowRepoId) return;
-  if (rowRepoId !== repoId) throw new HubError(403, `token is scoped to repository ${rowRepoId}`);
+export function tokenRepoAllowed(principal: HubPrincipal, repoId: string): void {
+  if (!principal.repoId) return;
+  if (principal.repoId !== repoId) throw new HubError(403, `token is scoped to repository ${principal.repoId}`);
 }
 
 export async function issueToken(
@@ -157,17 +159,12 @@ export async function revokeToken(client: Client, input: { jti: string; reason?:
   await client.query('UPDATE hub_tokens SET revoked_at = now() WHERE token_hash = $1', [input.jti]);
 }
 
-async function currentSeq(client: Client): Promise<number> {
-  const { rows } = await client.query("SELECT last_value FROM hub_seq");
-  return Number(rows[0]?.last_value ?? 0);
-}
-
 async function repoState(client: Client, repoId: string): Promise<HubRepoState & { policy: GranularPolicyFile | null }> {
-  const { rows } = await client.query('SELECT main_commit, policy FROM repos WHERE repo_id = $1', [repoId]);
+  const { rows } = await client.query('SELECT main_commit, policy, seq FROM repos WHERE repo_id = $1', [repoId]);
   return {
     main: (rows[0]?.main_commit as string | null) ?? null,
     policy: (rows[0]?.policy as GranularPolicyFile | null) ?? null,
-    seq: await currentSeq(client),
+    seq: Number(rows[0]?.seq ?? 0),
   };
 }
 
@@ -227,23 +224,50 @@ export async function pull(client: Client, repoId: string, sinceSeq: number): Pr
   return { bundle: rowsToBundle(repoId, rows, state.main), main: state.main, seq: state.seq };
 }
 
+function principalIdentity(principal: HubPrincipal): {
+  id: string;
+  role: 'maintainer' | 'contributor' | 'machine' | 'auditor';
+  source: 'token';
+} {
+  return {
+    id: principal.sub,
+    role: principal.role as 'maintainer' | 'contributor' | 'machine' | 'auditor',
+    source: 'token',
+  };
+}
+
+function rolesAllow(
+  policy: GranularPolicyFile | null,
+  roles: string[],
+  principal: HubPrincipal,
+): boolean {
+  const identity = principalIdentity(principal);
+  return roles.some((role) => isMember(policy, role, identity));
+}
+
 function assertPolicyAllows(
   policy: GranularPolicyFile | null,
   principal: HubPrincipal,
   bundle: Bundle,
+  storedSubjects: Map<string, string>,
 ): void {
   if (!policy || principal.role === 'maintainer') return;
-  const identity = { id: principal.sub, role: principal.role as 'maintainer' | 'contributor' | 'machine' | 'auditor', source: 'token' as const };
   for (const claim of bundle.claims) {
-    const subject = typeof claim.subject_id === 'string' ? claim.subject_id : undefined;
+    const id = String(claim.id ?? '');
+    const stored = storedSubjects.get(id);
+    const incoming = typeof claim.subject_id === 'string' ? claim.subject_id : undefined;
+    if (stored && incoming && stored !== incoming) {
+      throw new HubError(403, `claim ${id} cannot change its subject`);
+    }
+    const subject = stored ?? incoming;
     if (!subject) continue;
     for (const [pattern, roles] of Object.entries(policy.write ?? {})) {
-      if (matchSubject(pattern, subject) && !roles.some((role) => isMember(policy, role, identity))) {
+      if (matchSubject(pattern, subject) && !rolesAllow(policy, roles, principal)) {
         throw new HubError(403, `write to ${subject} requires role ${roles.join(' or ')}`);
       }
     }
     for (const [pattern, roles] of Object.entries(policy.protected ?? {})) {
-      if (matchSubject(pattern, subject) && !roles.some((role) => isMember(policy, role, identity))) {
+      if (matchSubject(pattern, subject) && !rolesAllow(policy, roles, principal)) {
         throw new HubError(403, `subject ${subject} is protected; requires role ${roles.join(' or ')}`);
       }
     }
@@ -277,7 +301,8 @@ function parsePolicy(text: string): GranularPolicyFile {
  * payload actually changed, so a peer pulling by cursor receives deltas.
  */
 export async function push(client: Client, input: PushInput): Promise<PushResult> {
-  const { repoId, bundle, principal } = input;
+  const { repoId, principal } = input;
+  let bundle = input.bundle;
   await client.query('BEGIN');
   try {
     await client.query('INSERT INTO repos(repo_id) VALUES ($1) ON CONFLICT (repo_id) DO NOTHING', [repoId]);
@@ -300,7 +325,44 @@ export async function push(client: Client, input: PushInput): Promise<PushResult
       policy = parsePolicy(input.policy);
       await client.query('UPDATE repos SET policy = $2 WHERE repo_id = $1', [repoId, policy]);
     }
-    assertPolicyAllows(policy, principal, bundle);
+
+    if (principal.role !== 'maintainer' && (bundle.token_revocations?.length ?? 0) > 0) {
+      // Revocations are global security state; a contributor cannot revoke a
+      // peer. Drop the rows instead of failing the whole sync.
+      bundle = { ...bundle, token_revocations: [] };
+    }
+
+    const claimIds = [
+      ...(bundle.claims ?? []).map((row) => String(row.id ?? '')),
+      ...(bundle.redactions ?? []).map((row) => String(row.claim_id ?? '')),
+      ...(bundle.purge_audits ?? []).map((row) => String(row.claim_id ?? '')),
+    ].filter(Boolean);
+    const storedSubjects = new Map<string, string>();
+    if (claimIds.length) {
+      const { rows: stored } = await client.query(
+        'SELECT id, payload FROM repo_claims WHERE repo_id = $1 AND id = ANY($2::text[])',
+        [repoId, claimIds],
+      );
+      for (const row of stored as Array<{ id: string; payload: Record<string, unknown> }>) {
+        if (typeof row.payload.subject_id === 'string') storedSubjects.set(row.id, row.payload.subject_id);
+      }
+    }
+    assertPolicyAllows(policy, principal, bundle, storedSubjects);
+
+    if (principal.role !== 'maintainer') {
+      // A contributor may echo tombstones it already knows, but cannot create
+      // new ones: a purge/redact would otherwise destroy a peer's claim.
+      const known = new Set(
+        (
+          await client.query('SELECT kind, claim_id FROM repo_tombstones WHERE repo_id = $1', [repoId])
+        ).rows.map((row) => `${row.kind}:${row.claim_id}`),
+      );
+      bundle = {
+        ...bundle,
+        redactions: (bundle.redactions ?? []).filter((row) => known.has(`redaction:${row.claim_id}`)),
+        purge_audits: (bundle.purge_audits ?? []).filter((row) => known.has(`purge:${row.claim_id}`)),
+      };
+    }
 
     const upsert = async (
       table: string,
@@ -369,7 +431,9 @@ export async function push(client: Client, input: PushInput): Promise<PushResult
       await client.query(
         `INSERT INTO auth_revocations(jti, sub, reason, revoked_by)
          VALUES ($1, $2, $3, $4)
-         ON CONFLICT (jti) DO UPDATE SET reason = excluded.reason, seq = nextval('hub_seq')`,
+         ON CONFLICT (jti) DO UPDATE
+         SET reason = excluded.reason, seq = nextval('hub_seq')
+         WHERE auth_revocations.reason IS DISTINCT FROM excluded.reason`,
         [row.jti, row.sub ?? null, row.reason ?? null, row.revoked_by ?? 'sync'],
       );
     }
@@ -382,8 +446,14 @@ export async function push(client: Client, input: PushInput): Promise<PushResult
       );
     }
     const nextMain = mainRef ?? currentMain;
-    await client.query('UPDATE repos SET main_commit = $2, updated_at = now() WHERE repo_id = $1', [repoId, nextMain]);
-    const seq = await currentSeq(client);
+    await client.query(
+      `UPDATE repos SET main_commit = $2, updated_at = now(),
+         seq = GREATEST(seq, (SELECT COALESCE(last_value, 0) FROM hub_seq))
+       WHERE repo_id = $1`,
+      [repoId, nextMain],
+    );
+    const { rows: seqRows } = await client.query('SELECT seq FROM repos WHERE repo_id = $1', [repoId]);
+    const seq = Number(seqRows[0]?.seq ?? 0);
     await client.query('COMMIT');
     return { main: nextMain, seq };
   } catch (error) {
@@ -396,9 +466,4 @@ export async function push(client: Client, input: PushInput): Promise<PushResult
     }
     throw error;
   }
-}
-
-export async function repoStateFor(client: Client, repoId: string): Promise<HubRepoState> {
-  const state = await repoState(client, repoId);
-  return { main: state.main, seq: state.seq };
 }

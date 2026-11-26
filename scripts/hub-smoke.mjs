@@ -176,7 +176,7 @@ try {
   // MCP transport accepts the admin token and lists the sync tools.
   const mcp = await fetch(`${HUB}/mcp`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${ADMIN}` },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${ownerToken}` },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
   });
   const mcpJson = await mcp.json();

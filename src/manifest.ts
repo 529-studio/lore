@@ -35,10 +35,11 @@ function assertNoSecrets(value: unknown, where: string): void {
     return;
   }
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (/password|secret|token|api[_-]?key/i.test(key)) {
-      invalid(`${where ? `${where}.` : ''}${key} must not be committed; use an environment variable`);
+    const full = where ? `${where}.${key}` : key;
+    if (/password|secret|token|api[_-]?key/i.test(key) && full !== 'remote.token_env') {
+      invalid(`${full} must not be committed; use an environment variable`);
     }
-    assertNoSecrets(entry, `${where}.${key}`);
+    assertNoSecrets(entry, full);
   }
 }
 
