@@ -151,6 +151,11 @@ function repo(name, { solo = true } = {}) {
   check(Boolean(exactId), 'exact rule was written');
 
   const json = runOk(['search', 'X-Telemetry-Key', '--json'], { cwd: dir, env }, 'search exact phrase').stdout;
+  const scopedJson = runOk(
+    ['search', 'X-Telemetry-Key', '--files', 'telemetry.ts', '--json'],
+    { cwd: dir, env },
+    'search exact phrase in scope',
+  ).stdout;
   let parsed;
   try {
     parsed = JSON.parse(json);
@@ -165,7 +170,31 @@ function repo(name, { solo = true } = {}) {
     check(rank >= 0 && rank < 3, `exact rule ranks in the top 3 (got ${rank < 0 ? 'absent' : rank + 1})`);
     const firstBoilerplate = hits.findIndex((h) => h.id !== exactId && h.subject.startsWith('sym:telemetry.ts#'));
     check(rank >= 0 && (firstBoilerplate === -1 || rank < firstBoilerplate), 'exact rule outranks single-token boilerplate');
+
+    // Scope bonuses (anchor + proximity) must not lift single-token claims
+    // above the exact rule either.
+    const scoped = JSON.parse(scopedJson).hits ?? [];
+    const scopedRank = scoped.findIndex((h) => h.id === exactId);
+    check(scopedRank >= 0 && scopedRank < 3, `exact rule ranks in the top 3 in a scoped search (got ${scopedRank < 0 ? 'absent' : scopedRank + 1})`);
   }
+
+  // Phrase matching is token-boundary anchored: "bar baz" is not a phrase in
+  // "foobar bazooka".
+  const boundary = runOk(
+    [
+      'write',
+      '--subject', 'rule:no-guard',
+      '--predicate', 'describes',
+      '--object', 'foobar bazooka',
+      '--kind', 'human',
+      '--author', 'human:smoke',
+    ],
+    { cwd: dir, env },
+    'write boundary claim',
+  ).stdout;
+  const boundaryId = boundary.match(/c_[a-f0-9]{32}/)?.[0] ?? '';
+  const boundaryHits = JSON.parse(runOk(['search', 'bar baz', '--json'], { cwd: dir, env }, 'search boundary phrase').stdout).hits ?? [];
+  check(!boundaryHits.some((h) => h.id === boundaryId), 'phrase match requires token boundaries');
 }
 
 if (failures) {

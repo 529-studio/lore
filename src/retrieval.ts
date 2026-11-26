@@ -37,6 +37,8 @@ export interface SearchHit {
   claim: ClaimRow;
   score: number;
   reasons: string[]; // human-readable scoring breakdown
+  /** Lexical precedence: 2 exact phrase, 1 full token coverage, 0 partial. */
+  lexicalTier: number;
   stale: boolean;
   /** The claim describes newer code than this checkout. */
   ahead: boolean;
@@ -185,6 +187,12 @@ interface ScoreParts {
   reasons: string[];
   /** True when the query or scope actually touches this claim. */
   relevant: boolean;
+  /**
+   * Lexical precedence: 2 = exact phrase, 1 = every query token present,
+   * 0 = partial coverage. Phrase and full coverage must outrank single-token
+   * boilerplate even when that boilerplate earns anchor/proximity bonuses.
+   */
+  lexicalTier: number;
 }
 
 interface ScopeContext {
@@ -241,6 +249,7 @@ function scoreClaim(
   const parts: number[] = [];
   const reasons: string[] = [];
   let relevant = false;
+  let lexicalTier = 0;
 
   // --- anchor: evidence ref or subject path inside the task scope -------------
   const anchorRefs: string[] = [];
@@ -315,9 +324,15 @@ function scoreClaim(
     for (const token of ctx.queryTokens) if (claimTokens.has(token)) matched++;
     const tokenCoverage = ctx.queryTokens.size ? matched / ctx.queryTokens.size : 0;
     const queryPhrase = ctx.queryText ? normalizePhrase(ctx.queryText) : '';
-    const phraseHit = Boolean(queryPhrase) && queryPhrase.split(' ').length >= 2 && normalizePhrase(claimText).includes(queryPhrase);
+    // Boundary-anchored: "bar baz" must not match "foobar bazooka".
+    const phraseHit =
+      Boolean(queryPhrase) &&
+      queryPhrase.split(' ').length >= 2 &&
+      ` ${normalizePhrase(claimText)} `.includes(` ${queryPhrase} `);
 
     if (tokenCoverage > 0 || phraseHit) relevant = true;
+    if (phraseHit) lexicalTier = 2;
+    else if (tokenCoverage === 1) lexicalTier = 1;
     if (tokenCoverage > 0) {
       const part = W_COVERAGE * tokenCoverage;
       parts.push(part);
@@ -353,7 +368,7 @@ function scoreClaim(
     reasons.push(`${W_STALE.toFixed(1)} stale (evidence hash no longer matches)`);
   }
 
-  return { score: parts.reduce((sum, v) => sum + v, 0), reasons, relevant };
+  return { score: parts.reduce((sum, v) => sum + v, 0), reasons, relevant, lexicalTier };
 }
 
 /** Approximate context cost of a hit, in tokens (chars/4 — SPEC §9 budget). */
@@ -518,13 +533,17 @@ export function searchMemory(db: DB, root: string, opts: SearchOptions = {}): Se
     if (ahead && !opts.trustRemote) continue;
     const evidence = hashlessEvidence.get(c.id) ?? [];
     const subjectPath = pathFromEntity(c.subject_id);
-    const { score, reasons, relevant } = scoreClaim(db, c, evidence, subjectPath, ctx, stale);
+    const { score, reasons, relevant, lexicalTier } = scoreClaim(db, c, evidence, subjectPath, ctx, stale);
     // A query must touch the claim: authority and freshness alone are not relevance.
     if (ctx.queryTokens && !relevant) continue;
-    hits.push({ claim: c, score, reasons, stale, ahead });
+    hits.push({ claim: c, score, reasons, lexicalTier, stale, ahead });
   }
 
   hits.sort((a, b) => {
+    // Exact phrase and full coverage beat partial matches before score:
+    // anchor/proximity bonuses must not let single-token boilerplate bury an
+    // exact rule (#181).
+    if (a.lexicalTier !== b.lexicalTier) return b.lexicalTier - a.lexicalTier;
     if (a.score !== b.score) return b.score - a.score;
     const key = (h: SearchHit) => `${h.claim.subject_id}\u0000${h.claim.predicate}`;
     return key(a).localeCompare(key(b));
