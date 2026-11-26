@@ -429,33 +429,33 @@ No LLM judge. Outcome metrics on real repositories:
 | retrieval filters drafts/stale | retrieval also requires `trust = canonical`; contested facts warn | trust is orthogonal to branch membership |
 | stale derived on read | `canon decay` persists `trust = stale`; read path lazily checks TTL/paths | shared memory needs a durable stale answer |
 | evidence commit must be an ancestor | a non-ancestor stays `ahead-of-checkout`, not stale | an older checkout must not invalidate an observation made on newer code |
-| sync carries commits only | bundle import merges trust (retracted wins); tombstones applied; `lore replicate` streams WAL | a fetch must not resurrect a value; clusters need streaming |
+| sync carries commits only | bundle import merges trust (retracted wins, newer verification wins); tombstones applied; `lore replicate` streams WAL | a fetch must not resurrect a value; clusters need streaming |
 | trust changes via evidence | `canon resolve` keeps one value; redact/purge close the pair | contested memory needs an auditable exit |
 | no team sync | `lore remote` + `fetch`/`push` over directory or Postgres, `bundle` for air gaps | air-gapped repos cannot depend on git hosts |
-| `--as-of` reads the commit at that instant | folds the whole ancestry, skipping commits after the instant | a single commit chain hides facts on sibling branches before a merge |
+| `--as-of` reads the commit at that instant | folds the whole ancestry, skipping commits after the instant | sibling branches hide facts before a merge |
 | hash cache keyed by content | keyed by size, mtime and ctime | mtime can be restored; ctime changes on any inode write |
 | file/test evidence auto-promotes | only when the evidence hash was actually observed | an unhashable file is not evidence |
-| `conflict_rate` over 20 sessions | aborts among merges expected to succeed; deliberate conflicts reported separately | measuring a designed conflict against a production threshold is a category error |
+| `conflict_rate` over 20 sessions | counts only merges expected to succeed | a designed conflict is not a production threshold |
 | MCP has five tools | eight tools and resource subscriptions | without approve and resources, MCP memory is incomplete |
 | CLI has static config | `lore setup` auto-wires MCP and `lore config` manages settings | manual editing was error-prone and missed session isolation |
-| UI has flat triple table only | Knowledge Hub defaults to Entity Dossier view with bulleted facts | raw triples fragmented memory and confused users on retrieval |
+| UI has flat triple table only | Knowledge Hub defaults to Entity Dossier view with bulleted facts | raw triples fragmented memory |
 | search couples bi-temporal dimensions | decoupled bi-temporal search (`--valid-at`, `--tx-at`, `lore timeline`) | audit requires querying past beliefs independently |
 | UI is static on read | live Server-Sent Events (`/api/events`) with SQLite version detection | mutations must reflect live without manual refresh |
 | UI graph is uniform radial scatter | semantic visual clustering and predicate relationship filtering | graphs need domain grouping |
 | Windows installer unsigned | CI Authenticode + SHA-256 | verifiable binaries |
-| tokens immutable for 30d | revocation registry and JTI checks (`lore identity revoke`) | revoke without re-keying |
+| tokens immutable for 30d | revocation registry + JTI checks (`lore identity revoke`) | revoke without re-keying |
 | writes are draft only | permissive trust mode (`init --solo`) auto-promotes | solo retrieval without approval overhead |
-| static 3-bullet agent rules | rich ontology guidelines (`lore rules [--update]`) with entity prefixes and tiers | prevents hallucinated predicates without namespace guidance |
+| static 3-bullet agent rules | rich ontology guidelines (`lore rules [--update]`) with entity prefixes and tiers | prevents hallucinated predicates |
 | manual review and promote | `lore wrapup [--yes]` / `lore session` | sessions left unreviewed drafts behind |
-| bare init creates store only | `init --full`/`onboard` ingest on a fresh branch and promote it to `main`, then configure MCPs | agents forked from `main` must see the baseline |
-| onboard prints hardcoded Claude command | `lore onboard` auto-detects agents and wires MCP configs directly | multi-agent repos require dynamic agent wiring |
+| bare init creates store only | `init --full`/`onboard` ingest on a fresh branch and promote it to `main` | agents forked from `main` must see the baseline |
+| onboard prints hardcoded Claude command | `lore onboard` auto-detects agents and wires MCP configs directly | multi-agent repos need dynamic wiring |
 | sync is batch push/fetch only | bi-directional sync adapter (`lore sync`, `memory_sync`) | nodes need atomic sync without lock collisions |
 | concurrency verified on 4x25 writes only | multi-worker concurrency benchmark (`scripts/bench-concurrency.mjs`) | clusters require soak testing for latency and WAL integrity |
 | gossip convergence untested on clusters | multi-replica gossip simulator (`scripts/bench-cluster.mjs`) | clusters require benchmarking convergence |
 | SQLite WAL static 1000-page autocheckpoint | adaptive WAL checkpoint auto-tuning (`LORE_WAL_AUTOCHECKPOINT`) | high-write sessions need scaling to prevent WAL bloat |
 | temporal query requires absolute timestamps | relative temporal query parsing (`src/canon/temporal.ts`) | agents query memory with relative expressions |
 | GC only soft-retracts drafts | GC compaction & tombstone purging (`src/gc.ts`) | stores accumulate tombstones and fragmented SQLite pages |
-| benchmark is terminal-only | Prometheus/OTel exporter (`exportPrometheusMetrics`) | dashboards need standard metrics |
+| benchmark is terminal-only | Prometheus/OTel exporter (`exportPrometheusMetrics`) | dashboards need metrics |
 | UI lacks multi-agent sync | sync indicators and `/api/sync/status` (`src/ui/server.ts`) | agents need live convergence signals |
 | lexical retrieval | semantic hybrid (`src/search/vector.ts`) | synonyms missed |
 | equal-tier merge aborts | semantic 3-way resolver (`src/merge.ts`) | confidence and vectors break ties |
@@ -472,6 +472,7 @@ No LLM judge. Outcome metrics on real repositories:
 | hosts hardcoded in `setup` | personal/repo plugin scopes (`src/plugins/loader.ts`) | extend without core edits |
 | status trusts persisted counts; GC uses row age | status separates persisted trust, live drift, branch/store; GC ages drafts from last observation | contradictory counts and fresh-draft warnings (#181) |
 | similarity = Jaccard token overlap | coverage and exact-phrase weights rank before authority | one shared token must not bury an exact rule (#181) |
+| ingest reads root manifests only | package.json, Makefile, docker-compose* at any depth; Python requirements/pyproject/imports; go.mod | monorepos are the common shape |
 
 ## Glossary
 

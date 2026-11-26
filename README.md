@@ -57,7 +57,7 @@ npm i -g @529studio/lore        # or install the tarball from Releases
 
 cd my-project
 lore init                       # creates .lore/ + lore.ontology.yml
-lore ingest                     # derives claims from package.json, env vars, imports, routes, rules
+lore ingest                     # derives claims from manifests, env vars, imports, routes, rules
 lore status                     # 77 active, 0 draft, 0 stale
 lore search "DATABASE_URL"      # ranked claims with evidence and score breakdown
 lore blame env:DATABASE_URL     # who/what taught this, and whether it is still true
@@ -82,8 +82,8 @@ Developers and teams using coding agents on a repository. CLI and MCP server req
 
 ### Prerequisites
 
-- **Node.js 22 or newer** (`node --version`)
-- **git** (the extractor uses `git ls-files`, and `lore` stores memory next to the repo)
+- **Node.js 22+** (`node --version`)
+- **git** (`git ls-files` drives extraction; memory lives beside the repo)
 - An MCP-capable client: Claude Code, Codex CLI, Gemini CLI, Cursor, or anything speaking MCP over stdio.
 
 ### Install
@@ -118,9 +118,9 @@ lore.ontology.yml      # which predicates may hold one value vs many
 
 | Source | Claim example |
 |---|---|
-| `package.json` | `pkg:zod — declared_dependency — ^4.0.0 (dependencies)` |
+| manifests | `pkg:zod — declared_dependency — ^4.0.0`, from package.json, requirements*.txt, pyproject.toml or go.mod at any depth |
 | env vars | `env:DATABASE_URL — read_by — src/db.ts` |
-| imports | `file:src/api.ts — imports_module — zod` |
+| imports | `file:src/api.ts — imports_module — zod`; `file:backend/app.py — imports_module — django.db` |
 | routes | `file:src/routes.ts — exposes_route — GET /health` |
 | in-code invariants | `file:src/db.go#L42 — enforces_invariant — Hand-written SQL only` |
 | ADR decisions | `adr:001 — decides — Store memory in a single SQLite file` |
@@ -128,7 +128,7 @@ lore.ontology.yml      # which predicates may hold one value vs many
 | rule registries | `rule:MCP-001 — detects — Remote endpoint uses plain HTTP` |
 | root docs | `doc:README.md — has_section — Quick start` |
 
-Re-running `ingest` is idempotent: claims are content-addressed, so the same fact gets the same id.
+Re-running `ingest` is idempotent: claims are content-addressed.
 
 ### Connect your agents (MCP)
 
@@ -145,8 +145,8 @@ lore setup opencode   # OpenCode (opencode.json)
 
 Or configure manually: `claude mcp add lore --scope project --env LORE_SESSION=claude -- node "$(command -v lore)" mcp`.
 
-Each client sets its own `LORE_SESSION`, which maps to a branch `agent/<session>`.
-Agents never write to `main`; you decide what gets promoted. Full details: [docs/mcp.md](docs/mcp.md).
+Each client sets its own `LORE_SESSION` (a branch `agent/<session>`); agents never write to `main`.
+Full details: [docs/mcp.md](docs/mcp.md).
 
 ### Daily workflow
 
