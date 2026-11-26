@@ -218,9 +218,11 @@ function validateToml(content: string): { ok: true; document: TomlDocument } | {
     for (;;) {
       skipSpaces();
       if (at() === '"') {
-        parts.push(readBasicString());
+        // Quoted segments are literal keys: ["mcp_servers.lore"] is one key,
+        // not the nested mcp_servers.lore table, so keep the quotes.
+        parts.push(JSON.stringify(readBasicString()));
       } else if (at() === "'") {
-        parts.push(readLiteralString());
+        parts.push(JSON.stringify(readLiteralString()));
       } else {
         const match = /^[A-Za-z0-9_-]+/.exec(content.slice(index));
         if (!match) fail('expected a bare or quoted key');
@@ -278,8 +280,11 @@ function validateToml(content: string): { ok: true; document: TomlDocument } | {
       index += 1;
       return;
     }
+    const seen = new Set<string>();
     for (;;) {
-      readKeyPath();
+      const key = readKeyPath();
+      if (seen.has(key)) fail(`duplicate key "${key}" in inline table`);
+      seen.add(key);
       skipSpaces();
       if (at() !== '=') fail('expected "=" in inline table');
       index += 1;
@@ -387,6 +392,29 @@ function jsonHasLoreServer(config: unknown, agent: string): boolean {
   return Boolean(servers && typeof servers === 'object' && 'lore' in (servers as Record<string, unknown>));
 }
 
+function skipJsoncTrivia(text: string, from: number): number {
+  let index = from;
+  while (index < text.length) {
+    const char = text[index];
+    if (/\s/.test(char)) {
+      index += 1;
+      continue;
+    }
+    if (char === '/' && text[index + 1] === '/') {
+      while (index < text.length && text[index] !== '\n') index += 1;
+      continue;
+    }
+    if (char === '/' && text[index + 1] === '*') {
+      index += 2;
+      while (index < text.length && !(text[index] === '*' && text[index + 1] === '/')) index += 1;
+      index += 2;
+      continue;
+    }
+    break;
+  }
+  return index;
+}
+
 /** OpenCode configs are JSONC: line/block comments and trailing commas are legal. */
 function stripJsonc(text: string): string {
   let out = '';
@@ -420,8 +448,7 @@ function stripJsonc(text: string): string {
       continue;
     }
     if (char === ',') {
-      let next = index + 1;
-      while (next < text.length && /\s/.test(text[next])) next += 1;
+      const next = skipJsoncTrivia(text, index + 1);
       if (next < text.length && (text[next] === '}' || text[next] === ']')) {
         index += 1;
         continue;

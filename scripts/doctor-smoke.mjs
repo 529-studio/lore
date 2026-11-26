@@ -158,7 +158,10 @@ try {
       '  // local config',
       '  "mcp": {',
       '    "servers": {',
-      '      "lore": { "type": "local", "command": ["lore", "mcp"], },',
+      '      "lore": {',
+      '        "type": "local",',
+      '        "command": ["lore", "mcp"], // trailing comma before a comment',
+      '      }, /* block comment after a comma */',
       '    },',
       '  },',
       '}',
@@ -169,6 +172,28 @@ try {
   const jsoncRun = lore(['doctor', '--json'], brokenToml);
   const jsoncCheck = checkById(parseJson('jsonc: doctor --json', jsoncRun), 'mcp:opencode');
   if (jsoncCheck.status !== 'ok') fail('jsonc: opencode JSONC was not accepted', jsoncRun);
+
+  // A quoted header is one literal key, not the nested lore server.
+  writeFileSync(
+    path.join(brokenToml, '.codex', 'config.toml'),
+    '["mcp_servers.lore"]\ncommand = "lore"\nargs = ["mcp"]\n',
+    'utf8',
+  );
+  const quotedRun = lore(['doctor', '--json'], brokenToml);
+  const quotedCheck = checkById(parseJson('quoted: doctor --json', quotedRun), 'mcp:codex');
+  if (quotedCheck.status !== 'warn') fail('quoted: a quoted header was treated as the lore server', quotedRun);
+
+  // Duplicate keys inside an inline table are invalid TOML.
+  writeFileSync(
+    path.join(brokenToml, '.codex', 'config.toml'),
+    '[mcp_servers.lore]\ncommand = "lore"\nenv = { A = "1", A = "2" }\n',
+    'utf8',
+  );
+  const inlineRun = lore(['doctor', '--json'], brokenToml);
+  const inlineCheck = checkById(parseJson('inline: doctor --json', inlineRun), 'mcp:codex');
+  if (inlineCheck.status !== 'err' || !inlineCheck.message.includes('duplicate key')) {
+    fail('inline: duplicate inline-table key was accepted', inlineRun);
+  }
 
   // 3. Empty main with an ingested agent/* baseline: WARN, then --fix promotes it.
   const skew = prepareRepo('doctor-skew', 'ses_baseline');
