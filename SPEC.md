@@ -429,7 +429,7 @@ No LLM judge. Outcome metrics on real repositories:
 | retrieval filters drafts/stale | retrieval also requires `trust = canonical`; contested facts warn | trust is orthogonal to branch membership |
 | stale derived on read | `canon decay` persists `trust = stale`; read path lazily checks TTL/paths | shared memory needs a durable stale answer |
 | evidence commit must be an ancestor | a non-ancestor stays `ahead-of-checkout`, not stale | an older checkout must not invalidate an observation made on newer code |
-| sync carries commits only | bundle import merges trust (retracted wins, newer verification wins); tombstones applied; `lore replicate` streams WAL | a fetch must not resurrect a value; clusters need streaming |
+| sync carries commits only | bundle import merges trust (retracted wins, newer verification wins); tombstones applied; `lore replicate` streams WAL | a fetch must not resurrect a value; real-time clusters |
 | trust changes via evidence | `canon resolve` keeps one value; redact/purge close the pair | contested memory needs an auditable exit |
 | no team sync | `lore remote` + `fetch`/`push` over directory or Postgres, `bundle` for air gaps | air-gapped repos cannot depend on git hosts |
 | `--as-of` reads the commit at that instant | folds the whole ancestry, skipping commits after the instant | sibling branches hide facts before a merge |
@@ -438,7 +438,7 @@ No LLM judge. Outcome metrics on real repositories:
 | `conflict_rate` over 20 sessions | counts only merges expected to succeed | a designed conflict is not a production threshold |
 | MCP has five tools | eight tools and resource subscriptions | without approve and resources, MCP memory is incomplete |
 | CLI has static config | `lore setup` auto-wires MCP and `lore config` manages settings | manual editing was error-prone and missed session isolation |
-| UI has flat triple table only | Knowledge Hub defaults to Entity Dossier view with bulleted facts | raw triples fragmented memory |
+| UI flat triple table, one claim page | Entity Dossier, server search, label culling, repo modal, Conflicts tab | large stores stay usable |
 | search couples bi-temporal dimensions | decoupled bi-temporal search (`--valid-at`, `--tx-at`, `lore timeline`) | audit requires querying past beliefs independently |
 | UI is static on read | live Server-Sent Events (`/api/events`) with SQLite version detection | mutations must reflect live without manual refresh |
 | UI graph is uniform radial scatter | semantic visual clustering and predicate relationship filtering | graphs need domain grouping |
@@ -450,12 +450,12 @@ No LLM judge. Outcome metrics on real repositories:
 | bare init creates store only | `init --full`/`onboard` ingest on a fresh branch and promote it to `main` | agents forked from `main` must see the baseline |
 | onboard prints hardcoded Claude command | `lore onboard` auto-detects agents and wires MCP configs directly | multi-agent repos need dynamic wiring |
 | sync is batch push/fetch only | bi-directional sync adapter (`lore sync`, `memory_sync`) | nodes need atomic sync without lock collisions |
-| concurrency verified on 4x25 writes only | multi-worker concurrency benchmark (`scripts/bench-concurrency.mjs`) | clusters require soak testing for latency and WAL integrity |
+| concurrency verified on 4x25 writes only | multi-worker benchmark (`scripts/bench-concurrency.mjs`) | clusters need soak tests for latency and WAL |
 | gossip convergence untested on clusters | multi-replica gossip simulator (`scripts/bench-cluster.mjs`) | clusters require benchmarking convergence |
 | SQLite WAL static 1000-page autocheckpoint | adaptive WAL checkpoint auto-tuning (`LORE_WAL_AUTOCHECKPOINT`) | high-write sessions need scaling to prevent WAL bloat |
 | temporal query requires absolute timestamps | relative temporal query parsing (`src/canon/temporal.ts`) | agents query memory with relative expressions |
 | GC only soft-retracts drafts | GC compaction & tombstone purging (`src/gc.ts`) | stores accumulate tombstones and fragmented SQLite pages |
-| benchmark is terminal-only | Prometheus/OTel exporter (`exportPrometheusMetrics`) | dashboards need metrics |
+| benchmark is terminal-only | Prometheus/OTel export (`exportPrometheusMetrics`) | dashboards need metrics |
 | UI lacks multi-agent sync | sync indicators and `/api/sync/status` (`src/ui/server.ts`) | agents need live convergence signals |
 | lexical retrieval | semantic hybrid (`src/search/vector.ts`) | synonyms missed |
 | equal-tier merge aborts | semantic 3-way resolver (`src/merge.ts`) | confidence and vectors break ties |
