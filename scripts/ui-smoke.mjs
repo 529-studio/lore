@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startUi } from '../dist/ui/server.js';
+import { openDb } from '../dist/db.js';
+import { makeCommit, upsertClaim } from '../dist/model.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'dist', 'cli.js');
@@ -55,12 +57,134 @@ const write = (route, body, headers = {}) =>
     body: JSON.stringify(body),
   });
 
+let db;
 try {
+  db = openDb(work);
+  for (let i = 1; i <= 620; i++) {
+    const padded = String(i).padStart(4, '0');
+    upsertClaim(db, {
+      subject: `file:bulk/claim-${padded}.ts`,
+      predicate: 'notes',
+      object: `bulk value ${i}`,
+      author: 'agent:bulk',
+      forceActive: true,
+      sessionId: 'bulk-session',
+      evidence: [{ kind: 'agent', ref: 'smoke-bulk' }],
+    });
+  }
+  const conflictLeft = upsertClaim(db, {
+    subject: 'file:smoke-conflict.ts',
+    predicate: 'notes',
+    object: 'use alpha',
+    author: 'agent:smoke-conflict',
+    forceActive: true,
+    sessionId: 'smoke-conflict',
+    evidence: [{ kind: 'agent', ref: 'smoke-conflict' }],
+  });
+  const conflictRight = upsertClaim(db, {
+    subject: 'file:smoke-conflict.ts',
+    predicate: 'notes',
+    object: 'use beta',
+    author: 'agent:smoke-conflict',
+    forceActive: true,
+    sessionId: 'smoke-conflict',
+    evidence: [{ kind: 'agent', ref: 'smoke-conflict' }],
+  });
+  const originDraft = upsertClaim(db, {
+    subject: 'rule:smoke-branch-target',
+    predicate: 'enforces_invariant',
+    object: 'approved on the draft origin branch',
+    author: 'agent:smoke-origin',
+    forceDraft: true,
+    sessionId: 'smoke-origin',
+    evidence: [{ kind: 'agent', ref: 'smoke-origin' }],
+  });
+
+  const mergeSubject = 'file:merge-smoke.ts';
+  const nowIso = new Date().toISOString();
+  db.prepare('INSERT OR IGNORE INTO entity(id, kind, canonical, created_at) VALUES (?, ?, ?, ?)').run(
+    mergeSubject,
+    'file',
+    mergeSubject,
+    nowIso,
+  );
+  const insertRawClaim = db.prepare(
+    `INSERT INTO claim(id, subject_id, predicate, object_json, valid_from, tx_from, authority, confidence, author, state, trust, written_by)
+     VALUES (?, ?, 'notes', ?, NULL, ?, 4, 0.5, 'agent:merge-smoke', 'active', 'canonical', 'agent')`,
+  );
+  const mergeOurs = 'c_0000aa11';
+  const mergeTheirs = 'c_0000bb22';
+  insertRawClaim.run(mergeOurs, mergeSubject, JSON.stringify('merge ours value'), nowIso);
+  insertRawClaim.run(mergeTheirs, mergeSubject, JSON.stringify('merge theirs value'), nowIso);
+  const oursTip = makeCommit(db, {
+    ref: 'agent/merge-ours',
+    entries: [{ claim_id: mergeOurs, op: 'add' }],
+    message: 'merge fixture ours',
+    author: 'agent:merge-smoke',
+    kind: 'write',
+  });
+  const theirsTip = makeCommit(db, {
+    ref: 'agent/merge-theirs',
+    entries: [{ claim_id: mergeTheirs, op: 'add' }],
+    message: 'merge fixture theirs',
+    author: 'agent:merge-smoke',
+    kind: 'write',
+  });
+  db.prepare(
+    `INSERT INTO merge_conflict(ours_tip, theirs_tip, subject_id, predicate, ours_claim, theirs_claim, base_claim, reason, ts)
+     VALUES (?, ?, ?, 'notes', ?, ?, NULL, 'smoke merge conflict', ?)`,
+  ).run(oursTip, theirsTip, mergeSubject, mergeOurs, mergeTheirs, nowIso);
+  const mergeConflictId = db.prepare('SELECT last_insert_rowid() AS id').get().id;
+
   const health = await (await fetch(`${handle.url}/api/health`)).json();
   if (!health.active || health.active < 1) throw new Error(`health.active = ${health.active}`);
+  if (health.claim_conflicts < 1) throw new Error(`health.claim_conflicts = ${health.claim_conflicts}`);
+  if (health.merge_conflicts < 1) throw new Error(`health.merge_conflicts = ${health.merge_conflicts}`);
+  if (health.conflicts !== health.claim_conflicts + health.merge_conflicts) {
+    throw new Error(`health.conflicts ${health.conflicts} !== tier-1 + merge`);
+  }
 
-  const claims = await (await fetch(`${handle.url}/api/claims?limit=10`)).json();
-  if (!Array.isArray(claims) || claims.length < 1) throw new Error('claims endpoint returned nothing');
+  const claimPage = await (await fetch(`${handle.url}/api/claims?limit=10`)).json();
+  if (!Array.isArray(claimPage.claims) || claimPage.claims.length < 1) throw new Error('claims endpoint returned nothing');
+  if (claimPage.total < 620) throw new Error(`claims total ${claimPage.total} should include >620 seeded claims`);
+  const searchHit = await (await fetch(`${handle.url}/api/claims?q=bulk%2Fclaim-0600&limit=10`)).json();
+  if (searchHit.total !== 1 || !searchHit.claims[0]?.subject.endsWith('claim-0600.ts')) {
+    throw new Error(`server search did not find claim 600: ${JSON.stringify(searchHit)}`);
+  }
+  const beyondOffset = await (await fetch(`${handle.url}/api/claims?limit=20&offset=500`)).json();
+  if (!beyondOffset.claims.length || beyondOffset.claims[0].id === claimPage.claims[0].id) {
+    throw new Error('offset=500 did not return a later page');
+  }
+
+  const conflicts = await (await fetch(`${handle.url}/api/conflicts`)).json();
+  if (!Array.isArray(conflicts.claim) || conflicts.claim.length < 1) throw new Error('conflicts.claim empty');
+  if (!Array.isArray(conflicts.merge) || conflicts.merge.length < 1) throw new Error('conflicts.merge empty');
+  if (conflicts.total !== conflicts.claim.length + conflicts.merge.length) throw new Error('conflicts.total mismatch');
+
+  const tierOne = conflicts.claim.find((c) => c.subject === 'file:smoke-conflict.ts');
+  if (!tierOne || !tierOne.left || !tierOne.right) throw new Error('tier-1 conflict lacks side-by-side claims');
+  const resolvedTierOne = await write('/api/conflicts/resolve', { kind: 'claim', id: tierOne.id, take: 'ours' });
+  if (!resolvedTierOne.ok) throw new Error(`tier-1 resolve failed: ${resolvedTierOne.status}`);
+  const resolvedTierOneJson = await resolvedTierOne.json();
+  if (!resolvedTierOneJson.applied || resolvedTierOneJson.resolved_conflicts < 1) {
+    throw new Error(`tier-1 resolve did not close the conflict: ${JSON.stringify(resolvedTierOneJson)}`);
+  }
+
+  const resolvedMerge = await write('/api/conflicts/resolve', { kind: 'merge', id: mergeConflictId, take: 'ours' });
+  if (!resolvedMerge.ok) throw new Error(`merge resolve failed: ${resolvedMerge.status}`);
+  const resolvedMergeJson = await resolvedMerge.json();
+  if (!resolvedMergeJson.applied) throw new Error(`merge resolve not applied: ${JSON.stringify(resolvedMergeJson)}`);
+  const mergeOpen = db.prepare('SELECT COUNT(*) n FROM merge_conflict WHERE resolved = 0').get();
+  if (mergeOpen.n !== 0) throw new Error(`merge conflicts still open: ${mergeOpen.n}`);
+
+  const approvedOrigin = await write('/api/approve', { ids: [originDraft.id] });
+  if (!approvedOrigin.ok) throw new Error(`origin approve failed: ${approvedOrigin.status}`);
+  const approvedOriginJson = await approvedOrigin.json();
+  if (!approvedOriginJson.refs.includes('agent/smoke-origin')) {
+    throw new Error(`approve targeted ${JSON.stringify(approvedOriginJson.refs)}, expected agent/smoke-origin`);
+  }
+  const originRef = db.prepare("SELECT name FROM ref WHERE name = 'agent/smoke-origin'").get();
+  if (!originRef) throw new Error('approve did not commit on the draft origin branch');
 
   const identity = await (await fetch(`${handle.url}/api/identity`)).json();
   if (!identity.principal) throw new Error('identity endpoint returned no principal');
@@ -139,6 +263,20 @@ try {
   if (!pageHtml.includes('id="graph-density-toggle"') || !pageHtml.includes('queryQuadtree') || !pageHtml.includes('runLocalSimulation')) {
     throw new Error('page missing high-density graph worker or quadtree components');
   }
+  if (!pageHtml.includes('id="repo-modal"') || !pageHtml.includes('id="repo-recent-list"') || !pageHtml.includes('id="repo-browse-os"')) {
+    throw new Error('page missing in-browser repo switch modal');
+  }
+  if (!pageHtml.includes('id="claims-count"') || !pageHtml.includes('id="load-more-claims"')) {
+    throw new Error('page missing server pagination controls');
+  }
+  if (!pageHtml.includes('id="tab-conflicts"') || !pageHtml.includes('id="conflicts-list"')) {
+    throw new Error('page missing conflicts tab');
+  }
+  if (!pageHtml.includes('cluster-badge') || !pageHtml.includes('labelBoxes')) {
+    throw new Error('page missing graph label culling or cluster badges');
+  }
+  const eventSourceCount = (pageHtml.match(/new EventSource\('\/api\/events'\)/g) || []).length;
+  if (eventSourceCount !== 1) throw new Error(`expected exactly one EventSource, found ${eventSourceCount}`);
 
   // Test Web Worker route and syntax
   const workerRes = await fetch(`${handle.url}/graph-worker.js`);
@@ -231,6 +369,10 @@ try {
 
   // Test repo indicator & repo switch endpoint
   if (!health.repo?.path || !health.repo?.name) throw new Error('health endpoint missing repo info');
+  const recentRes = await (await fetch(`${handle.url}/api/repo/recent`)).json();
+  if (!recentRes.current || !Array.isArray(recentRes.recent) || !recentRes.recent.includes(recentRes.current)) {
+    throw new Error(`repo recent endpoint invalid: ${JSON.stringify(recentRes)}`);
+  }
   const work2 = mkdtempSync(path.join(tmpdir(), 'lore-ui-switch-'));
   const switched = await write('/api/repo/switch', { path: work2 });
   if (!switched.ok) throw new Error(`repo switch failed: ${switched.status}`);
@@ -239,5 +381,6 @@ try {
 
   console.log('[OK] ui: read endpoints, CSRF, origin check, approve, reject, revert, claim, supersede, ontology, claim-details, favicons, repo-switch, sse-stream, graph-clustering');
 } finally {
+  db?.close();
   await handle.close();
 }

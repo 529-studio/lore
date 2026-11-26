@@ -44,7 +44,7 @@ stale, then accept the new reality with `verify --accept`.*
 
 **Canon demo:** [memory stops being injected after npm → pnpm](scripts/demo/canon-pnpm.sh).
 
-**GUI:** `lore ui` serves a live dashboard (Health, Sync, Review) with real-time SSE streaming. See [docs/desktop.md](docs/desktop.md).
+**GUI:** `lore ui` serves a dashboard (Health, Sync, Review, Conflicts) with SSE and search. See [docs/desktop.md](docs/desktop.md).
 
 ![Lore dashboard](docs/assets/dashboard.png)
 
@@ -82,7 +82,7 @@ Developers and teams using coding agents on a repository. CLI and MCP server req
 
 ### Prerequisites
 
-- **Node.js 22 or newer** (`node --version`)
+- **Node.js 22+** (`node --version`)
 - **git** (`git ls-files` drives extraction; memory lives beside the repo)
 - An MCP-capable client: Claude Code, Codex CLI, Gemini CLI, Cursor, or anything speaking MCP over stdio.
 
@@ -169,7 +169,7 @@ lore explain <claim|key>       why a claim is injected: trust, provenance, evide
 lore canon status|decay|confirm|resolve|metrics  trust, decay, re-confirm, resolve, metrics
 lore blame <subject>           provenance: author, evidence, branch membership
 lore timeline <subject>       bi-temporal revisions across valid-time and tx-time
-lore status [--strict]         health: active, draft, stale, conflicts, GC candidates
+lore status [--strict]         health: branch and store active/draft/stale, conflicts, GC
 lore diff <from>..<to>         claims added/removed between revisions
 lore merge <branch>           3-way merge; --semantic, exit 2 on real conflicts
 lore resolve [s] [p]          record conflict decision; --take, --auto-semantic

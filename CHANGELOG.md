@@ -5,6 +5,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 
 ## [Unreleased]
 
+### Fixed
+
+- Dashboard (#183): `/api/claims` now supports server-backed `q` and `offset` pagination with a
+  `total`, so searches find claims beyond the first page. Draft approvals and rejections commit on
+  the draft's origin branch instead of the viewer's session branch. The page keeps a single SSE
+  connection and debounces refreshes by event payload.
+- Dashboard UI (#183): collision-culled graph labels and cluster badges at high node counts; the Raw
+  Table scrolls horizontally with a sticky action column; Switch Repo opens an in-browser modal with
+  recent repositories and an explicit OS picker.
+- Dashboard conflicts (#183): `/api/health` counts tier-1 `claim_conflict` and `merge_conflict`, and
+  the new Conflicts tab compares both sides and resolves through the existing canon resolve and merge
+  planning paths.
+
 ## [0.5.0] — 2026-11-13
 
 ### Added
