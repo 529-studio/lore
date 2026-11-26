@@ -3148,20 +3148,25 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
               }
               const principal = requireAction(root, 'resolve', { subject: row.subject_id });
               const refs = db.prepare('SELECT name FROM ref ORDER BY name').all() as Array<{ name: string }>;
-              const holdsConflict = (name: string) => {
+              const holdsClaim = (name: string, claimId: string) => {
                 const tip = head(db, name);
                 if (!tip) return false;
-                const active = activeAt(db, tip);
-                return active.has(row.left_claim) || active.has(row.right_claim);
+                return activeAt(db, tip).has(claimId);
               };
-              const resolveRef = [ref, 'main', ...refs.map((r) => r.name)].find(holdsConflict) ?? ref;
+              const keepId = take === 'ours' ? row.left_claim : row.right_claim;
+              const loserId = take === 'ours' ? row.right_claim : row.left_claim;
+              const candidates = [ref, 'main', ...refs.map((r) => r.name)];
+              const resolveRef =
+                candidates.find((name) => holdsClaim(name, loserId)) ??
+                candidates.find((name) => holdsClaim(name, keepId)) ??
+                ref;
               const result = resolveFact(
                 db,
                 root,
                 resolveRef,
                 row.subject_id,
                 row.predicate,
-                take === 'ours' ? row.left_claim : row.right_claim,
+                keepId,
                 principal,
                 reason,
               );
