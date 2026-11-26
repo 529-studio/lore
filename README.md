@@ -175,7 +175,7 @@ lore merge <branch>           3-way merge; --semantic, exit 2 on real conflicts
 lore resolve [s] [p]          record conflict decision; --take, --auto-semantic
 lore promote                   merge current branch into main
 lore push --propose            publish session branch + drafts as a hub proposal
-lore proposals | review --remote  review, approve and promote proposals into main
+lore proposals | review --remote  review, approve, promote proposals to main
 lore wrapup [--yes]            audit session drafts, approve and promote
 lore revert <commit>           inverse commit, history preserved
 lore verify <claim> | --all    re-hash evidence; --accept stores a legitimate change
