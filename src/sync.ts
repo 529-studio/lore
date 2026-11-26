@@ -78,9 +78,19 @@ export function buildBundle(db: DB, repoId: string, refNames = ['main']): Bundle
     repo_id: repoId,
     created_at: new Date().toISOString(),
     refs,
-    entities: db.prepare('SELECT * FROM entity').all() as Array<Record<string, unknown>>,
-    claims: db.prepare('SELECT * FROM claim ORDER BY tx_from ASC').all() as Array<Record<string, unknown>>,
-    evidence: db.prepare('SELECT * FROM evidence').all() as Array<Record<string, unknown>>,
+    // External memory is a local read-only cache; it is never re-published.
+    entities: db.prepare('SELECT * FROM entity WHERE origin_repo_id IS NULL').all() as Array<
+      Record<string, unknown>
+    >,
+    claims: db
+      .prepare('SELECT * FROM claim WHERE origin_repo_id IS NULL ORDER BY tx_from ASC')
+      .all() as Array<Record<string, unknown>>,
+    evidence: db
+      .prepare(
+        `SELECT e.* FROM evidence e JOIN claim c ON c.id = e.claim_id
+         WHERE c.origin_repo_id IS NULL`,
+      )
+      .all() as Array<Record<string, unknown>>,
     commits: db.prepare('SELECT * FROM memory_commit ORDER BY ts ASC').all() as Array<Record<string, unknown>>,
     entries: db.prepare('SELECT * FROM commit_entry').all() as Array<Record<string, unknown>>,
     conflicts: db.prepare('SELECT * FROM claim_conflict ORDER BY id ASC').all() as Array<
@@ -111,7 +121,9 @@ export function buildDeltaBundle(db: DB, repoId: string, baseMain: string | null
   const allEntries = db.prepare('SELECT * FROM commit_entry').all() as Array<Record<string, unknown>>;
   const entries = allEntries.filter((row) => commitIds.has(String(row.commit_id)));
   const claimIds = new Set(entries.map((row) => String(row.claim_id)));
-  const allClaims = db.prepare('SELECT * FROM claim ORDER BY tx_from ASC').all() as Array<Record<string, unknown>>;
+  const allClaims = db
+    .prepare('SELECT * FROM claim WHERE origin_repo_id IS NULL ORDER BY tx_from ASC')
+    .all() as Array<Record<string, unknown>>;
   const claims = allClaims.filter((row) => claimIds.has(String(row.id)));
   const allEvidence = db.prepare('SELECT * FROM evidence').all() as Array<Record<string, unknown>>;
   const evidence = allEvidence.filter((row) => claimIds.has(String(row.claim_id)));
@@ -125,7 +137,9 @@ export function buildDeltaBundle(db: DB, repoId: string, baseMain: string | null
     repo_id: repoId,
     created_at: new Date().toISOString(),
     refs,
-    entities: db.prepare('SELECT * FROM entity').all() as Array<Record<string, unknown>>,
+    entities: db.prepare('SELECT * FROM entity WHERE origin_repo_id IS NULL').all() as Array<
+      Record<string, unknown>
+    >,
     claims,
     evidence,
     commits: newCommits,
@@ -646,6 +660,178 @@ export function fetchFromDir(db: DB, root: string, dir: string, repoId: string, 
   const file = bundleFile(dir, repoId);
   if (!existsSync(file)) throw new Error(`no bundle at ${file} (push one first, or check the remote path)`);
   return importBundle(db, root, readBundle(file), { author });
+}
+
+/**
+ * A read-only cross-repository payload. It carries claims and evidence but no
+ * commits: imported external memory never enters the consumer's branch graph.
+ */
+export interface ExternalBundle {
+  format: 'lore-external/1';
+  origin_repo_id: string;
+  subscriber_repo_id?: string;
+  created_at: string;
+  claims: Array<Record<string, unknown>>;
+  entities: Array<Record<string, unknown>>;
+  evidence: Array<Record<string, unknown>>;
+}
+
+export interface ExternalImportResult {
+  origin: string;
+  claims: number;
+  entities: number;
+  evidence: number;
+}
+
+/** Namespaced entity id: `ext:<repo_slug>/<kind>:<canonical>`. */
+export function externalSubject(origin: string, subject: string): string {
+  return `ext:${origin}/${subject}`;
+}
+
+/** Namespaced claim id so two origins can never collide in one store. */
+export function externalClaimId(origin: string, id: string): string {
+  return `ext:${origin}/${id}`;
+}
+
+function externalEntityKind(subject: string): string {
+  const inner = subject.includes(':') ? subject.slice(subject.indexOf(':') + 1) : subject;
+  const prefix = inner.split(':')[0] ?? 'concept';
+  return (
+    {
+      sym: 'symbol',
+      file: 'file',
+      test: 'test',
+      issue: 'issue',
+      person: 'person',
+      env: 'env',
+      pkg: 'pkg',
+      doc: 'doc',
+    } as Record<string, string>
+  )[prefix] ?? 'concept';
+}
+
+/**
+ * Replace the cached external snapshot for one origin. Claims keep their
+ * upstream payload but gain `ext:<origin>/` ids/subjects, `origin_repo_id`,
+ * and a T2 authority ceiling. Local rows are never touched, and no commit is
+ * created, so an upstream fact cannot enter a local merge or fact key.
+ */
+export function importExternalBundle(db: DB, origin: string, bundle: ExternalBundle): ExternalImportResult {
+  if (bundle.format !== 'lore-external/1') {
+    throw new Error(`unsupported external bundle format: ${String(bundle.format)}`);
+  }
+  // `origin` is the consumer's link slug; the hub repo id may be a UUID, so the
+  // caller pairs them in linkTargets and the namespacing uses the slug.
+
+  const counts: ExternalImportResult = { origin, claims: 0, entities: 0, evidence: 0 };
+  const apply = db.transaction(() => {
+    db.exec('PRAGMA defer_foreign_keys = ON');
+    const previous = db.prepare('SELECT id FROM claim WHERE origin_repo_id = ?').all(origin) as Array<{ id: string }>;
+    const removeEvidence = db.prepare('DELETE FROM evidence WHERE claim_id = ?');
+    for (const row of previous) removeEvidence.run(row.id);
+    db.prepare('DELETE FROM claim WHERE origin_repo_id = ?').run(origin);
+    db.prepare('DELETE FROM entity WHERE origin_repo_id = ?').run(origin);
+
+    const claimIdMap = new Map<string, string>();
+    for (const row of bundle.claims) {
+      const id = String(row.id ?? '');
+      if (id) claimIdMap.set(id, externalClaimId(origin, id));
+    }
+
+    const entityKinds = new Map<string, string>();
+    for (const row of bundle.entities) {
+      const id = String(row.id ?? '');
+      const kind = String(row.kind ?? '');
+      if (id && kind) entityKinds.set(id, kind);
+    }
+
+    const upsertEntity = db.prepare(
+      `INSERT INTO entity(id, kind, canonical, created_at, origin_repo_id) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, canonical = excluded.canonical,
+                                     origin_repo_id = excluded.origin_repo_id`,
+    );
+    const now = new Date().toISOString();
+    const seen = new Set<string>();
+    for (const row of bundle.claims) {
+      const subject = String(row.subject_id ?? '');
+      if (!subject) continue;
+      const namespaced = externalSubject(origin, subject);
+      if (seen.has(namespaced)) continue;
+      seen.add(namespaced);
+      const canonical = subject.includes(':') ? subject.slice(subject.indexOf(':') + 1) : subject;
+      upsertEntity.run(
+        namespaced,
+        entityKinds.get(subject) ?? externalEntityKind(subject),
+        canonical,
+        now,
+        origin,
+      );
+      counts.entities += 1;
+    }
+
+    const insertClaim = db.prepare(
+      `INSERT INTO claim(id, subject_id, predicate, object_json, valid_from, valid_to, tx_from,
+                         authority, confidence, author, supersedes, state, trust, ttl_days,
+                         last_verified_at, written_by, agent_id, session_id, run_id, tags_json,
+                         origin_repo_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    for (const row of bundle.claims) {
+      const id = String(row.id ?? '');
+      const subject = String(row.subject_id ?? '');
+      const predicate = String(row.predicate ?? '');
+      const object = typeof row.object_json === 'string' ? row.object_json : JSON.stringify(row.object_json ?? null);
+      if (!id || !subject || !predicate) continue;
+      const trust = String(row.trust ?? 'candidate');
+      insertClaim.run(
+        externalClaimId(origin, id),
+        externalSubject(origin, subject),
+        predicate,
+        object,
+        (row.valid_from as string | null) ?? null,
+        (row.valid_to as string | null) ?? null,
+        String(row.tx_from ?? now),
+        // Read-only external memory never outranks local evidence (max T2).
+        Math.min(Number(row.authority ?? 4), 2),
+        Number(row.confidence ?? 0.6),
+        String(row.author ?? `external:${origin}`),
+        typeof row.supersedes === 'string' ? claimIdMap.get(row.supersedes) ?? null : null,
+        trust === 'canonical' ? 'canonical' : 'candidate',
+        (row.last_verified_at as string | null) ?? null,
+        String(row.written_by ?? 'legacy'),
+        (row.agent_id as string | null) ?? null,
+        (row.session_id as string | null) ?? null,
+        (row.run_id as string | null) ?? null,
+        String(row.tags_json ?? '[]'),
+        origin,
+      );
+      counts.claims += 1;
+    }
+
+    const insertEvidence = db.prepare(
+      `INSERT INTO evidence(claim_id, kind, ref, hash, commit_id, verified_at, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(claim_id, kind, ref) DO UPDATE SET
+         hash = excluded.hash, commit_id = excluded.commit_id,
+         verified_at = excluded.verified_at, status = excluded.status`,
+    );
+    for (const row of bundle.evidence) {
+      const claim = claimIdMap.get(String(row.claim_id ?? ''));
+      if (!claim) continue;
+      insertEvidence.run(
+        claim,
+        String(row.kind ?? 'file'),
+        String(row.ref ?? ''),
+        (row.hash as string | null) ?? null,
+        (row.commit_id as string | null) ?? null,
+        (row.verified_at as string | null) ?? null,
+        String(row.status ?? 'valid'),
+      );
+      counts.evidence += 1;
+    }
+  });
+  apply();
+  return counts;
 }
 
 export * from './sync/litestream.js';

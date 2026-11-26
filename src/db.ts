@@ -72,12 +72,20 @@ function migrate(db: DB): void {
     ['session_id', 'TEXT'],
     ['run_id', 'TEXT'],
     ['tags_json', "TEXT NOT NULL DEFAULT '[]'"],
+    ['origin_repo_id', 'TEXT'],
   ];
   for (const [name, type] of claimAdditions) {
     if (!claimCols.some((c) => c.name === name)) {
       db.exec(`ALTER TABLE claim ADD COLUMN ${name} ${type}`);
     }
   }
+  // External namespacing (#197): existing stores gain the attribution column
+  // without losing rows; local claims keep origin_repo_id NULL.
+  const entityCols = db.prepare('PRAGMA table_info(entity)').all() as Array<{ name: string }>;
+  if (!entityCols.some((c) => c.name === 'origin_repo_id')) {
+    db.exec('ALTER TABLE entity ADD COLUMN origin_repo_id TEXT');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS claim_origin ON claim(origin_repo_id)');
 
   const backfilled = db.prepare("SELECT value FROM meta WHERE key = 'canon_backfill_v1'").get();
   if (!backfilled) {

@@ -6,7 +6,9 @@ CREATE TABLE IF NOT EXISTS entity (
   id         TEXT PRIMARY KEY,
   kind       TEXT NOT NULL,
   canonical  TEXT NOT NULL,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  -- Set on rows imported from another repository; NULL for local entities.
+  origin_repo_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS claim (
@@ -35,9 +37,13 @@ CREATE TABLE IF NOT EXISTS claim (
   agent_id       TEXT,
   session_id     TEXT,
   run_id         TEXT,
-  tags_json      TEXT NOT NULL DEFAULT '[]'
+  tags_json      TEXT NOT NULL DEFAULT '[]',
+  -- Origin repository of an imported read-only claim; NULL for local claims.
+  origin_repo_id TEXT
 );
 CREATE INDEX IF NOT EXISTS claim_key   ON claim(subject_id, predicate);
+-- claim_origin is created by migrate(): an older store lacks the column until
+-- the ALTER runs, and CREATE INDEX would fail before it.
 CREATE INDEX IF NOT EXISTS claim_state ON claim(state);
 CREATE INDEX IF NOT EXISTS claim_author ON claim(author);
 

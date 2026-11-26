@@ -1,5 +1,5 @@
 import type { DB } from '../db.js';
-import { claimFreshness } from '../merge.js';
+import { claimFreshness, type Freshness } from '../merge.js';
 import { inBranch, type ClaimRow, type Trust } from '../model.js';
 import { branchFor, currentSession } from '../session.js';
 import { evaluateDecay, type DecayResult } from './decay.js';
@@ -54,7 +54,7 @@ export interface ClaimExplanation {
   superseded_by: string[];
   conflicts: ConflictExplanation[];
   open_conflicts: number;
-  freshness: 'valid' | 'stale' | 'ahead';
+  freshness: Freshness;
   /** Decay that already happened (trust stale) or is pending (read-path check). */
   decay: DecayResult | null;
 }
@@ -106,7 +106,7 @@ function resolveClaims(db: DB, target: string): ClaimRow[] {
 function trustReason(
   claim: ClaimRow,
   conflicts: ConflictExplanation[],
-  freshness: 'valid' | 'stale' | 'ahead',
+  freshness: Freshness,
   decay: DecayResult | null,
 ): string {
   const open = conflicts.filter((c) => !c.resolved);
@@ -127,6 +127,9 @@ function trustReason(
   }
   if (decay) return `decayed: ${decay.trigger} — ${decay.detail} (run lore canon decay)`;
 
+  if (freshness === 'external') {
+    return `canonical external: origin-verified read-only claim from ${claim.origin_repo_id} (never re-hashed here, max T2)`;
+  }
   if (freshness === 'stale') return 'canonical, but evidence hash no longer matches (not injected by default)';
   if (freshness === 'ahead') return 'canonical, but observed on newer code than this checkout (not injected without --trust-remote)';
   return 'canonical: active with hashed or commit evidence';

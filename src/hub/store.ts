@@ -1,8 +1,9 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { Client } from 'pg';
 import { parse } from 'yaml';
-import type { Bundle } from '../sync.js';
+import type { Bundle, ExternalBundle } from '../sync.js';
 import { isMember, matchSubject, protectedRoles, quorumFor, type GranularPolicyFile } from '../policy/auth.js';
+import { publishDecision, subscriberAllowed } from '../policy/publish.js';
 
 export interface HubPrincipal {
   sub: string;
@@ -66,6 +67,8 @@ CREATE TABLE IF NOT EXISTS repo_tombstones (
   repo_id text NOT NULL, kind text NOT NULL, claim_id text NOT NULL, payload jsonb NOT NULL,
   seq bigint NOT NULL DEFAULT nextval('hub_seq'), PRIMARY KEY (repo_id, kind, claim_id)
 );
+ALTER TABLE repo_claims ADD COLUMN IF NOT EXISTS origin_repo_id text NOT NULL DEFAULT '';
+ALTER TABLE repo_entities ADD COLUMN IF NOT EXISTS origin_repo_id text NOT NULL DEFAULT '';
 CREATE TABLE IF NOT EXISTS repo_attestations (
   repo_id text NOT NULL, claim_id text NOT NULL, attestation_claim_id text NOT NULL,
   pushed_by text NOT NULL DEFAULT '', pushed_role text NOT NULL DEFAULT '',
@@ -303,6 +306,66 @@ export async function pull(
     }
     throw error;
   }
+}
+
+/**
+ * Read-only cross-repository payload. The response is filtered on the server
+ * with the same helper `lore export --filter publish` uses, so a subject that
+ * is not publishable can never appear in an external payload. Only a token
+ * scoped to a subscriber listed in `publish.to_repos` may call this.
+ */
+export async function pullExternal(
+  client: Client,
+  sourceRepoId: string,
+  subscriberRepoId: string,
+): Promise<{ bundle: ExternalBundle; cursor: number }> {
+  const state = await repoState(client, sourceRepoId);
+  if (!subscriberAllowed(state.policy, subscriberRepoId)) {
+    throw new HubError(403, `repository ${sourceRepoId} does not publish to ${subscriberRepoId}`);
+  }
+
+  const { rows: claimRows } = await client.query(
+    'SELECT payload FROM repo_claims WHERE repo_id = $1 ORDER BY seq',
+    [sourceRepoId],
+  );
+  const claims = (claimRows as Array<{ payload: Record<string, unknown> }>)
+    .map((row) => row.payload)
+    .filter((claim) =>
+      publishDecision(state.policy, {
+        subject: String(claim.subject_id ?? ''),
+        trust: typeof claim.trust === 'string' ? claim.trust : 'candidate',
+        state: typeof claim.state === 'string' ? claim.state : 'active',
+        valid_to: typeof claim.valid_to === 'string' ? claim.valid_to : null,
+      }).publishable,
+    );
+
+  const claimIds = claims.map((claim) => String(claim.id ?? '')).filter(Boolean);
+  const subjectIds = [...new Set(claims.map((claim) => String(claim.subject_id ?? '')).filter(Boolean))];
+  const { rows: evidenceRows } = claimIds.length
+    ? await client.query(
+        'SELECT payload FROM repo_evidence WHERE repo_id = $1 AND claim_id = ANY($2::text[]) ORDER BY seq',
+        [sourceRepoId, claimIds],
+      )
+    : { rows: [] as Array<{ payload: Record<string, unknown> }> };
+  const { rows: entityRows } = subjectIds.length
+    ? await client.query(
+        'SELECT payload FROM repo_entities WHERE repo_id = $1 AND id = ANY($2::text[]) ORDER BY seq',
+        [sourceRepoId, subjectIds],
+      )
+    : { rows: [] as Array<{ payload: Record<string, unknown> }> };
+
+  return {
+    bundle: {
+      format: 'lore-external/1',
+      origin_repo_id: sourceRepoId,
+      subscriber_repo_id: subscriberRepoId,
+      created_at: new Date().toISOString(),
+      claims,
+      evidence: (evidenceRows as Array<{ payload: Record<string, unknown> }>).map((row) => row.payload),
+      entities: (entityRows as Array<{ payload: Record<string, unknown> }>).map((row) => row.payload),
+    },
+    cursor: await repoCursor(client, sourceRepoId),
+  };
 }
 
 function principalIdentity(principal: HubPrincipal): {

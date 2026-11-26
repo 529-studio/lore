@@ -11,6 +11,7 @@ import {
   listProposals,
   promoteProposal,
   pull,
+  pullExternal,
   push,
   reviewProposal,
   revokeToken,
@@ -253,12 +254,25 @@ export async function startHubServer(opts: { port?: number; host?: string } = {}
           return;
         }
 
-        const match = /^\/v1\/repos\/([^/]+)\/(pull|push|proposals(?:\/(?:list|get|review|promote))?)$/.exec(
+        const match = /^\/v1\/repos\/([^/]+)\/(pull|push|external|proposals(?:\/(?:list|get|review|promote))?)$/.exec(
           url.pathname,
         );
         if (!match) throw new HubError(404, 'not found');
         const repoId = decodeURIComponent(match[1]);
         assertSyncPrincipal(principal);
+
+        if (match[2] === 'external') {
+          // Subscriber-scoped read: authorization is the source repository's
+          // publish.to_repos list, not the caller's own repository scope.
+          if (!principal.repoId) {
+            throw new HubError(403, 'external pull requires a repository-scoped token');
+          }
+          await readJson(req);
+          const result = await pullExternal(client, repoId, principal.repoId);
+          send(res, 200, result);
+          return;
+        }
+
         tokenRepoAllowed(principal, repoId);
         const body = await readJson(req);
 

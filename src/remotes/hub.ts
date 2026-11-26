@@ -1,7 +1,15 @@
 import type { DB } from '../db.js';
 import { readConfig, writeConfig, type LoreConfig } from '../config.js';
-import { buildDeltaBundle, importBundle, type ImportResult } from '../sync.js';
-import { httpPull, httpPush, HubConflictError, type HttpRemote } from './http.js';
+import { loadPolicy } from '../policy.js';
+import { linkTargets } from '../policy/publish.js';
+import {
+  buildDeltaBundle,
+  importBundle,
+  importExternalBundle,
+  type ExternalImportResult,
+  type ImportResult,
+} from '../sync.js';
+import { httpPull, httpPullExternal, httpPush, HubConflictError, type HttpRemote } from './http.js';
 
 export interface HubPullResult {
   imported: ImportResult;
@@ -37,6 +45,28 @@ export async function pullHub(
     hub_main: pulled.main,
   });
   return { imported, main: pulled.main, seq: pulled.seq, auth_seq: pulled.auth_seq };
+}
+
+export interface LinkedSyncResult extends ExternalImportResult {
+  cursor: number;
+}
+
+/**
+ * Refresh the cached read-only snapshots of every repository named in the
+ * consumer's `links:` block. The hub filters each payload with the origin's
+ * publish policy, and the import never touches commits or local claims.
+ */
+export async function syncLinkedRepos(
+  db: DB,
+  root: string,
+  remote: HttpRemote,
+): Promise<LinkedSyncResult[]> {
+  const out: LinkedSyncResult[] = [];
+  for (const target of linkTargets(loadPolicy(root))) {
+    const pulled = await httpPullExternal(remote, target.repoId);
+    out.push({ ...importExternalBundle(db, target.slug, pulled.bundle), cursor: pulled.cursor });
+  }
+  return out;
 }
 
 /**

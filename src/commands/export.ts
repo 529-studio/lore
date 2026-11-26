@@ -4,6 +4,8 @@ import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { activeAt, head, type ClaimRow } from '../model.js';
 import { isStale } from '../merge.js';
+import { loadPolicy } from '../policy.js';
+import { publishDecision } from '../policy/publish.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
 import { oneLine } from '../util/text.js';
 
@@ -12,6 +14,8 @@ export interface ExportOptions {
   out?: string;
   session?: string;
   includeStale?: boolean;
+  /** Restrict the projection to one policy section; currently `publish`. */
+  filter?: string;
 }
 
 function objectOf(row: ClaimRow): string {
@@ -52,6 +56,13 @@ export function exportCommand(opts: ExportOptions): void {
   }
   const root = requireRoot();
   const db = openDb(root);
+  if (opts.filter && opts.filter !== 'publish') {
+    throw new Error(`unsupported --filter ${opts.filter}; supported: publish`);
+  }
+  const policy = opts.filter === 'publish' ? loadPolicy(root) : null;
+  if (opts.filter === 'publish' && !policy?.publish) {
+    throw new Error('--filter publish needs a publish: block in lore.policy.yml');
+  }
   const session = ensureSession(db, root, opts.session);
   const branch = branchFor(session);
   const active = activeAt(db, head(db, branch) ?? head(db, 'main'));
@@ -61,6 +72,19 @@ export function exportCommand(opts: ExportOptions): void {
   for (const id of active.keys()) {
     const row = stmt.get(id) as ClaimRow | undefined;
     if (!row) continue;
+    // `--filter publish` is the static bridge for cross-repo projections: the
+    // same decision the hub applies to external payloads (issue #197).
+    if (
+      policy &&
+      !publishDecision(policy, {
+        subject: row.subject_id,
+        trust: row.trust,
+        state: row.state,
+        valid_to: row.valid_to,
+      }).publishable
+    ) {
+      continue;
+    }
     const list = bySubject.get(row.subject_id) ?? [];
     // Evidence comment (dim, one per row): `evidence: <kind>:<ref> @ <date>`.
     const evidence = db

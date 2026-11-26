@@ -19,6 +19,7 @@ import { renameCommand } from './commands/rename.js';
 import { digestCommand } from './commands/digest.js';
 import { bundleCommand } from './commands/bundle.js';
 import { fetchCommand } from './commands/fetch.js';
+import { linksCommand } from './commands/links.js';
 import { joinCommand } from './commands/join.js';
 import { pushCommand } from './commands/push.js';
 import { proposalsCommand } from './commands/proposals.js';
@@ -451,6 +452,11 @@ program
   .action((opts) => syncCommand(opts));
 
 program
+  .command('links [action]')
+  .description('refresh read-only cross-repo memory from the links: subscriptions in lore.policy.yml')
+  .action((action) => linksCommand({ action }));
+
+program
   .command('join')
   .description('attach this clone to the shared store declared in .lore.yml')
   .option('--no-fetch', 'configure the store without fetching the team baseline')
@@ -577,6 +583,7 @@ program
   .option('--vector-weight <float>', 'weight of vector similarity in hybrid search (0.0 to 1.0)')
   .option('--no-cache', 'bypass the hash cache')
   .option('--trust-remote', 'include claims observed on newer code than this checkout')
+  .option('--include-external', 'include read-only claims from linked repositories (ext: namespace)')
   .option('--json', 'machine-readable JSON')
   .action((query, opts) =>
     searchCommand({
@@ -592,6 +599,7 @@ program
       vectorWeight: opts.vectorWeight,
       noCache: opts.cache === false,
       trustRemote: opts.trustRemote,
+      includeExternal: opts.includeExternal,
       json: opts.json,
     }),
   );
@@ -670,7 +678,8 @@ program
   .description('read-only projection of the active set (SPEC §10.3)')
   .requiredOption('--md', 'markdown projection')
   .option('--out <path>', 'write to a file (default: stdout)')
-  .action((opts) => exportCommand({ md: opts.md, out: opts.out }));
+  .option('--filter <section>', 'restrict to a policy section (publish)')
+  .action((opts) => exportCommand({ md: opts.md, out: opts.out, filter: opts.filter }));
 
 program
   .command('plugins [action]')

@@ -148,6 +148,12 @@ export function upsertClaim(db: DB, input: WriteInput): UpsertResult {
     object = scrubbed.object;
   }
 
+  // External memory is read-only: a consumer may not rewrite an upstream claim
+  // under its own namespace (no cross-repo writes, issue #197).
+  if (/^ext:[^/]+\//.test(subject)) {
+    throw new Error('external claims are read-only; write the claim in its origin repository');
+  }
+
   // Memory is an exfiltration path: a secret must never be persisted as a claim.
   assertNoSecrets({ subject, predicate, object });
 
@@ -418,6 +424,8 @@ export interface ClaimRow {
   run_id: string | null;
   tags_json: string;
   invalidated_by_json: string | null;
+  /** Set when the row was imported from another repository; read-only. */
+  origin_repo_id: string | null;
 }
 
 export function claimsFor(db: DB, subject: string): ClaimRow[] {

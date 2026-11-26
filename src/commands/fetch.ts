@@ -4,7 +4,7 @@ import { ensureConfig, readConfig, writeConfig } from '../config.js';
 import { head } from '../model.js';
 import { fastForwardSession, fetchFromDir, importBundle, type ImportResult } from '../sync.js';
 import { pgFetch } from '../remotes/postgres.js';
-import { pullHub } from '../remotes/hub.js';
+import { pullHub, syncLinkedRepos } from '../remotes/hub.js';
 
 export interface FetchOptions {
   path?: string;
@@ -38,6 +38,17 @@ export async function fetchCommand(opts: FetchOptions): Promise<void> {
   }
 
   fastForwardSession(db, root);
+
+  // Subscribed cross-repo memory refreshes with the same fetch, so a consumer
+  // never has to remember a second command (issue #197).
+  if (!opts.path && config.remote?.type === 'http') {
+    for (const linked of await syncLinkedRepos(db, root, config.remote)) {
+      console.log(
+        `${pc.green('[OK]')} linked ext:${linked.origin}: ${linked.claims} claim(s) cached`,
+      );
+    }
+  }
+
   writeConfig(root, { ...readConfig(root), repo_id: config.repo_id, remote_main: head(db, 'main') });
   console.log(
     `${pc.green('[OK]')} fetched: ${result.claims} claim row(s), ${result.commits} commit row(s), merge ${result.merge}`,

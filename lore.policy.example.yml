@@ -24,3 +24,26 @@ revert: [maintainers]
 
 protected:
   "sym:src/auth/*": [maintainers]
+
+# Cross-repository memory (issue #197). A repository publishes to lore-hub only
+# the subjects matched by `allow` and not matched by `deny`; `to_repos` lists the
+# consumer repositories allowed to subscribe. Without a publish block nothing
+# leaves the repository (`default_scope: internal`).
+publish:
+  default_scope: internal
+  allow:
+    - "doc:*"
+    - "rule:*"
+  deny:
+    - "env:*"
+    - "file:secrets/*"
+  to_repos: [app-repo]
+  require_trust: canonical
+
+# Consumer side: subscribe to origin repositories. Their claims arrive
+# read-only under ext:<slug>/ and are rendered with [EXT]. The key is the slug;
+# repo_id is the origin's .lore.yml repository id (a UUID). A bare list also
+# works when the slug is the repo id.
+links:
+  infra-repo:
+    repo_id: "00000000-0000-4000-8000-000000000000"
