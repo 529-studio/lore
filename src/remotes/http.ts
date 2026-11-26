@@ -1,5 +1,8 @@
 import type { RemoteConfig } from '../config.js';
 import type { Bundle } from '../sync.js';
+import type { ProposalMeta } from '../hub/store.js';
+
+export type { ProposalMeta };
 
 export interface HttpRemote extends Extract<RemoteConfig, { type: 'http' }> {}
 
@@ -84,5 +87,89 @@ export async function httpPush(
     `/v1/repos/${encodeURIComponent(repoId)}/push`,
     { expected_main: expectedMain, bundle, policy },
   );
+  return json;
+}
+
+export async function httpPropose(
+  remote: HttpRemote,
+  repoId: string,
+  input: { session: string; baseMain: string | null; bundle: Bundle; note?: string | null },
+): Promise<ProposalMeta> {
+  const { json } = await call<{ proposal: ProposalMeta }>(
+    remote,
+    `/v1/repos/${encodeURIComponent(repoId)}/proposals`,
+    { session: input.session, base_main: input.baseMain, bundle: input.bundle, note: input.note ?? null },
+  );
+  return json.proposal;
+}
+
+export async function httpProposals(
+  remote: HttpRemote,
+  repoId: string,
+  status?: string | null,
+): Promise<ProposalMeta[]> {
+  const { json } = await call<{ proposals: ProposalMeta[] }>(
+    remote,
+    `/v1/repos/${encodeURIComponent(repoId)}/proposals/list`,
+    { status: status ?? null },
+  );
+  return json.proposals;
+}
+
+export async function httpProposal(
+  remote: HttpRemote,
+  repoId: string,
+  user: string,
+  session: string,
+): Promise<{ proposal: ProposalMeta; bundle: Bundle }> {
+  const { json } = await call<{ proposal: ProposalMeta; bundle: Bundle }>(
+    remote,
+    `/v1/repos/${encodeURIComponent(repoId)}/proposals/get`,
+    { user, session },
+  );
+  return json;
+}
+
+export async function httpReviewProposal(
+  remote: HttpRemote,
+  repoId: string,
+  input: {
+    user: string;
+    session: string;
+    action: 'approve' | 'reject';
+    note?: string | null;
+  },
+): Promise<ProposalMeta> {
+  const { json } = await call<{ proposal: ProposalMeta }>(
+    remote,
+    `/v1/repos/${encodeURIComponent(repoId)}/proposals/review`,
+    { user: input.user, session: input.session, action: input.action, note: input.note ?? null },
+  );
+  return json.proposal;
+}
+
+export async function httpPromoteProposal(
+  remote: HttpRemote,
+  repoId: string,
+  input: {
+    user: string;
+    session: string;
+    expectedMain: string | null;
+    bundle: Bundle;
+    policy: string | null;
+  },
+): Promise<{ main: string | null; seq: number; auth_seq: number; proposal: ProposalMeta }> {
+  const { json } = await call<{
+    main: string | null;
+    seq: number;
+    auth_seq: number;
+    proposal: ProposalMeta;
+  }>(remote, `/v1/repos/${encodeURIComponent(repoId)}/proposals/promote`, {
+    user: input.user,
+    session: input.session,
+    expected_main: input.expectedMain,
+    bundle: input.bundle,
+    policy: input.policy,
+  });
   return json;
 }

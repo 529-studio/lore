@@ -40,7 +40,7 @@ Lore fixes the **trust** problem, not the storage problem.
 
 *The CLI: init, ingest, search with scores, then accept drift with `verify --accept`.*
 
-**Canon demo:** [memory stops being injected after npm → pnpm](scripts/demo/canon-pnpm.sh).
+**Canon demo:** [npm → pnpm invalidation](scripts/demo/canon-pnpm.sh).
 
 **GUI:** `lore ui` serves a live dashboard (Health, Sync, Review, Conflicts) with search; see [docs/desktop.md](docs/desktop.md).
 
@@ -172,6 +172,8 @@ lore diff <from>..<to>         claims added/removed between revisions
 lore merge <branch>           3-way merge; --semantic, exit 2 on real conflicts
 lore resolve [s] [p]          record conflict decision; --take, --auto-semantic
 lore promote                   merge current branch into main
+lore push --propose            publish session branch + drafts as a hub proposal
+lore proposals | review --remote  review, approve, promote proposals to main
 lore wrapup [--yes]            audit session drafts, approve and promote
 lore revert <commit>           inverse commit, history preserved
 lore verify <claim> | --all    re-hash evidence; --accept stores a legitimate change
@@ -188,8 +190,8 @@ lore ui                       dashboard on localhost (health, sync indicators, r
 lore remote <dir>             point fetch/push at a shared directory
 lore fetch | push             exchange commits with that directory
 lore bundle export|import     air-gapped exchange of commits
-lore replicate [action]       Litestream streaming replication (check, config, start, restore, status)
-lore sync                   bi-directional sync with remote replica (pull, CRDT merge, push)
+lore replicate [action]       Litestream streaming replication
+lore sync                     bi-directional sync with a remote replica
 lore redact <claim>           replace the object with [redacted], keep id and audit
 lore purge <claim> --yes      remove the row permanently, keep an audit entry
 lore gc [--ttl-sessions 3]     retract drafts, purge tombstones, --compact
@@ -236,8 +238,8 @@ After that, you use Claude / Codex / Gemini exactly as before. What changes:
 - anything the agent "learns" by inference waits for a human `approve` before it is trusted;
 - a bad session can be undone.
 
-**Plain markdown:** `lore export --md --out AGENTS.md` writes everything the agent knows, grouped
-by subject, evidence in comments.
+**Without tooling:** `lore export --md --out AGENTS.md` writes what the agent knows, grouped by
+subject.
 
 **GUI:** `lore ui`; desktop packaging: [#66](https://github.com/529-studio/lore/issues/66).
 
@@ -267,14 +269,13 @@ main ──────────●──────────────
 **Team identity.** Team mode requires `LORE_TEAM_SECRET`, an identity (`LORE_TOKEN` or `LORE_OIDC_EMAIL`),
 and `lore.policy.yml`. See [docs/team-mode.md](docs/team-mode.md).
 
-**Internal or offline repositories.** Memory does not depend on a git host: `lore remote`
-shares commits via directory or Postgres, `lore bundle` moves commits across air gaps,
-and `lore replicate` streams WAL frames. WAL checkpoints auto-tune (`LORE_WAL_AUTOCHECKPOINT`).
-Replicas converge via `lore sync`; `--trust-remote` includes ahead-of-checkout claims. See
+**Internal or offline repositories.** Memory does not depend on a git host: `lore remote` shares
+commits via directory or Postgres, `lore bundle` crosses air gaps, `lore replicate`/`lore sync`
+stream WAL (`LORE_WAL_AUTOCHECKPOINT`); `--trust-remote` includes ahead-of-checkout claims. See
 [docs/team-mode.md](docs/team-mode.md).
 
-**Team hub.** `lore hub serve` adds per-user tokens, delta sync, CAS, and server policy. See
-[docs/hub.md](docs/hub.md).
+**Team hub.** `lore hub serve` adds per-user tokens, delta sync, CAS, server policy, contributor
+proposals and N-of-M review. See [docs/hub.md](docs/hub.md).
 
 **Plugins.** Personal config adds hosts/hooks; committed `.lore.yml` plugins add extractors. See
 [docs/plugins.md](docs/plugins.md).

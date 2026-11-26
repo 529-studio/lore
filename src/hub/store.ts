@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { Client } from 'pg';
 import { parse } from 'yaml';
 import type { Bundle } from '../sync.js';
-import { isMember, matchSubject, type GranularPolicyFile } from '../policy/auth.js';
+import { isMember, matchSubject, protectedRoles, quorumFor, type GranularPolicyFile } from '../policy/auth.js';
 
 export interface HubPrincipal {
   sub: string;
@@ -66,6 +66,24 @@ CREATE TABLE IF NOT EXISTS repo_tombstones (
   repo_id text NOT NULL, kind text NOT NULL, claim_id text NOT NULL, payload jsonb NOT NULL,
   seq bigint NOT NULL DEFAULT nextval('hub_seq'), PRIMARY KEY (repo_id, kind, claim_id)
 );
+CREATE TABLE IF NOT EXISTS repo_attestations (
+  repo_id text NOT NULL, claim_id text NOT NULL, attestation_claim_id text NOT NULL,
+  pushed_by text NOT NULL DEFAULT '', pushed_role text NOT NULL DEFAULT '',
+  payload jsonb NOT NULL,
+  seq bigint NOT NULL DEFAULT nextval('hub_seq'), PRIMARY KEY (repo_id, claim_id, attestation_claim_id)
+);
+ALTER TABLE repo_attestations ADD COLUMN IF NOT EXISTS pushed_by text NOT NULL DEFAULT '';
+ALTER TABLE repo_attestations ADD COLUMN IF NOT EXISTS pushed_role text NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS repo_proposals (
+  repo_id text NOT NULL, user_id text NOT NULL, session text NOT NULL, ref text NOT NULL,
+  base_main text, tip_commit text, status text NOT NULL DEFAULT 'open',
+  payload jsonb NOT NULL, note text,
+  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+  reviewed_by text, reviewed_at timestamptz, promoted_main text, promoted_at timestamptz,
+  seq bigint NOT NULL DEFAULT nextval('hub_seq'),
+  PRIMARY KEY (repo_id, user_id, session)
+);
+CREATE INDEX IF NOT EXISTS repo_proposals_status ON repo_proposals(repo_id, status);
 CREATE TABLE IF NOT EXISTS auth_revocations (
   jti text PRIMARY KEY, sub text, reason text, revoked_by text, revoked_at timestamptz NOT NULL DEFAULT now(),
   seq bigint NOT NULL DEFAULT nextval('hub_seq')
@@ -195,7 +213,8 @@ async function repoCursor(client: Client, repoId: string): Promise<number> {
        COALESCE((SELECT max(seq) FROM repo_evidence WHERE repo_id = $1), 0),
        COALESCE((SELECT max(seq) FROM repo_commit_entries WHERE repo_id = $1), 0),
        COALESCE((SELECT max(seq) FROM repo_conflicts WHERE repo_id = $1), 0),
-       COALESCE((SELECT max(seq) FROM repo_tombstones WHERE repo_id = $1), 0)
+       COALESCE((SELECT max(seq) FROM repo_tombstones WHERE repo_id = $1), 0),
+       COALESCE((SELECT max(seq) FROM repo_attestations WHERE repo_id = $1), 0)
      ) AS seq`,
     [repoId],
   );
@@ -222,7 +241,7 @@ function rowsToBundle(repoId: string, rows: Record<string, Array<Record<string, 
     redactions: rows.redactions,
     purge_audits: rows.purges,
     token_revocations: rows.revocations,
-    attestations: [],
+    attestations: rows.attestations,
   };
 }
 
@@ -257,6 +276,7 @@ export async function pull(
       conflicts: await q('SELECT payload FROM repo_conflicts WHERE repo_id = $1 AND seq > $2 ORDER BY seq'),
       redactions: await q("SELECT payload FROM repo_tombstones WHERE repo_id = $1 AND kind = 'redaction' AND seq > $2 ORDER BY seq"),
       purges: await q("SELECT payload FROM repo_tombstones WHERE repo_id = $1 AND kind = 'purge' AND seq > $2 ORDER BY seq"),
+      attestations: await q('SELECT payload FROM repo_attestations WHERE repo_id = $1 AND seq > $2 ORDER BY seq'),
       revocations: [] as Array<Record<string, unknown>>,
     };
     // auth_revocations stores columns, not a JSON payload; map explicitly.
@@ -327,9 +347,9 @@ function assertPolicyAllows(
         throw new HubError(403, `write to ${subject} requires role ${roles.join(' or ')}`);
       }
     }
-    for (const [pattern, roles] of Object.entries(policy.protected ?? {})) {
-      if (matchSubject(pattern, subject) && !rolesAllow(policy, roles, principal)) {
-        throw new HubError(403, `subject ${subject} is protected; requires role ${roles.join(' or ')}`);
+    for (const [pattern, rule] of Object.entries(policy.protected ?? {})) {
+      if (matchSubject(pattern, subject) && !rolesAllow(policy, protectedRoles(rule), principal)) {
+        throw new HubError(403, `subject ${subject} is protected; requires role ${protectedRoles(rule).join(' or ')}`);
       }
     }
   }
@@ -488,6 +508,25 @@ export async function push(client: Client, input: PushInput): Promise<PushResult
         [repoId, 'purge', row.claim_id, row],
       );
     }
+    const purgedClaims = new Set((bundle.purge_audits ?? []).map((row) => String(row.claim_id ?? '')));
+    // Quorum counts reviewer tokens, not client-authored actor strings: only a
+    // maintainer or auditor submission may create a row that counts, and the
+    // row records which token submitted it.
+    const submitsReview = principal.role === 'maintainer' || principal.role === 'auditor';
+    for (const row of bundle.attestations ?? []) {
+      if (!submitsReview) continue;
+      const claimId = String(row.claim_id ?? '');
+      const attestationClaimId = String(row.attestation_claim_id ?? '');
+      if (!claimId || !attestationClaimId) continue;
+      // A purged claim must not acquire new review records.
+      if (purgedClaims.has(claimId) || purgedClaims.has(attestationClaimId)) continue;
+      await upsert(
+        'repo_attestations',
+        ['repo_id', 'claim_id', 'attestation_claim_id', 'pushed_by', 'pushed_role', 'payload'],
+        'repo_id, claim_id, attestation_claim_id',
+        [repoId, claimId, attestationClaimId, principal.sub, principal.role, row],
+      );
+    }
     if ((bundle.token_revocations?.length ?? 0) > 0) {
       // Global revocation cursors rely on allocation order matching commit
       // order; hold this lock until commit so no lower seq commits later.
@@ -503,6 +542,38 @@ export async function push(client: Client, input: PushInput): Promise<PushResult
          WHERE auth_revocations.reason IS DISTINCT FROM excluded.reason`,
         [row.jti, row.sub ?? null, row.reason ?? null, row.revoked_by ?? 'sync'],
       );
+    }
+    // Quorum is a second gate on protected subjects and applies to every role:
+    // it is the control that makes N-of-M review independent of rank. Claims
+    // arriving retracted need no quorum; they remove rather than assert.
+    if (policy?.protected) {
+      const checked = new Set<string>();
+      for (const claim of bundle.claims ?? []) {
+        const id = String(claim.id ?? '');
+        const subject = String(claim.subject_id ?? '');
+        if (!id || !subject || claim.state === 'retracted' || checked.has(id)) continue;
+        checked.add(id);
+        const required = quorumFor(policy, subject);
+        if (required <= 0) continue;
+        const { rows: tally } = await client.query(
+          `SELECT COUNT(DISTINCT a.pushed_by) AS n
+             FROM repo_attestations a
+             JOIN repo_claims c ON c.repo_id = a.repo_id AND c.id = a.attestation_claim_id
+            WHERE a.repo_id = $1 AND a.claim_id = $2
+              AND a.payload->>'verdict' = 'agree'
+              AND a.pushed_role IN ('maintainer', 'auditor')
+              AND a.pushed_by <> ''
+              AND a.pushed_by <> COALESCE($3, '')`,
+          [repoId, id, String(claim.author ?? '')],
+        );
+        const found = Number(tally[0]?.n ?? 0);
+        if (found < required) {
+          throw new HubError(
+            403,
+            `claim ${id} on protected subject ${subject} needs ${required} independent attestation(s); found ${found}`,
+          );
+        }
+      }
     }
     for (const ref of bundle.refs ?? []) {
       await client.query(
@@ -530,4 +601,316 @@ export async function push(client: Client, input: PushInput): Promise<PushResult
     }
     throw error;
   }
+}
+
+export type ProposalStatus = 'open' | 'approved' | 'rejected' | 'promoted';
+
+export interface ProposalMeta {
+  user: string;
+  session: string;
+  ref: string;
+  base_main: string | null;
+  tip: string | null;
+  status: ProposalStatus;
+  note: string | null;
+  claims: number;
+  commits: number;
+  created_at: string;
+  updated_at: string;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  promoted_main: string | null;
+}
+
+/** The remote ref a proposal publishes: `refs/proposals/<user>/<session>`. */
+export function proposalRef(user: string, session: string): string {
+  return `refs/proposals/${user}/${session}`;
+}
+
+function proposalMeta(row: Record<string, unknown>): ProposalMeta {
+  return {
+    user: String(row.user_id),
+    session: String(row.session),
+    ref: String(row.ref),
+    base_main: (row.base_main as string | null) ?? null,
+    tip: (row.tip_commit as string | null) ?? null,
+    status: row.status as ProposalStatus,
+    note: (row.note as string | null) ?? null,
+    claims: Number(row.claims ?? 0),
+    commits: Number(row.commits ?? 0),
+    created_at: new Date(row.created_at as string | Date).toISOString(),
+    updated_at: new Date(row.updated_at as string | Date).toISOString(),
+    reviewed_by: (row.reviewed_by as string | null) ?? null,
+    reviewed_at: row.reviewed_at ? new Date(row.reviewed_at as string | Date).toISOString() : null,
+    promoted_main: (row.promoted_main as string | null) ?? null,
+  };
+}
+
+const PROPOSAL_COLUMNS = `user_id, session, ref, base_main, tip_commit, status, note,
+  created_at, updated_at, reviewed_by, reviewed_at, promoted_main,
+  jsonb_array_length(COALESCE(payload->'claims', '[]'::jsonb)) AS claims,
+  jsonb_array_length(COALESCE(payload->'commits', '[]'::jsonb)) AS commits`;
+
+function assertMaintainer(principal: HubPrincipal, action: string): void {
+  if (principal.role !== 'maintainer') throw new HubError(403, `${action} requires a maintainer token`);
+}
+
+/**
+ * Publish a contributor proposal. Proposals live outside the shared commit
+ * graph: they are not visible to pulls and cannot touch main until a maintainer
+ * promotes one. `write:`/`protected:` are therefore not applied here; they are
+ * enforced when the promoted bundle is pushed.
+ */
+export async function saveProposal(
+  client: Client,
+  input: {
+    repoId: string;
+    principal: HubPrincipal;
+    session: string;
+    baseMain: string | null;
+    bundle: Bundle;
+    note?: string | null;
+  },
+): Promise<ProposalMeta> {
+  const { repoId, principal, session } = input;
+  if (!session || !/^[A-Za-z0-9._@:-]{1,120}$/.test(session)) throw new HubError(400, 'session has invalid characters');
+  const user = principal.sub;
+  if (!input.bundle || typeof input.bundle !== 'object') throw new HubError(400, 'bundle is required');
+  if (input.bundle.repo_id !== repoId) {
+    throw new HubError(400, `bundle belongs to repository ${input.bundle.repo_id}`);
+  }
+  if ((input.bundle.refs ?? []).some((ref) => ref.name === 'main')) {
+    throw new HubError(403, 'a proposal cannot contain main; use lore push for a direct promotion');
+  }
+  const bundle: Bundle = {
+    ...input.bundle,
+    // A proposal may propose memory; it may not delete or revoke shared state.
+    redactions: [],
+    purge_audits: [],
+    token_revocations: [],
+    conflicts: [],
+  };
+  const tip = bundle.refs[0]?.commit_id ?? null;
+  const { rows } = await client.query(
+    `INSERT INTO repo_proposals(repo_id, user_id, session, ref, base_main, tip_commit, status, payload, note)
+     VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, $8)
+     ON CONFLICT (repo_id, user_id, session) DO UPDATE
+       SET ref = excluded.ref, base_main = excluded.base_main, tip_commit = excluded.tip_commit,
+           payload = excluded.payload, note = excluded.note, status = 'open',
+           reviewed_by = NULL, reviewed_at = NULL, promoted_main = NULL, promoted_at = NULL,
+           updated_at = now(), seq = nextval('hub_seq')
+       WHERE repo_proposals.status <> 'promoted'
+     RETURNING ${PROPOSAL_COLUMNS}`,
+    [repoId, user, session, proposalRef(user, session), input.baseMain, tip, bundle, input.note ?? null],
+  );
+  if (!rows[0]) throw new HubError(409, 'this proposal was already promoted; use a new session to propose again');
+  return proposalMeta(rows[0] as Record<string, unknown>);
+}
+
+export async function listProposals(client: Client, repoId: string): Promise<ProposalMeta[]> {
+  const { rows } = await client.query(
+    `SELECT ${PROPOSAL_COLUMNS} FROM repo_proposals WHERE repo_id = $1 ORDER BY updated_at DESC`,
+    [repoId],
+  );
+  return (rows as Array<Record<string, unknown>>).map(proposalMeta);
+}
+
+export async function getProposal(
+  client: Client,
+  repoId: string,
+  user: string,
+  session: string,
+): Promise<{ proposal: ProposalMeta; bundle: Bundle }> {
+  const { rows } = await client.query(
+    `SELECT ${PROPOSAL_COLUMNS}, payload FROM repo_proposals WHERE repo_id = $1 AND user_id = $2 AND session = $3`,
+    [repoId, user, session],
+  );
+  if (!rows[0]) throw new HubError(404, `no proposal ${user}/${session}`);
+  const row = rows[0] as Record<string, unknown>;
+  return { proposal: proposalMeta(row), bundle: row.payload as Bundle };
+}
+
+/** Approve or reject a proposal. Approval is a review decision, not a merge. */
+export async function reviewProposal(
+  client: Client,
+  input: {
+    repoId: string;
+    principal: HubPrincipal;
+    user: string;
+    session: string;
+    action: 'approve' | 'reject';
+    note?: string | null;
+  },
+): Promise<ProposalMeta> {
+  assertMaintainer(input.principal, 'reviewing a proposal');
+  const { rows } = await client.query(
+    `SELECT ${PROPOSAL_COLUMNS}, payload FROM repo_proposals WHERE repo_id = $1 AND user_id = $2 AND session = $3`,
+    [input.repoId, input.user, input.session],
+  );
+  if (!rows[0]) throw new HubError(404, `no proposal ${input.user}/${input.session}`);
+  const current = proposalMeta(rows[0] as Record<string, unknown>);
+  if (current.status === 'promoted') throw new HubError(409, 'proposal was already promoted');
+  const target = input.action === 'approve' ? 'approved' : 'rejected';
+  if (current.status === target) throw new HubError(409, `proposal is already ${target}`);
+  // Optimistic concurrency: a republish replaces the payload and resets the
+  // status. Without this guard a review could approve a version it never saw.
+  const updated = await client.query(
+    `UPDATE repo_proposals
+        SET status = $4, reviewed_by = $5, reviewed_at = now(), note = COALESCE($6, note),
+            updated_at = now(), seq = nextval('hub_seq')
+      WHERE repo_id = $1 AND user_id = $2 AND session = $3
+        AND status = $7 AND payload = $8
+      RETURNING ${PROPOSAL_COLUMNS}`,
+    [
+      input.repoId,
+      input.user,
+      input.session,
+      target,
+      input.principal.sub,
+      input.note ?? null,
+      current.status,
+      (rows[0] as Record<string, unknown>).payload,
+    ],
+  );
+  if (!updated.rows[0]) {
+    throw new HubError(409, 'proposal changed while it was being reviewed; list it and review again');
+  }
+  return proposalMeta(updated.rows[0] as Record<string, unknown>);
+}
+
+type CommitNode = { parent: string | null; merge: string | null };
+
+/** Commit graph from the shared repository plus commits only the proposal carries. */
+async function commitGraph(
+  client: Client,
+  repoId: string,
+  extra: Array<Record<string, unknown>>,
+): Promise<Map<string, CommitNode>> {
+  const { rows } = await client.query('SELECT payload FROM repo_commits WHERE repo_id = $1', [repoId]);
+  const graph = new Map<string, CommitNode>();
+  for (const row of rows as Array<{ payload: Record<string, unknown> }>) {
+    const payload = row.payload;
+    graph.set(String(payload.id), {
+      parent: (payload.parent_id as string | null) ?? null,
+      merge: (payload.merge_parent_id as string | null) ?? null,
+    });
+  }
+  for (const payload of extra) {
+    const id = String(payload.id ?? '');
+    if (!id) continue;
+    graph.set(id, {
+      parent: (payload.parent_id as string | null) ?? null,
+      merge: (payload.merge_parent_id as string | null) ?? null,
+    });
+  }
+  return graph;
+}
+
+function graphIsAncestor(graph: Map<string, CommitNode>, ancestor: string, descendant: string): boolean {
+  if (ancestor === descendant) return true;
+  const seen = new Set<string>();
+  const queue = [descendant];
+  while (queue.length) {
+    const id = queue.shift()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const node = graph.get(id);
+    if (!node) continue;
+    if (node.parent === ancestor || node.merge === ancestor) return true;
+    if (node.parent) queue.push(node.parent);
+    if (node.merge) queue.push(node.merge);
+  }
+  return false;
+}
+
+/**
+ * Promote an approved proposal into main. The merge itself happened on the
+ * maintainer's client, so this verifies the submitted main descends from both
+ * the proposal tip and the current main, checks that every proposed draft was
+ * approved, then reuses the normal CAS push path (policy and quorum included).
+ */
+export async function promoteProposal(
+  client: Client,
+  input: {
+    repoId: string;
+    principal: HubPrincipal;
+    user: string;
+    session: string;
+    expectedMain: string | null;
+    bundle: Bundle;
+    policy?: string | null;
+  },
+): Promise<{ main: string | null; seq: number; auth_seq: number; proposal: ProposalMeta }> {
+  assertMaintainer(input.principal, 'promoting a proposal');
+  const { rows } = await client.query(
+    `SELECT ${PROPOSAL_COLUMNS}, payload FROM repo_proposals WHERE repo_id = $1 AND user_id = $2 AND session = $3`,
+    [input.repoId, input.user, input.session],
+  );
+  if (!rows[0]) throw new HubError(404, `no proposal ${input.user}/${input.session}`);
+  const row = rows[0] as Record<string, unknown>;
+  const proposal = proposalMeta(row);
+  if (proposal.status !== 'approved') {
+    throw new HubError(409, `proposal is ${proposal.status}; approve it before promoting`);
+  }
+
+  const state = await repoState(client, input.repoId);
+  if ((state.main ?? null) !== (input.expectedMain ?? null)) {
+    throw new HubError(409, 'remote main moved; pull and retry');
+  }
+  const newMain = input.bundle.refs.find((ref) => ref.name === 'main')?.commit_id ?? null;
+  if (!newMain || newMain === state.main) {
+    throw new HubError(400, 'promotion bundle must advance main');
+  }
+
+  const graph = await commitGraph(client, input.repoId, input.bundle.commits ?? []);
+  if (state.main && !graphIsAncestor(graph, state.main, newMain)) {
+    throw new HubError(409, 'promotion does not build on the current main; pull and retry');
+  }
+  if (proposal.tip && !graphIsAncestor(graph, proposal.tip, newMain)) {
+    throw new HubError(409, 'promotion does not contain the proposal tip; pull and retry');
+  }
+
+  const proposalBundle = row.payload as Bundle;
+  const incomingClaims = new Map(
+    (input.bundle.claims ?? []).map((claim) => [String(claim.id ?? ''), claim] as const),
+  );
+  const draftIds = (proposalBundle.claims ?? [])
+    .filter((claim) => claim.state === 'draft')
+    .map((claim) => String(claim.id ?? ''))
+    .filter(Boolean);
+  if (draftIds.length) {
+    const { rows: stored } = await client.query(
+      'SELECT id, payload FROM repo_claims WHERE repo_id = $1 AND id = ANY($2::text[])',
+      [input.repoId, draftIds],
+    );
+    const storedClaims = new Map<string, Record<string, unknown>>();
+    for (const claim of stored as Array<{ id: string; payload: Record<string, unknown> }>) {
+      storedClaims.set(claim.id, claim.payload);
+    }
+    for (const id of draftIds) {
+      const effective = incomingClaims.get(id) ?? storedClaims.get(id);
+      if (effective && effective.state === 'draft') {
+        throw new HubError(403, `proposal draft ${id} was not approved; approve it with lore approve before promoting`);
+      }
+    }
+  }
+
+  const result = await push(client, {
+    repoId: input.repoId,
+    bundle: input.bundle,
+    expectedMain: input.expectedMain,
+    principal: input.principal,
+    policy: input.policy ?? null,
+  });
+
+  const updated = await client.query(
+    `UPDATE repo_proposals
+        SET status = 'promoted', promoted_main = $4, promoted_at = now(), updated_at = now(),
+            reviewed_by = COALESCE(reviewed_by, $5), reviewed_at = COALESCE(reviewed_at, now()),
+            seq = nextval('hub_seq')
+      WHERE repo_id = $1 AND user_id = $2 AND session = $3
+      RETURNING ${PROPOSAL_COLUMNS}`,
+    [input.repoId, input.user, input.session, result.main, input.principal.sub],
+  );
+  return { ...result, proposal: proposalMeta(updated.rows[0] as Record<string, unknown>) };
 }

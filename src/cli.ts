@@ -21,6 +21,7 @@ import { bundleCommand } from './commands/bundle.js';
 import { fetchCommand } from './commands/fetch.js';
 import { joinCommand } from './commands/join.js';
 import { pushCommand } from './commands/push.js';
+import { proposalsCommand } from './commands/proposals.js';
 import { purgeCommand } from './commands/purge.js';
 import { redactCommand } from './commands/redact.js';
 import { remoteCommand } from './commands/remote.js';
@@ -300,9 +301,10 @@ program
   .command('review')
   .description('review draft claims one by one: approve, reject, skip')
   .option('--all', 'approve every draft after one confirmation')
+  .option('--remote', 'review open lore-hub proposals instead of local drafts')
   .option('--session <id>')
   .option('--limit <n>', 'maximum drafts to show', '100')
-  .action((opts) => reviewCommand({ all: opts.all, session: opts.session, limit: opts.limit }));
+  .action((opts) => reviewCommand({ all: opts.all, session: opts.session, limit: opts.limit, remote: opts.remote }));
 
 program
   .command('reject <claim>')
@@ -466,7 +468,32 @@ program
   .description('merge the remote first, then publish main to the shared directory')
   .option('--path <dir>', 'override the configured remote')
   .option('--author <id>')
-  .action((opts) => pushCommand({ path: opts.path, author: opts.author }));
+  .option('--propose', 'publish the session branch and staged drafts as a hub proposal instead of pushing main')
+  .option('--session <id>', 'session whose branch is proposed')
+  .option('--note <text>', 'review note stored with the proposal')
+  .action((opts) =>
+    pushCommand({
+      path: opts.path,
+      author: opts.author,
+      propose: opts.propose,
+      session: opts.session,
+      note: opts.note,
+    }),
+  );
+
+program
+  .command('proposals [action] [target]')
+  .description('list, approve, reject or promote contributor proposals on lore-hub')
+  .option('--status <status>', 'filter list by open|approved|rejected|promoted')
+  .option('--note <text>', 'review note for approve/reject')
+  .action((action, target, opts) =>
+    proposalsCommand({
+      action,
+      target,
+      status: opts.status,
+      note: opts.note,
+    }),
+  );
 
 program
   .command('bundle <action> [file]')

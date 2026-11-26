@@ -7,11 +7,13 @@ import { evidenceFor, type ClaimRow } from '../model.js';
 import { resolvePrincipal } from '../identity.js';
 import { describePolicy } from '../policy.js';
 import { branchFor, ensureSession } from '../session.js';
+import { reviewRemoteCommand } from './proposals.js';
 
 export interface ReviewOptions {
   all?: boolean;
   session?: string;
   limit?: string;
+  remote?: boolean;
 }
 
 function objectOf(row: ClaimRow): string {
@@ -33,6 +35,10 @@ function printDraft(db: import('../db.js').DB, row: ClaimRow, index: number, tot
 
 export async function reviewCommand(opts: ReviewOptions): Promise<void> {
   const root = requireRoot();
+  if (opts.remote) {
+    await reviewRemoteCommand(root);
+    return;
+  }
   const db = openDb(root);
   const session = ensureSession(db, root, opts.session);
   const ref = branchFor(session);

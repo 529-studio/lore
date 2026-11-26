@@ -13,3 +13,4 @@ One row per engineering lesson. Read this instead of loading every file.
 | 7 | Unhashable evidence counted as evidence | Promotion requires an observed hash; otherwise the claim stays a draft. | [L07](L07-unhashable-evidence.md) |
 | 8 | The feature was merged but not in the tag | Docs may only reference a tag that contains the path; verify with `git ls-tree`. | [L08](L08-feature-not-in-tag.md) |
 | 9 | In-tree staging masks missing runtime dependencies | Packaging must stage all production dependencies and verify execution in an isolated directory outside the repo tree. | [L09](L09-isolated-bundled-runtime.md) |
+| 10 | Sync merged without the resolution ledger | Every merge path passes one `loadPending`; a sync conflict records itself and the remote ref before aborting. | [L10](L10-sync-resolution-ledger.md) |

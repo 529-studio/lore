@@ -32,6 +32,30 @@ export interface TokenRevocationRecord {
   revoked_at: string;
 }
 
+export type ProtectedRule = string[] | { roles?: string[]; min_attestations?: number };
+
+/** A protected entry may be a role list (legacy) or a rule object with a quorum. */
+export function protectedRoles(rule: ProtectedRule): string[] {
+  if (Array.isArray(rule)) return rule;
+  return Array.isArray(rule.roles) ? rule.roles : ['maintainers'];
+}
+
+export function protectedQuorum(rule: ProtectedRule): number {
+  if (Array.isArray(rule)) return 0;
+  const value = Number(rule.min_attestations ?? 0);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+/** The strictest matching quorum for a subject; 0 when no rule asks for one. */
+export function quorumFor(policy: GranularPolicyFile | null, subject: string): number {
+  if (!policy?.protected) return 0;
+  let quorum = 0;
+  for (const [pattern, rule] of Object.entries(policy.protected)) {
+    if (matchSubject(pattern, subject)) quorum = Math.max(quorum, protectedQuorum(rule));
+  }
+  return quorum;
+}
+
 export interface GranularPolicyFile {
   roles?: Record<string, string[]>;
   approve?: Record<string, string[]>;
@@ -44,7 +68,7 @@ export interface GranularPolicyFile {
   write?: Record<string, string[]>;
   read?: Record<string, string[]>;
   admin?: string[];
-  protected?: Record<string, string[]>;
+  protected?: Record<string, ProtectedRule>;
 }
 
 export function policyPath(root: string): string {
@@ -170,13 +194,41 @@ function assertProtectedAllowed(
   policyName: string,
 ): void {
   if (!policy?.protected || !subject) return;
-  for (const [pattern, roles] of Object.entries(policy.protected)) {
+  for (const [pattern, rule] of Object.entries(policy.protected)) {
     if (!matchSubject(pattern, subject)) continue;
+    const roles = protectedRoles(rule);
     if (!roles.some((r) => isMember(policy, r, principal))) {
       throw new PolicyError(
         `subject ${subject} is protected; requires role ${roles.join(' or ')}; ${principal.id} is ${principal.role} (policy: ${policyName})`,
       );
     }
+  }
+}
+
+/**
+ * N-of-M review gate for a protected subject. Only distinct approvers whose
+ * verdict is `agree` count, and never the claim's own author.
+ */
+function assertAttestationQuorum(
+  root: string,
+  principal: Principal,
+  claimId: string,
+  required: number,
+): void {
+  const db = openDb(root);
+  const claim = db.prepare('SELECT author FROM claim WHERE id = ?').get(claimId) as { author: string } | undefined;
+  if (!claim) throw new PolicyError(`no such claim: ${claimId}`);
+  const row = db
+    .prepare(
+      `SELECT COUNT(DISTINCT a.actor) AS n FROM attestation a
+         JOIN claim c ON c.id = a.attestation_claim_id
+        WHERE a.claim_id = ? AND a.verdict = 'agree' AND a.actor <> ?`,
+    )
+    .get(claimId, claim.author) as { n: number };
+  if (Number(row.n) < required) {
+    throw new PolicyError(
+      `claim ${claimId} needs ${required} independent attestation(s); found ${row.n} (attest with \`lore attest ${claimId} --verdict agree\` by another principal)`,
+    );
   }
 }
 
@@ -228,7 +280,7 @@ export function requireWriteSubjects(root: string, subjects: Iterable<string>): 
 export function checkAuthorization(
   root: string,
   action: Action,
-  ctx: { tier?: number; subject?: string } = {},
+  ctx: { tier?: number; subject?: string; claimId?: string } = {},
 ): Principal {
   const principal = authorizePrincipal(root);
 
@@ -259,6 +311,16 @@ export function checkAuthorization(
   // alternative to the tier rule.
   if (action === 'approve') {
     assertProtectedAllowed(principal, policy, ctx.subject, policyName);
+    const quorum = ctx.subject ? quorumFor(policy, ctx.subject) : 0;
+    if (quorum > 0) {
+      if (!ctx.claimId) {
+        // A quorum is per claim and cannot be guessed for a bulk action.
+        throw new PolicyError(
+          `subject ${ctx.subject} requires ${quorum} independent attestation(s); approve one claim at a time`,
+        );
+      }
+      assertAttestationQuorum(root, principal, ctx.claimId, quorum);
+    }
     const key = `t${ctx.tier ?? 4}`;
     const roles = policy?.approve?.[key] ?? policy?.approve?.t4 ?? ['maintainers'];
     if (roles.some((r) => isMember(policy, r, principal))) return principal;

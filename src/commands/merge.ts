@@ -1,20 +1,11 @@
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
-import type { DB } from '../db.js';
 import { head, makeCommit, type ClaimRow } from '../model.js';
 import { planMerge, type Decision } from '../merge.js';
 import { loadOntology } from '../ontology.js';
 import { resolveRevision } from '../revision.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
-
-const SEP = '\u0000';
-
-function loadPending(db: DB): Map<string, 'ours' | 'theirs' | 'both'> {
-  const rows = db
-    .prepare('SELECT subject_id, predicate, take FROM resolution WHERE applied = 0')
-    .all() as Array<{ subject_id: string; predicate: string; take: 'ours' | 'theirs' | 'both' }>;
-  return new Map(rows.map((r) => [`${r.subject_id}${SEP}${r.predicate}`, r.take]));
-}
+import { loadPending, markResolutionsApplied } from '../resolution.js';
 
 function objectOf(row: ClaimRow | null): string {
   if (!row) return '(absent)';
@@ -149,8 +140,7 @@ export function mergeCommand(opts: MergeOptions): void {
     for (const d of plan.decisions) {
       insertDecision.run(id, d.subject, d.predicate, d.winner, d.loser, d.rule, d.reason, `agent:${session}`, ts);
     }
-    db.prepare('UPDATE resolution SET applied = 1 WHERE applied = 0').run();
-    db.prepare('UPDATE merge_conflict SET resolved = 1 WHERE resolved = 0').run();
+    markResolutionsApplied(db);
     return id;
   });
 

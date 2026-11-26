@@ -8,6 +8,7 @@ import { loadOntology } from './ontology.js';
 import { readConfig } from './config.js';
 import { scrubClaimAuditLog } from './security/scrub.js';
 import { branchFor, currentSession } from './session.js';
+import { loadPending, markResolutionsApplied } from './resolution.js';
 
 export interface Bundle {
   format: 'lore-bundle/1';
@@ -135,6 +136,8 @@ export function buildDeltaBundle(db: DB, repoId: string, baseMain: string | null
     token_revocations: db.prepare('SELECT * FROM token_revocation ORDER BY revoked_at ASC').all() as Array<
       Record<string, unknown>
     >,
+    // Review records are tiny and may reference a claim the delta no longer
+    // carries; a quorum check cannot wait for the next claim change.
     attestations: db.prepare('SELECT * FROM attestation ORDER BY ts ASC').all() as Array<Record<string, unknown>>,
   };
 }
@@ -263,11 +266,24 @@ export function mergeTip(
     strategy: 'authority',
     strict: false,
     ontology,
-    pendingResolution: new Map(),
+    pendingResolution: loadPending(db),
   });
   if (plan.mode === 'conflict') {
+    // Record what blocked the sync so `lore resolve` (including --auto-semantic)
+    // can see it, and leave the remote tracking ref in place for comparison.
+    db.prepare('DELETE FROM merge_conflict WHERE resolved = 0').run();
+    const insert = db.prepare(
+      `INSERT INTO merge_conflict(ours_tip, theirs_tip, subject_id, predicate, ours_claim, theirs_claim, base_claim, reason, ts)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    const ts = new Date().toISOString();
+    for (const c of plan.conflicts) {
+      insert.run(local, sourceTip, c.subject, c.predicate, c.ours?.id ?? null, c.theirs?.id ?? null, c.base?.id ?? null, c.reason, ts);
+    }
+    const names = plan.conflicts.map((c) => `${c.subject} ${c.predicate}`).join(', ');
     throw new Error(
-      `cannot sync: ${plan.conflicts.length} unresolved conflict(s); run lore merge/resolve locally first`,
+      `cannot sync: ${plan.conflicts.length} unresolved conflict(s) in ${names}; ` +
+        'run `lore resolve <subject> <predicate> --take ours|theirs|both`, then `lore push` again',
     );
   }
 
@@ -282,6 +298,7 @@ export function mergeTip(
     kind: 'merge',
     mergeParent: sourceTip,
   });
+  markResolutionsApplied(db);
   return 'three-way';
 }
 
@@ -584,7 +601,19 @@ export function importBundle(
 
   const mainRef = bundle.refs.find((r) => r.name === 'main');
   if (mainRef) {
+    // Record what the remote had before merging: a conflicted merge throws, and
+    // the reviewer still needs the remote observation to compare and resolve.
+    setRef(db, 'refs/remotes/origin/main', mainRef.commit_id);
     counts.merge = mergeTip(db, root, 'main', mainRef.commit_id, opts.author ?? 'lore:sync', ontology);
+  }
+  for (const ref of bundle.refs) {
+    if (ref.name === 'main') continue;
+    // Non-main refs (proposal branches, peer branches) are imported as branches.
+    // A diverged local branch is left alone: local work is never overwritten.
+    const localTip = head(db, ref.name);
+    if (!localTip || localTip === ref.commit_id || isAncestor(db, localTip, ref.commit_id)) {
+      setRef(db, ref.name, ref.commit_id);
+    }
   }
 
   return counts;
