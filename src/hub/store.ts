@@ -148,13 +148,27 @@ export async function issueToken(
 }
 
 export async function revokeToken(client: Client, input: { jti: string; reason?: string; by?: string }): Promise<void> {
-  await client.query(
-    `INSERT INTO auth_revocations(jti, sub, reason, revoked_by)
-     VALUES ($1, (SELECT sub FROM hub_tokens WHERE token_hash = $1), $2, $3)
-     ON CONFLICT (jti) DO UPDATE SET reason = excluded.reason, revoked_by = excluded.revoked_by, revoked_at = now()`,
-    [input.jti, input.reason ?? 'administrative revocation', input.by ?? 'admin'],
-  );
-  await client.query('UPDATE hub_tokens SET revoked_at = now() WHERE token_hash = $1', [input.jti]);
+  await client.query('BEGIN');
+  try {
+    // Same lock as push/pull: revocation allocation order must match commit
+    // order for the auth cursor to be safe.
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('lore_hub_auth'))");
+    await client.query(
+      `INSERT INTO auth_revocations(jti, sub, reason, revoked_by)
+       VALUES ($1, (SELECT sub FROM hub_tokens WHERE token_hash = $1), $2, $3)
+       ON CONFLICT (jti) DO UPDATE SET reason = excluded.reason, revoked_by = excluded.revoked_by, revoked_at = now()`,
+      [input.jti, input.reason ?? 'administrative revocation', input.by ?? 'admin'],
+    );
+    await client.query('UPDATE hub_tokens SET revoked_at = now() WHERE token_hash = $1', [input.jti]);
+    await client.query('COMMIT');
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      /* transaction already closed */
+    }
+    throw error;
+  }
 }
 
 async function repoState(client: Client, repoId: string): Promise<HubRepoState> {
