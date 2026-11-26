@@ -262,8 +262,8 @@ main ──────────●──────────────
 - Linked worktrees share `.lore/`; a committed `.lore.yml` plus `lore join` attaches a fresh clone —
   see [team mode](docs/team-mode.md#joining-a-clone).
 
-**Team identity.** Local mode trusts the OS user. Team mode requires `LORE_TEAM_SECRET`, an identity
-(`LORE_TOKEN` or `LORE_OIDC_EMAIL`), and enforces `lore.policy.yml`. See [docs/team-mode.md](docs/team-mode.md).
+**Team identity.** Team mode requires `LORE_TEAM_SECRET`, an identity (`LORE_TOKEN` or `LORE_OIDC_EMAIL`),
+and `lore.policy.yml`. See [docs/team-mode.md](docs/team-mode.md).
 
 **Internal or offline repositories.** Memory does not depend on a git host: `lore remote`
 shares commits via directory or Postgres, `lore bundle` moves commits across air gaps,
@@ -271,11 +271,14 @@ and `lore replicate` streams WAL frames. WAL checkpoints auto-tune (`LORE_WAL_AU
 Replicas converge via `lore sync`; `--trust-remote` includes ahead-of-checkout claims. See
 [docs/team-mode.md](docs/team-mode.md).
 
-**Plugins.** Personal (`~/.config/lore/config.yml`) add hosts, context and hooks; committed `.lore.yml`
-plugins add deterministic extractors. See [docs/plugins.md](docs/plugins.md).
+**Team hub.** `lore hub serve` adds per-user tokens, delta sync, CAS, and server policy. See
+[docs/hub.md](docs/hub.md).
 
-**CI integration.** The GitHub Action comments on every pull request with what it teaches the agent
-and which claims it invalidates. See [docs/github-action.md](docs/github-action.md).
+**Plugins.** Personal config adds hosts/hooks; committed `.lore.yml` plugins add extractors. See
+[docs/plugins.md](docs/plugins.md).
+
+**CI.** The GitHub Action comments on each PR with what it teaches and invalidates. See
+[docs/github-action.md](docs/github-action.md).
 
 ---
 

@@ -96,6 +96,49 @@ export function buildBundle(db: DB, repoId: string, refNames = ['main']): Bundle
   };
 }
 
+/**
+ * A push delta relative to the server's main: commits the hub cannot already
+ * have (not ancestors of `baseMain`) plus their entries, claims and evidence.
+ * Tombstones and conflicts are small and always included. With no base (first
+ * push) the whole store is sent.
+ */
+export function buildDeltaBundle(db: DB, repoId: string, baseMain: string | null, refNames = ['main']): Bundle {
+  if (!baseMain) return buildBundle(db, repoId, refNames);
+  const allCommits = db.prepare('SELECT * FROM memory_commit ORDER BY ts ASC').all() as Array<Record<string, unknown>>;
+  const newCommits = allCommits.filter((row) => !isAncestor(db, String(row.id), baseMain));
+  const commitIds = new Set(newCommits.map((row) => String(row.id)));
+  const allEntries = db.prepare('SELECT * FROM commit_entry').all() as Array<Record<string, unknown>>;
+  const entries = allEntries.filter((row) => commitIds.has(String(row.commit_id)));
+  const claimIds = new Set(entries.map((row) => String(row.claim_id)));
+  const allClaims = db.prepare('SELECT * FROM claim ORDER BY tx_from ASC').all() as Array<Record<string, unknown>>;
+  const claims = allClaims.filter((row) => claimIds.has(String(row.id)));
+  const allEvidence = db.prepare('SELECT * FROM evidence').all() as Array<Record<string, unknown>>;
+  const evidence = allEvidence.filter((row) => claimIds.has(String(row.claim_id)));
+  const refs: Bundle['refs'] = [];
+  for (const name of refNames) {
+    const tip = head(db, name);
+    if (tip) refs.push({ name, commit_id: tip });
+  }
+  return {
+    format: 'lore-bundle/1',
+    repo_id: repoId,
+    created_at: new Date().toISOString(),
+    refs,
+    entities: db.prepare('SELECT * FROM entity').all() as Array<Record<string, unknown>>,
+    claims,
+    evidence,
+    commits: newCommits,
+    entries,
+    conflicts: db.prepare('SELECT * FROM claim_conflict ORDER BY id ASC').all() as Array<Record<string, unknown>>,
+    redactions: db.prepare('SELECT * FROM redaction ORDER BY ts ASC').all() as Array<Record<string, unknown>>,
+    purge_audits: db.prepare('SELECT * FROM purge_audit ORDER BY ts ASC').all() as Array<Record<string, unknown>>,
+    token_revocations: db.prepare('SELECT * FROM token_revocation ORDER BY revoked_at ASC').all() as Array<
+      Record<string, unknown>
+    >,
+    attestations: db.prepare('SELECT * FROM attestation ORDER BY ts ASC').all() as Array<Record<string, unknown>>,
+  };
+}
+
 interface EncryptedBundle {
   format: 'lore-bundle/1-encrypted';
   salt: string;
@@ -184,7 +227,14 @@ export function setRef(db: DB, name: string, commitId: string): void {
 }
 
 /** Merge a remote tip into a local ref with the same ladder used everywhere else. */
-export function mergeTip(db: DB, root: string, ref: string, sourceTip: string, author: string): ImportResult['merge'] {
+export function mergeTip(
+  db: DB,
+  root: string,
+  ref: string,
+  sourceTip: string,
+  author: string,
+  ontology = loadOntology(root),
+): ImportResult['merge'] {
   const local = head(db, ref);
   if (!local) {
     setRef(db, ref, sourceTip);
@@ -212,7 +262,7 @@ export function mergeTip(db: DB, root: string, ref: string, sourceTip: string, a
   const plan = planMerge(db, root, local, sourceTip, {
     strategy: 'authority',
     strict: false,
-    ontology: loadOntology(root),
+    ontology,
     pendingResolution: new Map(),
   });
   if (plan.mode === 'conflict') {
@@ -249,6 +299,7 @@ export function importBundle(
   }
 
   const counts = { entities: 0, claims: 0, commits: 0, merge: 'none' as ImportResult['merge'] };
+  const changedIds = new Set<string>();
 
   const apply = db.transaction(() => {
     db.exec('PRAGMA defer_foreign_keys = ON');
@@ -453,17 +504,20 @@ export function importBundle(
           row.confirmations ?? 0, row.contradictions ?? 0, remoteInvalidated,
           writtenBy(row), agentId(row), row.session_id ?? null, row.run_id ?? null, row.tags_json ?? '[]',
         );
+        changedIds.add(id);
       } else {
         const merged = mergeTrust(existing, { trust: remoteTrust, last_verified_at: remoteVerified, tx_from: String(row.tx_from) });
         const invalidated = merged === remoteTrust ? remoteInvalidated : existing.invalidated_by_json;
+        const verified = laterIso(existing.last_verified_at, remoteVerified);
         updateClaim.run(
           merged,
-          laterIso(existing.last_verified_at, remoteVerified),
+          verified,
           invalidated,
           row.confirmations ?? 0,
           row.contradictions ?? 0,
           id,
         );
+        if (merged !== existing.trust || verified !== existing.last_verified_at) changedIds.add(id);
       }
       counts.claims += 1;
     }
@@ -515,22 +569,22 @@ export function importBundle(
       if (skippedIds.has(String(row.claim_id))) continue;
       insertEntry.run(row.commit_id, row.claim_id, row.op);
     }
-    return skippedIds;
+    return { skippedIds, changedIds };
   });
 
   // IMMEDIATE takes the write lock before reading tombstones, so a purge or
   // redaction committed by another process cannot race the import snapshot.
-  const skippedIds = apply.immediate();
+  const { skippedIds } = apply.immediate();
+  const ontology = loadOntology(root);
 
-  for (const row of bundle.claims) {
-    const id = String(row.id);
+  for (const id of changedIds) {
     if (skippedIds.has(id)) continue;
     runClaimWriteHooks(db, id);
   }
 
   const mainRef = bundle.refs.find((r) => r.name === 'main');
   if (mainRef) {
-    counts.merge = mergeTip(db, root, 'main', mainRef.commit_id, opts.author ?? 'lore:sync');
+    counts.merge = mergeTip(db, root, 'main', mainRef.commit_id, opts.author ?? 'lore:sync', ontology);
   }
 
   return counts;

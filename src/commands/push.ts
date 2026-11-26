@@ -2,8 +2,11 @@ import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { ensureConfig, readConfig, writeConfig } from '../config.js';
 import { head } from '../model.js';
-import { buildBundle, fastForwardSession, importBundle, pushToDir } from '../sync.js';
+import { existsSync, readFileSync } from 'node:fs';
+import { policyPath } from '../policy.js';
+import { buildBundle, buildDeltaBundle, fastForwardSession, importBundle, pushToDir } from '../sync.js';
 import { pgPush } from '../remotes/postgres.js';
+import { httpPull, httpPush, HubConflictError } from '../remotes/http.js';
 
 export interface PushOptions {
   path?: string;
@@ -25,8 +28,38 @@ export async function pushCommand(opts: PushOptions): Promise<void> {
   } else if (config.remote!.type === 'dir') {
     imported = pushToDir(db, root, config.remote!.path, config.repo_id, author);
   } else if (config.remote!.type === 'hub') {
-    throw new Error('hub remotes need lore-hub sync (#194); this build supports dir and postgres');
-  } else {
+    throw new Error('hub remotes need lore-hub sync (#194); this build supports dir, postgres and http');
+  } else if (config.remote!.type === 'http') {
+    const remote = config.remote!;
+    const pull = async (sinceSeq: number, knownMain: string | null) => {
+      const pulled = await httpPull(remote, config.repo_id, { sinceSeq, knownMain });
+      const importedBundle = importBundle(db, root, pulled.bundle, { author });
+      writeConfig(root, { ...readConfig(root), repo_id: config.repo_id, hub_seq: pulled.seq, hub_main: pulled.main });
+      return { pulled, importedBundle };
+    };
+
+    const first = await pull(config.hub_seq ?? 0, config.hub_main ?? null);
+    imported = first.importedBundle;
+    let hubMain = first.pulled.main;
+    const policyFile = policyPath(root);
+    const policy = existsSync(policyFile) ? readFileSync(policyFile, 'utf8') : null;
+
+    for (let attempt = 0; ; attempt += 1) {
+      const delta = buildDeltaBundle(db, config.repo_id, hubMain);
+      try {
+        const result = await httpPush(remote, config.repo_id, delta, hubMain, policy);
+        hubMain = result.main;
+        writeConfig(root, { ...readConfig(root), repo_id: config.repo_id, hub_main: result.main, hub_seq: result.seq });
+        break;
+      } catch (error) {
+        if (!(error instanceof HubConflictError) || attempt > 0) throw error;
+        // CAS lost: import the peer's commits, then retry once from the new main.
+        const retry = await pull(0, hubMain);
+        imported = retry.importedBundle;
+        hubMain = retry.pulled.main;
+      }
+    }
+  } else if (config.remote!.type === 'postgres') {
     const url = config.remote!.url ?? (config.remote!.url_env ? process.env[config.remote!.url_env] : undefined);
     if (!url) throw new Error(`remote url is not set (env ${config.remote!.url_env ?? 'LORE_REMOTE_URL'})`);
     imported = await pgPush(
@@ -35,6 +68,8 @@ export async function pushCommand(opts: PushOptions): Promise<void> {
       (bundle) => importBundle(db, root, bundle, { author }),
       () => buildBundle(db, config.repo_id),
     );
+  } else {
+    throw new Error('unsupported remote type');
   }
 
   fastForwardSession(db, root);

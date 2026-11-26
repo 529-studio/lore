@@ -8,12 +8,14 @@ export interface RemoteOptions {
   show?: boolean;
   postgres?: boolean;
   env?: string;
+  hub?: string;
+  tokenEnv?: string;
 }
 
 function describe(remote: RemoteConfig): string {
   if (remote.type === 'dir') return `dir  ${remote.path}`;
   if (remote.type === 'hub') return `hub  ${remote.url}`;
-  if (remote.url_env) return `postgres  (url from $${remote.url_env})`;
+  if (remote.type === 'postgres' && remote.url_env) return `postgres  (url from $${remote.url_env})`;
   return 'postgres';
 }
 
@@ -21,11 +23,12 @@ export function remoteCommand(opts: RemoteOptions): void {
   const root = requireRoot();
   const config = ensureConfig(root);
 
-  if (opts.show || (!opts.path && !opts.postgres)) {
+  if (opts.show || (!opts.path && !opts.postgres && !opts.hub)) {
     if (!config.remote) {
       console.log(pc.yellow('no remote configured'));
       console.log(pc.dim('  lore remote <shared-directory>'));
       console.log(pc.dim('  lore remote --postgres --env LORE_REMOTE_URL'));
+      console.log(pc.dim('  lore remote --hub https://hub.example --token-env LORE_HUB_TOKEN'));
       return;
     }
     console.log(`remote  ${pc.bold(describe(config.remote))}`);
@@ -35,7 +38,10 @@ export function remoteCommand(opts: RemoteOptions): void {
   }
 
   let remote: RemoteConfig;
-  if (opts.postgres) {
+  if (opts.hub) {
+    const parsed = new URL(opts.hub);
+    remote = { type: 'http', url: parsed.toString(), ...(opts.tokenEnv ? { token_env: opts.tokenEnv } : {}) };
+  } else if (opts.postgres) {
     if (opts.env) {
       if (!process.env[opts.env]) {
         console.log(pc.yellow(`[WARN] $${opts.env} is not set in this shell; fetch/push will fail until it is`));
@@ -55,5 +61,6 @@ export function remoteCommand(opts: RemoteOptions): void {
 
   writeConfig(root, { ...readConfig(root), repo_id: config.repo_id, remote });
   console.log(`${pc.green('✓')} remote set to ${describe(remote)}`);
-  console.log(pc.dim('  table lore_bundles is created on first push'));
+  if (remote.type === 'postgres') console.log(pc.dim('  table lore_bundles is created on first push'));
+  if (remote.type === 'http') console.log(pc.dim(`  token: export ${remote.token_env ?? 'LORE_HUB_TOKEN'}=<token>`));
 }
