@@ -64,8 +64,20 @@ runs:
         LORE_REF: ${{ inputs.lore-ref }}
       run: |
         set -euo pipefail
-        # Cloned outside the workspace: actions/checkout refuses paths outside it,
-        # and a tool checkout inside the workspace would be ingested as claims.
+        # A local action (`uses: ./.github/actions/lore`) must exercise the
+        # checked-out CLI, or a PR that changes the action would run it against
+        # an older release that lacks its JSON commands.
+        if [ -n "${GITHUB_ACTION_PATH:-}" ] && [[ "${GITHUB_ACTION_PATH}" == "${GITHUB_WORKSPACE}/"* ]]; then
+          echo "local action: building the CLI from ${GITHUB_WORKSPACE}"
+          cd "${GITHUB_WORKSPACE}"
+          npm ci --no-audit --no-fund
+          npm run build
+          npm link
+          exit 0
+        fi
+        # Remote action: cloned outside the caller workspace, since
+        # actions/checkout refuses paths outside it and a tool checkout inside
+        # the workspace would be ingested as claims.
         git clone --depth 1 --branch "${LORE_REF}" https://github.com/529-studio/lore.git "${RUNNER_TEMP}/lore-tool"
         cd "${RUNNER_TEMP}/lore-tool"
         npm ci --no-audit --no-fund

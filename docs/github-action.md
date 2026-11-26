@@ -72,7 +72,9 @@ Outputs: `added`, `stale`, `team-stale`.
 
 ## How it works
 
-1. Builds the CLI (or installs it from npm) once per run.
+1. Builds the CLI (or installs it from npm) once per run. A local action
+   (`uses: ./.github/actions/lore`) builds the checked-out repository; a remote action builds
+   `lore-ref` outside the caller workspace.
 2. Builds the base memory in a temporary worktree and promotes it to `main`, so `main` holds what the
    base branch knew. The store is cached by base commit SHA.
 3. With `hub-url`, points the base store at the hub and runs `lore fetch`, merging the shared team
