@@ -30,6 +30,7 @@ export async function fetchCommand(opts: FetchOptions): Promise<void> {
   } else if (config.remote!.type === 'http') {
     const pulled = await httpPull(config.remote!, config.repo_id, {
       sinceSeq: config.hub_seq ?? 0,
+      sinceAuthSeq: config.hub_auth_seq ?? 0,
       knownMain: config.hub_main ?? null,
     });
     result = importBundle(db, root, pulled.bundle, { author });
@@ -37,6 +38,7 @@ export async function fetchCommand(opts: FetchOptions): Promise<void> {
       ...readConfig(root),
       repo_id: config.repo_id,
       hub_seq: pulled.seq,
+      hub_auth_seq: pulled.auth_seq,
       hub_main: pulled.main,
     });
   } else if (config.remote!.type === 'postgres') {

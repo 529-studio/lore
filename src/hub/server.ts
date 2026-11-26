@@ -60,7 +60,7 @@ const TOOLS = [
     description: 'Pull commits and tombstones newer than a cursor for one repository',
     inputSchema: {
       type: 'object',
-      properties: { repo_id: { type: 'string' }, since_seq: { type: 'number' } },
+      properties: { repo_id: { type: 'string' }, since_seq: { type: 'number' }, since_auth_seq: { type: 'number' } },
       required: ['repo_id'],
     },
   },
@@ -111,7 +111,7 @@ async function handleRpc(
   const client = await connect();
   try {
     if (name === 'repo_pull') {
-      const result = await pull(client, repoId, Number(args.since_seq ?? 0));
+      const result = await pull(client, repoId, Number(args.since_seq ?? 0), Number(args.since_auth_seq ?? 0));
       return { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(result) }] } };
     }
     if (name === 'repo_push') {
@@ -211,7 +211,8 @@ export async function startHubServer(opts: { port?: number; host?: string } = {}
 
         if (match[2] === 'pull') {
           const since = Number(body.since_seq ?? 0);
-          const result = await pull(client, repoId, since);
+          const sinceAuth = Number(body.since_auth_seq ?? 0);
+          const result = await pull(client, repoId, since, sinceAuth);
           send(res, 200, result);
           return;
         }

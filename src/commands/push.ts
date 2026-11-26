@@ -31,14 +31,20 @@ export async function pushCommand(opts: PushOptions): Promise<void> {
     throw new Error('hub remotes need lore-hub sync (#194); this build supports dir, postgres and http');
   } else if (config.remote!.type === 'http') {
     const remote = config.remote!;
-    const pull = async (sinceSeq: number, knownMain: string | null) => {
-      const pulled = await httpPull(remote, config.repo_id, { sinceSeq, knownMain });
+    const pull = async (sinceSeq: number, sinceAuthSeq: number, knownMain: string | null) => {
+      const pulled = await httpPull(remote, config.repo_id, { sinceSeq, sinceAuthSeq, knownMain });
       const importedBundle = importBundle(db, root, pulled.bundle, { author });
-      writeConfig(root, { ...readConfig(root), repo_id: config.repo_id, hub_seq: pulled.seq, hub_main: pulled.main });
+      writeConfig(root, {
+        ...readConfig(root),
+        repo_id: config.repo_id,
+        hub_seq: pulled.seq,
+        hub_auth_seq: pulled.auth_seq,
+        hub_main: pulled.main,
+      });
       return { pulled, importedBundle };
     };
 
-    const first = await pull(config.hub_seq ?? 0, config.hub_main ?? null);
+    const first = await pull(config.hub_seq ?? 0, config.hub_auth_seq ?? 0, config.hub_main ?? null);
     imported = first.importedBundle;
     let hubMain = first.pulled.main;
     const policyFile = policyPath(root);
@@ -49,12 +55,18 @@ export async function pushCommand(opts: PushOptions): Promise<void> {
       try {
         const result = await httpPush(remote, config.repo_id, delta, hubMain, policy);
         hubMain = result.main;
-        writeConfig(root, { ...readConfig(root), repo_id: config.repo_id, hub_main: result.main, hub_seq: result.seq });
+        writeConfig(root, {
+          ...readConfig(root),
+          repo_id: config.repo_id,
+          hub_main: result.main,
+          hub_seq: result.seq,
+          hub_auth_seq: result.auth_seq,
+        });
         break;
       } catch (error) {
         if (!(error instanceof HubConflictError) || attempt > 0) throw error;
         // CAS lost: import the peer's commits, then retry once from the new main.
-        const retry = await pull(0, hubMain);
+        const retry = await pull(0, 0, hubMain);
         imported = retry.importedBundle;
         hubMain = retry.pulled.main;
       }

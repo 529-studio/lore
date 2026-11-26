@@ -166,11 +166,12 @@ async function repoState(client: Client, repoId: string): Promise<HubRepoState> 
 }
 
 /**
- * A cursor is only safe when it covers every committed row, and nothing that is
- * still uncommitted. Global `last_value` can jump past an in-flight revocation;
- * per-table `max(seq)` cannot, because MVCC hides uncommitted rows.
+ * Repository rows and global revocations need separate cursors: a revocation
+ * committed in another repository can otherwise advance the single cursor past
+ * this repository's still-uncommitted rows. Each cursor is derived from
+ * MVCC-visible rows only, never from the sequence's last_value.
  */
-async function pullCursor(client: Client, repoId: string): Promise<number> {
+async function repoCursor(client: Client, repoId: string): Promise<number> {
   const { rows } = await client.query(
     `SELECT GREATEST(
        COALESCE((SELECT max(seq) FROM repo_commits WHERE repo_id = $1), 0),
@@ -180,11 +181,15 @@ async function pullCursor(client: Client, repoId: string): Promise<number> {
        COALESCE((SELECT max(seq) FROM repo_evidence WHERE repo_id = $1), 0),
        COALESCE((SELECT max(seq) FROM repo_commit_entries WHERE repo_id = $1), 0),
        COALESCE((SELECT max(seq) FROM repo_conflicts WHERE repo_id = $1), 0),
-       COALESCE((SELECT max(seq) FROM repo_tombstones WHERE repo_id = $1), 0),
-       COALESCE((SELECT max(seq) FROM auth_revocations), 0)
+       COALESCE((SELECT max(seq) FROM repo_tombstones WHERE repo_id = $1), 0)
      ) AS seq`,
     [repoId],
   );
+  return Number(rows[0]?.seq ?? 0);
+}
+
+async function authCursor(client: Client): Promise<number> {
+  const { rows } = await client.query('SELECT COALESCE(max(seq), 0) AS seq FROM auth_revocations');
   return Number(rows[0]?.seq ?? 0);
 }
 
@@ -211,10 +216,17 @@ function rowsToBundle(repoId: string, rows: Record<string, Array<Record<string, 
  * Delta pull: only rows with seq beyond the caller's cursor, plus the current
  * main and cursor. A first pull (since 0) returns the full normalized state.
  */
-export async function pull(client: Client, repoId: string, sinceSeq: number): Promise<{ bundle: Bundle; main: string | null; seq: number }> {
+export async function pull(
+  client: Client,
+  repoId: string,
+  sinceSeq: number,
+  sinceAuthSeq = 0,
+): Promise<{ bundle: Bundle; main: string | null; seq: number; auth_seq: number }> {
   const state = await repoState(client, repoId);
   const since = Number.isFinite(sinceSeq) && sinceSeq > 0 ? sinceSeq : 0;
-  const cursor = await pullCursor(client, repoId);
+  const sinceAuth = Number.isFinite(sinceAuthSeq) && sinceAuthSeq > 0 ? sinceAuthSeq : 0;
+  const cursor = await repoCursor(client, repoId);
+  const auth = await authCursor(client);
   const q = async (sql: string): Promise<Array<Record<string, unknown>>> =>
     (await client.query(sql, [repoId, since])).rows.map((row) => row.payload as Record<string, unknown>);
   const rows = {
@@ -232,7 +244,7 @@ export async function pull(client: Client, repoId: string, sinceSeq: number): Pr
   const revocations = (
     await client.query(
       'SELECT jti, sub, reason, revoked_by, revoked_at FROM auth_revocations WHERE seq > $1 ORDER BY seq',
-      [since],
+      [sinceAuth],
     )
   ).rows.map((row) => ({
     jti: row.jti,
@@ -242,7 +254,7 @@ export async function pull(client: Client, repoId: string, sinceSeq: number): Pr
     revoked_at: new Date(row.revoked_at).toISOString(),
   }));
   rows.revocations = revocations;
-  return { bundle: rowsToBundle(repoId, rows, state.main), main: state.main, seq: cursor };
+  return { bundle: rowsToBundle(repoId, rows, state.main), main: state.main, seq: cursor, auth_seq: auth };
 }
 
 function principalIdentity(principal: HubPrincipal): {
@@ -298,6 +310,7 @@ function assertPolicyAllows(
 export interface PushResult {
   main: string | null;
   seq: number;
+  auth_seq: number;
 }
 
 export interface PushInput {
@@ -469,7 +482,11 @@ export async function push(client: Client, input: PushInput): Promise<PushResult
     const nextMain = mainRef ?? currentMain;
     await client.query('UPDATE repos SET main_commit = $2, updated_at = now() WHERE repo_id = $1', [repoId, nextMain]);
     await client.query('COMMIT');
-    return { main: nextMain, seq: await pullCursor(client, repoId) };
+    return {
+      main: nextMain,
+      seq: await repoCursor(client, repoId),
+      auth_seq: await authCursor(client),
+    };
   } catch (error) {
     if (!(error instanceof HubError) || error.status !== 409) {
       try {

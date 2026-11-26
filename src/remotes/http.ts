@@ -62,12 +62,12 @@ async function call<T>(
 export async function httpPull(
   remote: HttpRemote,
   repoId: string,
-  opts: { sinceSeq: number; knownMain: string | null },
-): Promise<{ bundle: Bundle; main: string | null; seq: number }> {
-  const { json } = await call<{ bundle: Bundle; main: string | null; seq: number }>(
+  opts: { sinceSeq: number; sinceAuthSeq: number; knownMain: string | null },
+): Promise<{ bundle: Bundle; main: string | null; seq: number; auth_seq: number }> {
+  const { json } = await call<{ bundle: Bundle; main: string | null; seq: number; auth_seq: number }>(
     remote,
     `/v1/repos/${encodeURIComponent(repoId)}/pull`,
-    { since_seq: opts.sinceSeq, known_main: opts.knownMain },
+    { since_seq: opts.sinceSeq, since_auth_seq: opts.sinceAuthSeq, known_main: opts.knownMain },
   );
   return json;
 }
@@ -78,8 +78,8 @@ export async function httpPush(
   bundle: Bundle,
   expectedMain: string | null,
   policy: string | null,
-): Promise<{ main: string | null; seq: number }> {
-  const { json } = await call<{ main: string | null; seq: number }>(
+): Promise<{ main: string | null; seq: number; auth_seq: number }> {
+  const { json } = await call<{ main: string | null; seq: number; auth_seq: number }>(
     remote,
     `/v1/repos/${encodeURIComponent(repoId)}/push`,
     { expected_main: expectedMain, bundle, policy },

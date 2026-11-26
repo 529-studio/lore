@@ -50,11 +50,11 @@ remote:
   token_env: LORE_HUB_TOKEN
 ```
 
-`fetch` pulls only rows newer than the stored `hub_seq` plus the current main, then merges with the
-normal 3-way ladder. `push` pulls first, sends commits the hub cannot already have (not ancestors of
-the server's main) with their entries, claims and evidence, and includes tombstones. The push is an
-optimistic CAS on `expected_main`; a concurrent push returns `409`, and the client imports the peer's
-commits and retries once.
+`fetch` pulls only rows newer than the stored `hub_seq` (repository rows) and `hub_auth_seq`
+(revocations) plus the current main, then merges with the normal 3-way ladder. `push` pulls first,
+sends commits the hub cannot already have (not ancestors of the server's main) with their entries,
+claims and evidence, and includes tombstones. The push is an optimistic CAS on `expected_main`; a
+concurrent push returns `409`, and the client imports the peer's commits and retries once.
 
 ## Authorization
 

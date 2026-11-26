@@ -41,6 +41,7 @@ export interface LoreConfig {
   remote_main?: string | null;
   /** Last hub sequence and main seen by fetch/push, used for delta sync. */
   hub_seq?: number;
+  hub_auth_seq?: number;
   hub_main?: string | null;
   trust_mode?: 'strict' | 'permissive';
   auto_approve?: boolean | number[];
