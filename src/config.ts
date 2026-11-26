@@ -43,6 +43,7 @@ export interface LoreConfig {
   worktree_mode?: 'shared' | 'isolated';
   team_mode?: boolean;
   extractors?: string[];
+  plugins?: string[];
   [key: string]: unknown;
 }
 

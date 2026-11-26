@@ -130,7 +130,7 @@ export async function onboardCommand(opts: OnboardOptions = {}): Promise<void> {
 
   process.chdir(root);
   try {
-    if (!stateExisted) initCommand({ root, gitignore: true });
+    if (!stateExisted) await initCommand({ root, gitignore: true });
     if (!ontologyExisted) {
       mkdirSync(path.dirname(ontologyPath), { recursive: true });
       copyFileSync(path.join(templateRoot, template, 'lore.ontology.yml'), ontologyPath);
@@ -141,7 +141,7 @@ export async function onboardCommand(opts: OnboardOptions = {}): Promise<void> {
     installAgentRules(root);
     if (doIngest) {
       const session = createOnboardSession();
-      ingestCommand({ session });
+      await ingestCommand({ session });
       publishIngestBaseline(root, session);
     }
     if (doSetup) {

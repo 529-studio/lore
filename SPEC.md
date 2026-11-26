@@ -458,13 +458,13 @@ No LLM judge. Outcome metrics on real repositories:
 | SQLite WAL static 1000-page autocheckpoint | adaptive WAL checkpoint auto-tuning (`LORE_WAL_AUTOCHECKPOINT`) | high-write sessions need scaling to prevent WAL bloat |
 | temporal query requires absolute timestamps | relative temporal query parsing (`src/canon/temporal.ts`) | agents query memory with relative expressions |
 | GC only soft-retracts drafts | GC compaction & tombstone purging (`src/gc.ts`) | stores accumulate tombstones and fragmented SQLite pages |
-| benchmark emits terminal table only | Prometheus/OTel exporter (`exportPrometheusMetrics`) | dashboards require standard metrics exposition |
+| benchmark is terminal-only | Prometheus/OTel exporter (`exportPrometheusMetrics`) | dashboards need standard metrics |
 | UI lacks multi-agent sync | sync indicators and `/api/sync/status` (`src/ui/server.ts`) | agents need live convergence signals |
 | lexical retrieval only | semantic hybrid layer (`src/search/vector.ts`) | synonyms failed token matching |
-| merge aborts equal-tier inference | semantic 3-way resolver (`src/merge.ts`) | confidence and vectors break the tie |
-| MCP supports tools only | MCP resource subscription protocol (`resources/list`, `read`, `subscribe`, notifications) | agents need event-driven updates on memory changes without polling |
-| secret detection throws only | secret scrubbing and ZK attestations (`src/security/scrub.ts`) | credentials must be redacted |
-| main-thread UI graph | Web Worker force layout & quadtree (`/graph-worker.js`) | graphs >1k nodes freeze main thread |
+| equal-tier merge aborts | semantic 3-way resolver (`src/merge.ts`) | confidence and vectors break ties |
+| MCP supports tools only | resource subscription (`resources/list`, `read`, `subscribe`, notifications) | agents need push updates on memory changes |
+| secret detection throws | scrubbing + ZK attestations (`src/security/scrub.ts`) | credentials must be redacted |
+| main-thread UI graph | worker force layout + quadtree (`/graph-worker.js`) | 1k+ nodes freeze UI |
 | packaging needs host node | portable bundles (`scripts/package-binary.mjs`) | air-gapped hosts |
 | omitted predicates default to `one` | `many` fallback for extractor predicates (`src/ontology.ts`) | avoids day-0 tier-1 conflicts |
 | sync carries commits only | bundle applies redaction/purge/revocation tombstones (`src/sync.ts`) | no resurrection after fetch |
@@ -472,6 +472,7 @@ No LLM judge. Outcome metrics on real repositories:
 | `.lore` beside worktree | shared primary store, per-worktree sessions, workspace-keyed hash cache (`src/scope.ts`) | parallel agents must not fork memory |
 | config only in gitignored `.lore/config.json` | `.lore.yml` + `lore join` adopt `repo_id`/remote; `init` keeps it | clones must not fork team memory |
 | team mode needs the env secret | `team_mode: true` activates policy and fails closed without credentials | no silent downgrade |
+| hosts hardcoded in `setup` | personal/repo plugin scopes (`src/plugins/loader.ts`) | extend without core edits |
 
 ## Glossary
 
@@ -481,7 +482,7 @@ No LLM judge. Outcome metrics on real repositories:
 - **Trust** — Canon's independent axis: `canonical` may be injected, `candidate` waits for evidence
   or approval, `contested` has a competing value, `stale` failed TTL or drift, `retracted` was
   rejected. Branch membership (`state`) is set by Lore; trust is set by Canon.
-- **Stale** — the thing a claim points at changed since it was observed.
+- **Stale** — the evidence a claim points at changed.
 - **Merge base** — lowest common ancestor, used for the 3-way merge.
 - **Tier-1 conflict** — two live claims assert different values for a `cardinality: one` predicate;
   both become `contested` and a `claim_conflict` row is recorded. No model decides the winner.

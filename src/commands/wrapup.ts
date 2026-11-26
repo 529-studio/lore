@@ -10,6 +10,7 @@ import { branchFor, ensureSession, rotateSession } from '../session.js';
 import { requireAction } from '../policy.js';
 import { approveDrafts } from '../actions.js';
 import { loadPending } from './promote.js';
+import { runSessionHook } from '../plugins/loader.js';
 
 export interface WrapupOptions {
   root?: string;
@@ -171,4 +172,9 @@ export async function wrapupCommand(opts: WrapupOptions = {}): Promise<void> {
 
   console.log(`\n${pc.green('[OK]')} Wrapup complete. Session memory successfully integrated.`);
   db.close();
+  runSessionHook(
+    'afterWrapup',
+    { workspaceRoot: path.resolve(root), session, into },
+    (message) => console.error(`[WARN] ${message}`),
+  );
 }

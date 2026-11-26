@@ -2707,7 +2707,7 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
             }
             const targetPath = path.resolve(chosen);
             if (!existsSync(stateDirFor(targetPath))) {
-              initCommand({ root: targetPath });
+              await initCommand({ root: targetPath });
             }
             db.close();
             root = targetPath;
@@ -2732,7 +2732,7 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
               return;
             }
             if (!existsSync(stateDirFor(targetPath))) {
-              initCommand({ root: targetPath });
+              await initCommand({ root: targetPath });
             }
             db.close();
             root = targetPath;
