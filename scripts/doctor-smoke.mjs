@@ -215,6 +215,29 @@ try {
   const fusedCheck = checkById(parseJson('fused: doctor --json', fusedRun), 'mcp:opencode');
   if (fusedCheck.status !== 'err') fail('fused: a block comment fused two numbers into valid JSON', fusedRun);
 
+  // An unterminated block comment must be [ERR], not a silent truncation.
+  writeFileSync(path.join(brokenToml, 'opencode.json'), '{"mcp":{"servers":{"lore":{}}}}/*\n', 'utf8');
+  const openCommentRun = lore(['doctor', '--json'], brokenToml);
+  const openCommentCheck = checkById(parseJson('open comment: doctor --json', openCommentRun), 'mcp:opencode');
+  if (openCommentCheck.status !== 'err' || !openCommentCheck.message.includes('unterminated block comment')) {
+    fail('open comment: unterminated block comment was accepted', openCommentRun);
+  }
+
+  // Signs on base-prefixed integers and impossible dates are invalid TOML.
+  for (const [label, value] of [
+    ['signed hex', '+0x1'],
+    ['impossible date', '2024-99-99'],
+  ]) {
+    writeFileSync(
+      path.join(brokenToml, '.codex', 'config.toml'),
+      `[mcp_servers.lore]\ncommand = "lore"\nvalue = ${value}\n`,
+      'utf8',
+    );
+    const run = lore(['doctor', '--json'], brokenToml);
+    const item = checkById(parseJson(`${label}: doctor --json`, run), 'mcp:codex');
+    if (item.status !== 'err') fail(`${label}: invalid TOML was accepted`, run);
+  }
+
   // Duplicate keys inside an inline table are invalid TOML.
   writeFileSync(
     path.join(brokenToml, '.codex', 'config.toml'),

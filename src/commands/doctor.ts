@@ -119,6 +119,22 @@ interface TomlDocument {
   paths: Set<string>;
 }
 
+function isTomlDateOrTime(token: string): boolean {
+  const local = /^(\d{4})-(\d{2})-(\d{2})(?:[Tt ](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:[Zz]|[+-](\d{2}):(\d{2}))?)?$/.exec(
+    token,
+  );
+  if (local) {
+    const [, year, month, day, hour, minute, second, offsetHour, offsetMinute] = local;
+    if (+month < 1 || +month > 12 || +day < 1) return false;
+    if (+day > new Date(Date.UTC(+year, +month, 0)).getUTCDate()) return false;
+    if (hour !== undefined && (+hour > 23 || +minute > 59 || +second > 60)) return false;
+    if (offsetHour !== undefined && (+offsetHour > 23 || +offsetMinute > 59)) return false;
+    return true;
+  }
+  const time = /^(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?$/.exec(token);
+  return Boolean(time) && +time![1] <= 23 && +time![2] <= 59 && +time![3] <= 60;
+}
+
 function validateToml(content: string): { ok: true; document: TomlDocument } | { ok: false; error: string } {
   let index = 0;
   let line = 1;
@@ -250,10 +266,10 @@ function validateToml(content: string): { ok: true; document: TomlDocument } | {
     if (new RegExp(`^${decimal}$`).test(token)) return;
     if (new RegExp(`^${decimal}\\.(?:[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?$`).test(token)) return;
     if (new RegExp(`^${decimal}[eE][+-]?[0-9](?:_?[0-9])*$`).test(token)) return;
-    if (/^[+-]?0x[0-9A-Fa-f](?:_?[0-9A-Fa-f])*$/.test(token)) return;
-    if (/^[+-]?0o[0-7](?:_?[0-7])*$/.test(token)) return;
-    if (/^[+-]?0b[01](?:_?[01])*$/.test(token)) return;
-    if (/^[0-9]{4}-[0-9]{2}-[0-9]{2}([Tt ].*)?$/.test(token)) return;
+    if (/^0x[0-9A-Fa-f](?:_?[0-9A-Fa-f])*$/.test(token)) return;
+    if (/^0o[0-7](?:_?[0-7])*$/.test(token)) return;
+    if (/^0b[01](?:_?[01])*$/.test(token)) return;
+    if (isTomlDateOrTime(token)) return;
     fail(`unsupported value "${token}"`);
   }
 
@@ -423,7 +439,7 @@ function skipJsoncTrivia(text: string, from: number): number {
 }
 
 /** OpenCode configs are JSONC: line/block comments and trailing commas are legal. */
-function stripJsonc(text: string): string {
+function stripJsonc(text: string): { ok: true; text: string } | { ok: false; error: string } {
   let out = '';
   let index = 0;
   let inString = false;
@@ -450,8 +466,16 @@ function stripJsonc(text: string): string {
     }
     if (char === '/' && text[index + 1] === '*') {
       index += 2;
-      while (index < text.length && !(text[index] === '*' && text[index + 1] === '/')) index += 1;
-      index += 2;
+      let closed = false;
+      while (index < text.length) {
+        if (text[index] === '*' && text[index + 1] === '/') {
+          index += 2;
+          closed = true;
+          break;
+        }
+        index += 1;
+      }
+      if (!closed) return { ok: false, error: 'unterminated block comment' };
       out += ' ';
       continue;
     }
@@ -465,7 +489,7 @@ function stripJsonc(text: string): string {
     out += char;
     index += 1;
   }
-  return out;
+  return { ok: true, text: out };
 }
 
 function checkMcpConfig(root: string, config: McpConfig): DoctorCheck {
@@ -495,8 +519,12 @@ function checkMcpConfig(root: string, config: McpConfig): DoctorCheck {
     parsed = JSON.parse(text);
   } catch (error) {
     if (config.agent === 'opencode') {
+      const stripped = stripJsonc(text);
+      if (!stripped.ok) {
+        return check('err', id, `${config.file} is not valid JSONC: ${stripped.error}`, `fix ${config.file} or rerun lore setup ${config.agent}`);
+      }
       try {
-        parsed = JSON.parse(stripJsonc(text));
+        parsed = JSON.parse(stripped.text);
       } catch {
         parsed = undefined;
       }
