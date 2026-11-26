@@ -468,15 +468,15 @@ No LLM judge. Outcome metrics on real repositories:
 | config only in gitignored `.lore/config.json` | `.lore.yml` + `lore join` adopt `repo_id`/remote; `init` keeps it | clones must not fork team memory |
 | team mode needs the env secret | `team_mode: true` activates policy and fails closed without credentials | no silent downgrade |
 | direct Postgres sync | `lore-hub`: http delta + CAS + per-user tokens (`src/hub/`) | no DB creds on dev machines |
-| repo memory is local | `publish:`/`links:` over lore-hub; `ext:<slug>/` ids and `[EXT]` freshness (`src/policy/publish.ts`) | scoped foreign memory (#197) |
-| sync dropped `agent/*` refs and ignored `resolution` rows | `push --propose` + hub refs; `proposals`; `review --remote`; `mergeTip` replays `resolution` and records `merge_conflict` | review must not need `main` write |
-| hosts hardcoded in `setup` | personal/repo plugin scopes (`src/plugins/loader.ts`) | extend without core edits |
+| repo memory is local | `publish:`/`links:` over lore-hub; `ext:<slug>/` ids and `[EXT]` freshness | scoped foreign memory |
+| sync dropped `agent/*` refs and ignored `resolution` rows | `push --propose` + hub refs; `proposals`; `review --remote`; `mergeTip` replays `resolution` and records `merge_conflict` | review needs no `main` write |
+| hosts hardcoded in `setup` | personal/repo plugin scopes | extend without core edits |
 | status trusts persisted counts; GC uses row age | status separates trust, drift, branch/store; GC ages drafts from last observation | fresh-draft warnings (#181) |
 | similarity = Jaccard token overlap | coverage and exact-phrase weights rank before authority | one token must not bury an exact rule |
 | ingest reads root manifests only | package.json, Makefile, docker-compose*, Python and go manifests at any depth | monorepos are common |
 | retrieval ranks by scope and similarity | predicate classes and a query-text gate; static AST/TOC facts demoted, never deleted | guardrails survive structural noise (#193) |
 | markdown rules stop at any heading | nested rules under numbered headings; dated logs yield known bugs/guardrails; 1,200-char cap | nested rules and non-`LNN` logs dropped (#193) |
-| no readiness command; store has no schema version | `lore doctor` checks store shape (tables/columns, WAL, integrity), branch parity, MCP configs, ontology, health | one actionable report; shape drift is detected, not assumed |
+| no readiness command; store has no schema version | `lore doctor` checks store shape (tables/columns, WAL, integrity), branch parity, MCP configs, ontology, health | one actionable report; shape drift is detected |
 
 ## Glossary
 
