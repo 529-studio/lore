@@ -161,8 +161,11 @@ try {
   run(d, ['push'], { LORE_HUB_TOKEN: ownerToken });
 
   const e = repo('repo-e');
+  writeFileSync(
+    path.join(e, '.lore.yml'),
+    `repo_id: ${repoId}\nremote:\n  type: http\n  url: ${HUB}\n  token_env: LORE_HUB_TOKEN\n`,
+  );
   run(e, ['init']);
-  configure(e, ownerToken);
   run(e, ['fetch'], { LORE_HUB_TOKEN: ownerToken });
   const converged = run(e, ['search', 'hub-c-marker']);
   assert.match(converged, /hub-c-marker/);
@@ -173,7 +176,34 @@ try {
   const revoked = runFail(b, ['fetch'], { LORE_HUB_TOKEN: bobToken });
   assert.match(revoked, /invalid or revoked token|token has been revoked/);
 
-  // MCP transport accepts the admin token and lists the sync tools.
+  // The admin token is only for token management, never for sync.
+  const adminSync = runFail(b, ['fetch'], { LORE_HUB_TOKEN: ADMIN });
+  assert.match(adminSync, /admin token may only issue or revoke tokens/);
+
+  // A repository-scoped maintainer token cannot touch another repository.
+  const otherRepo = randomUUID();
+  const scoped = run(work, ['hub', 'token', 'issue', '--sub', 'scoped@team', '--role', 'maintainer', '--repo', otherRepo, '--url', HUB])
+    .split('\n')[0]
+    .trim();
+  const scopedSync = runFail(b, ['fetch'], { LORE_HUB_TOKEN: scoped });
+  assert.match(scopedSync, /token is scoped to repository/);
+
+  // A contributor cannot smuggle a purge tombstone for a protected claim.
+  run(a, ['write', '--subject', 'rule:no-smuggling', '--predicate', 'enforces_invariant', '--object', 'hub-purge2-marker', '--kind', 'file', '--ref', 'README.md']);
+  run(a, ['promote']);
+  run(a, ['push'], { LORE_HUB_TOKEN: ownerToken });
+  run(c, ['fetch'], { LORE_HUB_TOKEN: carolToken });
+  const purgeId2 = /c_[a-f0-9]{32}/.exec(run(c, ['search', 'hub-purge2-marker']))?.[0];
+  assert.ok(purgeId2, 'second claim id must be visible to the contributor');
+  run(c, ['purge', purgeId2, '--reason', 'contributor attempt', '--yes']);
+  run(c, ['push'], { LORE_HUB_TOKEN: carolToken });
+  const f = repo('repo-f');
+  run(f, ['init']);
+  configure(f, ownerToken);
+  run(f, ['fetch'], { LORE_HUB_TOKEN: ownerToken });
+  assert.match(run(f, ['search', 'hub-purge2-marker']), /hub-purge2-marker/);
+
+  // MCP transport accepts a repository token and lists the sync tools.
   const mcp = await fetch(`${HUB}/mcp`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${ownerToken}` },
