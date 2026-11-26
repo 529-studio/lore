@@ -155,6 +155,9 @@ protected:
   "doc:locked.md": [maintainers]
   "doc:tier.md": [contributors, maintainers]
   "doc:AGENTS.md*": [maintainers]
+  "doc:quorum.md":
+    roles: [maintainers]
+    min_attestations: 1
 `,
   );
 
@@ -305,6 +308,24 @@ protected:
   if (!check(protectedDraft, 'failed to create the protected draft')) throw new Error('cannot continue');
   expectDenied(['approve', protectedDraft], bobEnv, 'protected', 'CLI approve protected draft');
 
+  // 6b. A protected subject with min_attestations needs independent review.
+  expectOk(
+    ['write', '--subject', 'doc:quorum.md', '--predicate', 'has_section', '--object', 'quorum draft', '--kind', 'human', '--ref', 'README.md', '--author', 'human:alice'],
+    { ...aliceEnv, LORE_SESSION: 'alice' },
+  );
+  const quorumDraft = claimIdFor('doc:quorum.md', 'has_section');
+  if (!check(quorumDraft, 'failed to create the quorum draft')) throw new Error('cannot continue');
+  expectDenied(['approve', quorumDraft], aliceEnv, 'independent attestation', 'quorum approval without attestation');
+  const carol = expectOk(['identity', 'issue', '--user', 'carol@company', '--role', 'maintainer', '--jti', 'carol-1'], {
+    LORE_TEAM_SECRET: SECRET,
+  }).trim();
+  expectOk(['attest', quorumDraft, '--verdict', 'agree'], {
+    LORE_TEAM_SECRET: SECRET,
+    LORE_TOKEN: carol,
+    LORE_SESSION: 'carol',
+  });
+  expectOk(['approve', quorumDraft], aliceEnv);
+
   // 7. Canon confirmation is an approval and must honor protected subjects.
   expectOk(
     ['write', '--subject', 'doc:locked.md', '--predicate', 'enforced_by', '--object', 'canon target', '--kind', 'agent', '--ref', 'README.md', '--author', 'agent:alice'],
@@ -400,7 +421,7 @@ protected:
     console.error(`[ERR] ${failures} policy guard check(s) failed`);
     process.exitCode = 1;
   } else {
-    console.log('[OK] supersede, rename, ingest, approve tiers, auto-resolve, wrapup, gc, identity issue, UI and MCP fail closed for contributors');
+    console.log('[OK] supersede, rename, ingest, approve tiers, quorum, auto-resolve, wrapup, gc, identity issue, UI and MCP fail closed for contributors');
   }
 } finally {
   rmSync(work, { recursive: true, force: true });

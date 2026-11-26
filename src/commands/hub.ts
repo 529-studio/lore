@@ -53,7 +53,7 @@ export async function hubCommand(opts: HubServeOptions = {}): Promise<void> {
     host: opts.host,
   });
   console.log(`${pc.green('[OK]')} lore-hub listening on ${handle.url}`);
-  console.log(pc.dim('  endpoints: POST /v1/repos/:id/pull, /push, /v1/admin/tokens, /mcp'));
+  console.log(pc.dim('  endpoints: POST /v1/repos/:id/pull, /push, /proposals[/list|get|review|promote], /v1/admin/tokens, /mcp'));
   console.log(pc.dim('  press Ctrl+C to stop'));
 }
 

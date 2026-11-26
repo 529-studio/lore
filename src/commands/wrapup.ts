@@ -9,7 +9,7 @@ import { loadOntology } from '../ontology.js';
 import { branchFor, ensureSession, rotateSession } from '../session.js';
 import { requireAction } from '../policy.js';
 import { approveDrafts } from '../actions.js';
-import { loadPending } from './promote.js';
+import { loadPending } from '../resolution.js';
 import { runSessionHook } from '../plugins/loader.js';
 
 export interface WrapupOptions {

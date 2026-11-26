@@ -54,7 +54,7 @@ export function loadPolicy(root: string): GranularPolicyFile | null {
 export function requireAction(
   root: string,
   action: Action,
-  ctx: { tier?: number; subject?: string } = {},
+  ctx: { tier?: number; subject?: string; claimId?: string } = {},
 ): Principal {
   return checkAuthorization(root, action, ctx);
 }

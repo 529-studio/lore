@@ -416,43 +416,43 @@ No LLM judge. Outcome metrics on real repositories:
 | SPEC says | Code does | Why |
 |---|---|---|
 | table `commit` | `memory_commit` | `commit` is a SQLite keyword |
-| merge only | also `promote` | `main` must advance or new sessions start empty |
+| merge only | also `promote` | new sessions must start non-empty |
 | R4 "unless the retract is stale" | approximated by the survivor's tier (> T2 blocks deletion) | no per-side stale flag at that step yet |
 | `tree_hash = (claim_id, state)` | `(claim_id, op)` | op is what the fold actually uses |
 | `verify` updates the hash | does not rewrite it | avoid blessing drift; `ingest` is the re-observation path |
-| purge exists as an audited exception | `lore purge --yes` deletes the row; `purge_audit` keeps id/actor/reason | PII and leaked secrets must be removable |
-| no machine approver | policy tiers without `*` gate promotion; `LORE_MACHINE=1` may approve T0/T1 only | automation needs a gate that is not a human |
+| purge exists as an audited exception | `lore purge --yes` deletes the row; `purge_audit` keeps id/actor/reason | secrets must be removable |
+| no machine approver | policy tiers without `*` gate promotion; `LORE_MACHINE=1` may approve T0/T1 only | automation needs a non-human gate |
 | no attestation | `lore attest` writes a T2 claim linked in `attestation`; no self-attestation | independent review must be attributable |
 | no identity | local OS user; team mode uses HMAC tokens or OIDC email, in `lore.policy.yml` | actions must be attributable |
 | one state axis | `state` is branch membership; `trust` is canonical/candidate/contested/stale/retracted | shared memory needs a non-local trust signal |
-| conflicts only surface at merge | a tier-1 conflict is recorded synchronously on write; both live claims become `contested` | shared memory must not serve two values silently |
-| retrieval filters drafts/stale | retrieval also requires `trust = canonical`; contested facts warn | trust is orthogonal to branch membership |
+| conflicts only surface at merge | a tier-1 conflict is recorded synchronously on write; both live claims become `contested` | shared memory must not serve two values |
+| retrieval filters drafts/stale | retrieval also requires `trust = canonical`; contested facts warn | trust is orthogonal to membership |
 | stale derived on read | `canon decay` persists `trust = stale`; read path lazily checks TTL/paths | shared memory needs a durable stale answer |
-| evidence commit must be an ancestor | a non-ancestor stays `ahead-of-checkout`, not stale | an older checkout must not invalidate an observation made on newer code |
+| evidence commit must be an ancestor | a non-ancestor stays `ahead-of-checkout`, not stale | an older checkout must not invalidate a newer observation |
 | sync carries commits only | bundle import merges trust (retracted wins, newer verification wins); tombstones applied; `lore replicate` streams WAL | a fetch must not resurrect a value; real-time clusters |
 | trust changes via evidence | `canon resolve` keeps one value; redact/purge close the pair | contested memory needs an auditable exit |
 | no team sync | `lore remote` + `fetch`/`push` over directory or Postgres, `bundle` for air gaps | air-gapped repos cannot depend on git hosts |
-| `--as-of` reads the commit at that instant | folds the whole ancestry, skipping commits after the instant | sibling branches hide facts before a merge |
-| hash cache keyed by content | keyed by size, mtime and ctime | mtime can be restored; ctime changes on any inode write |
+| `--as-of` reads the commit at that instant | folds the whole ancestry, skipping commits after the instant | sibling branches hide facts |
+| hash cache keyed by content | keyed by size, mtime and ctime | mtime can be restored |
 | file/test evidence auto-promotes | only when the evidence hash was actually observed | an unhashable file is not evidence |
 | `conflict_rate` over 20 sessions | counts only merges expected to succeed | a designed conflict is not a production threshold |
 | MCP has five tools | eight tools and resource subscriptions | without approve and resources, MCP memory is incomplete |
 | CLI has static config | `lore setup` auto-wires MCP and `lore config` manages settings | manual editing was error-prone and missed session isolation |
 | UI flat triple table, one claim page | Entity Dossier, server search, label culling, repo modal, Conflicts tab | large stores stay usable |
-| search couples bi-temporal dimensions | decoupled bi-temporal search (`--valid-at`, `--tx-at`, `lore timeline`) | audit requires querying past beliefs independently |
-| UI is static on read | live Server-Sent Events (`/api/events`) with SQLite version detection | mutations must reflect live without manual refresh |
-| UI graph is uniform radial scatter | semantic visual clustering and predicate relationship filtering | graphs need domain grouping |
+| search couples bi-temporal dimensions | decoupled bi-temporal search (`--valid-at`, `--tx-at`, `lore timeline`) | audit needs past beliefs |
+| UI is static on read | live Server-Sent Events (`/api/events`) with SQLite version detection | mutations must show live |
+| UI graph is uniform radial scatter | semantic clustering and predicate filtering | graphs need grouping |
 | Windows installer unsigned | CI Authenticode + SHA-256 | verifiable binaries |
 | tokens immutable for 30d | revocation registry + JTI checks (`lore identity revoke`) | revoke without re-keying |
 | writes are draft only | permissive trust mode (`init --solo`) auto-promotes | solo retrieval without approval overhead |
 | static 3-bullet agent rules | rich ontology guidelines (`lore rules [--update]`) with entity prefixes and tiers | prevents hallucinated predicates |
 | manual review and promote | `lore wrapup [--yes]` / `lore session` | sessions left unreviewed drafts behind |
-| bare init creates store only | `init --full`/`onboard` ingest on a fresh branch and promote it to `main` | agents forked from `main` must see the baseline |
+| bare init creates store only | `init --full`/`onboard` ingest on a fresh branch and promote it to `main` | new sessions must see the baseline |
 | onboard prints hardcoded Claude command | `lore onboard` auto-detects agents and wires MCP configs directly | multi-agent repos need dynamic wiring |
 | sync is batch push/fetch only | bi-directional sync adapter (`lore sync`, `memory_sync`) | nodes need atomic sync without lock collisions |
-| concurrency verified on 4x25 writes only | multi-worker benchmark (`scripts/bench-concurrency.mjs`) | clusters need soak tests for latency and WAL |
-| gossip convergence untested on clusters | multi-replica gossip simulator (`scripts/bench-cluster.mjs`) | clusters require benchmarking convergence |
-| SQLite WAL static 1000-page autocheckpoint | adaptive WAL checkpoint auto-tuning (`LORE_WAL_AUTOCHECKPOINT`) | high-write sessions need scaling to prevent WAL bloat |
+| concurrency verified on 4x25 writes only | multi-worker benchmark (`scripts/bench-concurrency.mjs`) | clusters need soak tests |
+| gossip convergence untested on clusters | multi-replica gossip simulator (`scripts/bench-cluster.mjs`) | clusters need convergence benchmarks |
+| SQLite WAL static 1000-page autocheckpoint | adaptive WAL checkpoint auto-tuning (`LORE_WAL_AUTOCHECKPOINT`) | high-write sessions need scaling |
 | temporal query requires absolute timestamps | relative temporal query parsing (`src/canon/temporal.ts`) | agents query memory with relative expressions |
 | GC only soft-retracts drafts | GC compaction & tombstone purging (`src/gc.ts`) | stores accumulate tombstones and fragmented SQLite pages |
 | benchmark is terminal-only | Prometheus/OTel export (`exportPrometheusMetrics`) | dashboards need metrics |
@@ -469,9 +469,10 @@ No LLM judge. Outcome metrics on real repositories:
 | config only in gitignored `.lore/config.json` | `.lore.yml` + `lore join` adopt `repo_id`/remote; `init` keeps it | clones must not fork team memory |
 | team mode needs the env secret | `team_mode: true` activates policy and fails closed without credentials | no silent downgrade |
 | direct Postgres sync | `lore-hub`: http delta + CAS + per-user tokens (`src/hub/`) | no DB creds on dev machines |
+| sync dropped `agent/*` refs and ignored `resolution` rows | `push --propose` + hub proposal refs; `proposals` and `review --remote`; `mergeTip` replays `resolution`, records `merge_conflict` and `refs/remotes/origin/main`; optional `min_attestations` | review must not need `main` write |
 | hosts hardcoded in `setup` | personal/repo plugin scopes (`src/plugins/loader.ts`) | extend without core edits |
-| status trusts persisted counts; GC uses row age | status separates persisted trust, live drift, branch/store; GC ages drafts from last observation | contradictory counts and fresh-draft warnings (#181) |
-| similarity = Jaccard token overlap | coverage and exact-phrase weights rank before authority | one shared token must not bury an exact rule (#181) |
+| status trusts persisted counts; GC uses row age | status separates trust, drift, branch/store; GC ages drafts from last observation | contradictory counts and fresh-draft warnings (#181) |
+| similarity = Jaccard token overlap | coverage and exact-phrase weights rank before authority | one token must not bury an exact rule (#181) |
 | ingest reads root manifests only | package.json, Makefile, docker-compose* at any depth; Python requirements/pyproject/imports; go.mod | monorepos are the common shape |
 
 ## Glossary

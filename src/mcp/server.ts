@@ -31,7 +31,9 @@ import { installCanon } from '../canon/index.js';
 import { loadOntology } from '../ontology.js';
 import { oneLine } from '../util/text.js';
 import { createSyncAdapter } from '../sync/adapter.js';
-import { ensureConfig } from '../config.js';
+import { ensureConfig, readConfig } from '../config.js';
+import { buildBundle } from '../sync.js';
+import { httpPropose, type HttpRemote } from '../remotes/http.js';
 
 const SERVER_VERSION = '0.0.1';
 // Newest first. A client asking for an unknown version is negotiated down to the
@@ -566,7 +568,7 @@ function toolApprove(args: ApproveArgs): ToolResult {
     // Every target is checked before any row changes; a protected or
     // higher-tier draft fails the whole batch instead of half-applying.
     const principals = targets.map((target) =>
-      requireAction(ctx.root, 'approve', { tier: target.authority, subject: target.subject_id }),
+      requireAction(ctx.root, 'approve', { tier: target.authority, subject: target.subject_id, claimId: target.id }),
     );
     const principal = principals[0]!;
 
@@ -664,6 +666,61 @@ async function toolSync(args: SyncArgs): Promise<ToolResult> {
         replica_url: replicaUrl,
         pull: pullRes,
         push: pushRes,
+      },
+    };
+  } finally {
+    ctx.db.close();
+  }
+}
+
+interface ProposeArgs {
+  note?: string;
+  session?: string;
+}
+
+/**
+ * Publish the current session branch and its staged drafts as a hub proposal.
+ * Contributors need no permission on main; the hub holds the bundle until a
+ * maintainer approves and promotes it.
+ */
+async function toolPropose(args: ProposeArgs): Promise<ToolResult> {
+  const ctx = context();
+  try {
+    const config = ensureConfig(ctx.root);
+    if (!config.remote) throw new Error('no remote configured; run lore remote --hub <url>');
+    if (config.remote.type !== 'http') {
+      throw new Error('memory_propose needs a lore-hub (http) remote');
+    }
+    const remote: HttpRemote = config.remote;
+    const session = args.session ?? ctx.session;
+    const ref = branchFor(session);
+    const tip = head(ctx.db, ref);
+    const drafts = ctx.db.prepare("SELECT id FROM claim WHERE state = 'draft'").all() as Array<{ id: string }>;
+    if (!tip && !drafts.length) throw new Error(`nothing to propose: ${ref} has no commits and no drafts exist`);
+
+    const bundle = buildBundle(ctx.db, config.repo_id, tip ? [ref] : []);
+    const proposal = await httpPropose(remote, config.repo_id, {
+      session,
+      baseMain: readConfig(ctx.root)?.hub_main ?? null,
+      bundle,
+      note: args.note ?? null,
+    });
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `proposal ${proposal.ref} (${proposal.status}): ${proposal.claims} claim(s), ${proposal.commits} commit(s), ${drafts.length} draft(s) awaiting review`,
+        },
+      ],
+      structuredContent: {
+        ref: proposal.ref,
+        status: proposal.status,
+        user: proposal.user,
+        session: proposal.session,
+        tip: proposal.tip,
+        claims: proposal.claims,
+        commits: proposal.commits,
+        drafts: drafts.length,
       },
     };
   } finally {
@@ -794,6 +851,19 @@ const TOOLS: ToolDef[] = [
       },
     },
     run: (args) => toolSync(ARGS(args) as unknown as SyncArgs),
+  },
+  {
+    name: 'memory_propose',
+    description:
+      'Publish this session branch and its staged drafts as a hub proposal (refs/proposals/<user>/<session>) for maintainer review. Never pushes main.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        note: { type: 'string', description: 'review note stored with the proposal' },
+        session: { type: 'string', description: 'session to propose (default: current session)' },
+      },
+    },
+    run: (args) => toolPropose(ARGS(args) as unknown as ProposeArgs),
   },
 ];
 
@@ -962,6 +1032,20 @@ const OUTPUT_SCHEMAS: Record<string, Record<string, unknown>> = {
           actionId: { type: 'integer' },
         },
       },
+    },
+  },
+  memory_propose: {
+    type: 'object',
+    required: ['ref', 'status', 'claims', 'commits', 'drafts'],
+    properties: {
+      ref: { type: 'string' },
+      status: { type: 'string' },
+      user: { type: 'string' },
+      session: { type: 'string' },
+      tip: { type: ['string', 'null'] },
+      claims: { type: 'integer' },
+      commits: { type: 'integer' },
+      drafts: { type: 'integer' },
     },
   },
 };

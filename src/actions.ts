@@ -50,7 +50,7 @@ export function approveDrafts(db: DB, root: string, ref: string, ids: string[]):
   // Check every target before mutating: a protected subject or a higher tier
   // must fail the whole batch, not half of it.
   const principals = rows.map((row) =>
-    requireAction(root, 'approve', { tier: row.authority, subject: row.subject_id }),
+    requireAction(root, 'approve', { tier: row.authority, subject: row.subject_id, claimId: row.id }),
   );
   const principal = principals[0]!;
   let commitId: string | null = null;

@@ -208,7 +208,10 @@ resolve:
   "*": [maintainers]
   "sym:src/payments/*": [payments-team]
 protected:
-  - "sym:src/auth/*"    # two approvals
+  "rule:*": [maintainers]
+  "sym:src/auth/*":     # N-of-M review, also enforced by lore-hub
+    roles: [maintainers]
+    min_attestations: 2
 audit:
   agent: [lore-auditor] # read-only principal, signs attestations
 ```
@@ -244,6 +247,42 @@ claim `claim:<id> — attested_by — <verdict>` with authority T2, links it in 
 refuses to attest a claim written by the same principal.
 
 **Separation of duties:** an audit agent cannot approve its own write.
+
+**Quorum.** A `protected` entry may carry `min_attestations` next to its roles. Approval then needs
+that many distinct `agree` attestations from principals other than the claim's author, and the hub
+applies the same count to every pushed claim. Unset keeps the role-only behaviour.
+
+## Contributor proposals
+
+With `promote: [maintainers]` a contributor cannot advance `main`, and T3/T4 writes stay local
+drafts. `lore push` therefore exports a session branch the contributor is not allowed to publish.
+Proposals close that gap without granting write permission on `main`:
+
+```
+contributor                         lore-hub                     maintainer
+lore write (draft)                  repo_proposals               lore proposals list
+lore push --propose  ──────────►    refs/proposals/<user>/<session>   ──► lore review --remote
+                                                                     lore proposals approve
+                                                                     lore proposals promote ──► main
+```
+
+- `lore push --propose` publishes the current `agent/<session>` tip and every staged draft as one
+  bundle. It records the hub `main` it was built on and never touches `main`.
+- The hub stores proposals in `repo_proposals`, outside the shared commit graph: pulls do not see
+  them, and `write:`/`protected:` are applied when the promotion bundle is pushed, not before.
+- `lore proposals list [--status open]` shows proposals; `lore review --remote` walks them
+  interactively; `lore proposals approve|reject <user>/<session>` records the review decision.
+- `lore proposals promote <user>/<session>` requires an approved proposal. It imports the bundle,
+  approves the proposal's drafts under the maintainer's identity, merges the branch into `main`
+  with the normal ladder, and pushes with the proposal tip as an ancestor check on the hub.
+- Provenance survives: claim authors and commit authors stay the contributor's, so `lore blame`
+  names the contributor while `merge_decision.actor` and the approval commit name the maintainer.
+- MCP agents use `memory_propose` for the same publication step.
+
+`lore resolve` unblocks a diverged push. Before merging, import records
+`refs/remotes/origin/main`; if the ladder still conflicts, `mergeTip` writes the conflicts to
+`merge_conflict` and exits non-zero naming the subject and predicate. The next push replays the
+recorded `resolution` rows, so the merge completes and only then advances the branch.
 
 **When humans only check the UI:** review policy changes and a digest, not every claim.
 `lore digest [--days 7]` reports claims added, commits, conflicts resolved, attestations (and
