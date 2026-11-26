@@ -2,6 +2,7 @@ import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { makeCommit } from '../model.js';
 import { branchFor, ensureSession } from '../session.js';
+import { requireWriteSubjects } from '../policy.js';
 
 export interface RenameOptions {
   old: string;
@@ -42,6 +43,13 @@ export function renameCommand(opts: RenameOptions): void {
     ) as Array<{ id: string; kind: string; canonical: string; created_at: string }>;
 
   if (!entities.length) throw new Error(`no entities for ${oldPath}`);
+
+  // Rename rewrites claim subjects: authorize both the source and target so a
+  // protected entity cannot be moved out of (or into) its policy pattern.
+  requireWriteSubjects(root, [
+    ...entities.map((entity) => entity.id),
+    ...entities.map((entity) => entity.id.split(oldPath).join(newPath)),
+  ]);
 
   const actor = opts.author ?? 'human:cli';
   let moved = 0;

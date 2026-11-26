@@ -40,6 +40,12 @@ export function resolveCommand(opts: ResolveOptions): void {
       return;
     }
 
+    // Authorize every subject before recording any resolution, so a denied
+    // subject cannot leave a half-applied batch behind.
+    for (const subject of new Set(conflicts.map((c) => c.subject_id))) {
+      requireAction(root, 'resolve', { subject });
+    }
+
     const claimStmt = db.prepare('SELECT * FROM claim WHERE id = ?');
     const insertRes = db.prepare(
       `INSERT INTO resolution(subject_id, predicate, take, reason, ts, applied)

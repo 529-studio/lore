@@ -6,6 +6,7 @@ import { hashCache } from '../hash-cache.js';
 import { gitHead } from '../util/git.js';
 import { inBranch, makeCommit, supersedeClaim, type EvidenceKind } from '../model.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
+import { requireAction } from '../policy.js';
 
 export interface SupersedeOptions {
   claim: string;
@@ -26,6 +27,13 @@ export function supersedeCommand(opts: SupersedeOptions): void {
   const ref = branchFor(session);
   const evidenceRef = opts.ref ?? opts.claim;
 
+  const old = db.prepare('SELECT subject_id FROM claim WHERE id = ?').get(opts.claim) as
+    | { subject_id: string }
+    | undefined;
+  if (!old) throw new Error(`no such claim: ${opts.claim}`);
+  // Superseding rewrites a fact: it needs the same subject ACL as a write.
+  requireAction(root, 'write', { subject: old.subject_id });
+
   if (opts.ttlDays !== undefined && (!Number.isFinite(Number(opts.ttlDays)) || Number(opts.ttlDays) < 0)) {
     throw new Error(`--ttl-days: expected a non-negative number: ${opts.ttlDays}`);
   }
@@ -42,6 +50,7 @@ export function supersedeCommand(opts: SupersedeOptions): void {
       author: opts.author ?? 'human:cli',
       sessionId: session,
       ttlDays: opts.ttlDays !== undefined ? Number(opts.ttlDays) : undefined,
+      scrubSecrets: true,
       evidence: [{ kind: opts.kind, ref: evidenceRef, hash, commit: gitHead(root) }],
     });
 

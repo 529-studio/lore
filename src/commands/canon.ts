@@ -100,12 +100,12 @@ export function canonConfirmCommand(claimId: string, opts: CanonConfirmOptions =
   const root = requireRoot();
   const db = openDb(root);
   const claim = db.prepare('SELECT * FROM claim WHERE id = ?').get(claimId) as
-    | { id: string; state: string; authority: number }
+    | { id: string; state: string; authority: number; subject_id: string }
     | undefined;
   if (!claim) throw new Error(`no such claim: ${claimId}`);
   if (claim.state !== 'active') throw new Error(`claim ${claimId} is ${claim.state}, not active; use lore approve for drafts`);
 
-  const principal = requireAction(root, 'approve', { tier: claim.authority });
+  const principal = requireAction(root, 'approve', { tier: claim.authority, subject: claim.subject_id });
   const now = new Date().toISOString();
 
   const trust = db.transaction(() => {

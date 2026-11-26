@@ -10,6 +10,7 @@ import {
 import { runClaimRetractHooks } from '../model.js';
 import { ensureSession } from '../session.js';
 import { pruneHashCache } from '../hash-cache.js';
+import { requireAction } from '../policy.js';
 
 export interface GcOptions {
   root?: string;
@@ -77,6 +78,10 @@ export function gcCommand(opts: GcOptions): void {
     db.close();
     return;
   }
+
+  // Authorize the destructive part before retracting drafts: a denied purge
+  // must not leave the invocation half-applied.
+  if (opts.purgeTombstones && tombstoneList.length) requireAction(root, 'purge');
 
   if (draftCandidates.length) {
     const update = db.prepare("UPDATE claim SET state = 'retracted', trust = 'retracted' WHERE id = ?");

@@ -44,6 +44,7 @@
     "demo:cli": "node scripts/demo/record-cli.mjs",
     "docs:lint": "node scripts/docs-lint.mjs",
     "auth:smoke": "node scripts/auth-smoke.mjs",
+    "policy:smoke": "node scripts/policy-guards-smoke.mjs",
     "trust:smoke": "node scripts/permissive-trust-smoke.mjs",
     "rules:smoke": "node scripts/rules-smoke.mjs",
     "init:smoke": "node scripts/init-existing-repo-smoke.mjs",

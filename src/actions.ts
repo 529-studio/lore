@@ -35,15 +35,24 @@ type Op = 'add' | 'supersede' | 'retract' | 'restore';
 export function approveDrafts(db: DB, root: string, ref: string, ids: string[]): ActionResult {
   const rows = (
     ids.length
-      ? db.prepare(`SELECT id, authority FROM claim WHERE state = 'draft' AND id IN (${ids.map(() => '?').join(',')})`).all(...ids)
+      ? db
+          .prepare(
+            `SELECT id, authority, subject_id FROM claim WHERE state = 'draft' AND id IN (${ids.map(() => '?').join(',')})`,
+          )
+          .all(...ids)
       : []
-  ) as Array<{ id: string; authority: number }>;
+  ) as Array<{ id: string; authority: number; subject_id: string }>;
 
   if (!rows.length) {
     return { principal: requireAction(root, 'approve', { tier: 4 }), changed: [], skipped: [], commitId: null };
   }
 
-  const principal = requireAction(root, 'approve', { tier: Math.max(...rows.map((r) => r.authority)) });
+  // Check every target before mutating: a protected subject or a higher tier
+  // must fail the whole batch, not half of it.
+  const principals = rows.map((row) =>
+    requireAction(root, 'approve', { tier: row.authority, subject: row.subject_id }),
+  );
+  const principal = principals[0]!;
   let commitId: string | null = null;
 
   db.transaction(() => {
@@ -78,7 +87,7 @@ export function rejectDraft(db: DB, root: string, ref: string, id: string, reaso
   if (!claim) throw new ActionError('not_found', `no such claim: ${id}`);
   if (claim.state !== 'draft') throw new ActionError('invalid', `claim ${id} is ${claim.state}, not draft`);
 
-  const principal = requireAction(root, 'approve', { tier: claim.authority });
+  const principal = requireAction(root, 'approve', { tier: claim.authority, subject: claim.subject_id });
   let commitId: string | null = null;
 
   db.transaction(() => {

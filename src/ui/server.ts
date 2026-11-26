@@ -13,7 +13,7 @@ import { branchFor, currentSession } from '../session.js';
 import { readConfig } from '../config.js';
 import { ActionError, approveDrafts, attestClaim, rejectDraft, revertCommit } from '../actions.js';
 import { resolvePrincipal, teamMode } from '../identity.js';
-import { describePolicy, isPermissiveTrust } from '../policy.js';
+import { describePolicy, isPermissiveTrust, requireAction, PolicyError } from '../policy.js';
 import { installCanon } from '../canon/index.js';
 import { explainClaim } from '../canon/explain.js';
 import { gitHead } from '../util/git.js';
@@ -2470,6 +2470,10 @@ function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
 }
 
 function sendActionError(res: ServerResponse, error: unknown): void {
+  if (error instanceof PolicyError) {
+    json(res, { error: error.message, code: 'policy' }, 403);
+    return;
+  }
   if (error instanceof ActionError) {
     const status = error.code === 'not_found' ? 404 : error.code === 'policy' ? 403 : 400;
     json(res, { error: error.message, code: error.code }, status);
@@ -2631,6 +2635,7 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
               json(res, { error: 'subject, predicate, and object are required' }, 400);
               return;
             }
+            requireAction(root, 'write', { subject });
             const author = `human:${resolvePrincipal()?.id ?? 'ui'}`;
             const permissive = isPermissiveTrust(root);
             const run = db.transaction(() => {
@@ -2666,12 +2671,21 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
               json(res, { error: 'claim and object are required' }, 400);
               return;
             }
+            const old = db.prepare('SELECT subject_id FROM claim WHERE id = ?').get(claimId) as
+              | { subject_id: string }
+              | undefined;
+            if (!old) {
+              json(res, { error: `no such claim: ${claimId}` }, 404);
+              return;
+            }
+            requireAction(root, 'write', { subject: old.subject_id });
             const author = `human:${resolvePrincipal()?.id ?? 'ui'}`;
             const run = db.transaction(() => {
               const result = supersedeClaim(db, claimId, {
                 object,
                 author,
                 sessionId: session,
+                scrubSecrets: true,
                 evidence: [{ kind: 'human', ref: claimId, commit: gitHead(root) }],
               });
               if (result.state === 'active' && !inBranch(db, ref, result.newId)) {

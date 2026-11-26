@@ -346,6 +346,8 @@ function toolWrite(args: WriteArgs): ToolResult {
   const ctx = context();
   try {
     const kind = args.kind as EvidenceKind;
+    // Guarded: an agent must not bypass subject ACLs that the CLI enforces.
+    requireAction(ctx.root, 'write', { subject: args.subject, tier: authorityOf(kind) });
     const subject = args.subject;
     const predicate = args.predicate;
     const object = args.object;
@@ -551,19 +553,22 @@ function toolApprove(args: ApproveArgs): ToolResult {
   try {
     const targets = (
       args.claim
-        ? ctx.db.prepare("SELECT id FROM claim WHERE id = ? AND state = 'draft'").all(args.claim)
-        : ctx.db.prepare("SELECT id FROM claim WHERE state = 'draft'").all()
-    ) as Array<{ id: string }>;
+        ? ctx.db
+            .prepare("SELECT id, subject_id, authority FROM claim WHERE id = ? AND state = 'draft'")
+            .all(args.claim)
+        : ctx.db.prepare("SELECT id, subject_id, authority FROM claim WHERE state = 'draft'").all()
+    ) as Array<{ id: string; subject_id: string; authority: number }>;
 
     if (!targets.length) {
       return { content: [{ type: 'text', text: 'no draft claims to approve' }], structuredContent: { approved: [] } };
     }
 
-    const tiers = (ctx.db.prepare('SELECT id, authority FROM claim WHERE state = \'draft\'').all() as Array<{
-      id: string;
-      authority: number;
-    }>).map((row) => row.authority);
-    const principal = requireAction(ctx.root, 'approve', { tier: Math.max(...tiers) });
+    // Every target is checked before any row changes; a protected or
+    // higher-tier draft fails the whole batch instead of half-applying.
+    const principals = targets.map((target) =>
+      requireAction(ctx.root, 'approve', { tier: target.authority, subject: target.subject_id }),
+    );
+    const principal = principals[0]!;
 
     ctx.db.transaction(() => {
       const now = new Date().toISOString();
