@@ -69,12 +69,11 @@ Merge    ── 3-way on the fact key (subject, predicate[, object]).
 | `issue` | `issue:local:<id>` | exported issue file under `issues/` |
 | `concept` | `concept:<slug>` | human/agent, weakest |
 
-Aliases (`alias` table, `lore alias`) map a human phrase to an entity id; they are explicit, reviewed,
-and used by `blame` and `search`. `lore rename` moves entities and evidence after a file rename and
-keeps the old path as an alias.
+`lore alias` maps a human phrase to an entity id for `blame`/`search`; `lore rename` keeps the old
+path as an alias.
 
-Entity resolution must be deterministic: two agents observing the same fact must produce the same id.
-In a code repository, never use embeddings to resolve an entity — `path#symbol` is unique and stable.
+Entity resolution must be deterministic: same fact, same id. Never use embeddings in a repo;
+`path#symbol` is unique and stable.
 
 ### 4.2 Claim
 
@@ -103,8 +102,7 @@ evidence:
     status: valid                   # valid | stale
 ```
 
-Bi-temporal fields are mandatory in the model: without them there is no clean revert and no
-"what did we believe last week".
+Bi-temporal fields are mandatory: without them there is no clean revert or past belief.
 
 ### 4.3 Evidence
 
@@ -124,7 +122,7 @@ Evidence is not proof. It is an anchor for detecting drift.
 
 `claim_id = "c_" + sha256(stableStringify({subject, predicate, object, valid_from}))[0..32]`.
 `tx_from`, evidence and confidence are excluded so two agents observing the same fact collide by
-design. JSON keys are sorted; the encoding is stable across languages.
+design. JSON keys are sorted.
 
 ### 5.2 Schema (SQLite)
 
@@ -188,8 +186,7 @@ CREATE TABLE commit_entry (
 CREATE TABLE ref (name TEXT PRIMARY KEY, commit_id TEXT NOT NULL REFERENCES memory_commit(id));
 ```
 
-The table is `memory_commit` because `commit` is a SQLite keyword. `tree_hash` hashes sorted
-`claim_id:op` pairs, so a draft snapshot and an active snapshot cannot collide.
+`memory_commit` avoids the SQLite keyword; `tree_hash` hashes sorted `claim_id:op` pairs.
 
 A tier-1 Canon conflict is recorded in `claim_conflict`:
 
@@ -252,7 +249,7 @@ Re-writing the same value is a no-op.
 3. For every fact key in the union, apply the ladder.
 
 A **fact key** is `(subject, predicate)` for `cardinality: one` and `(subject, predicate, object)` for
-`cardinality: many`. Many-valued predicates therefore never collide; they coexist by construction.
+`cardinality: many`. Many-valued predicates coexist by construction.
 
 ### 7.2 Ladder
 
@@ -265,8 +262,8 @@ R5  same tier, one verified → newer tx_from wins; equal timestamps never decid
 R6  nothing applies         → ABORT, exit 2, persist merge_conflict rows
 ```
 
-Every decision is written to `merge_decision` with the rule and reason. A losing claim is never
-deleted: it is retracted and remains visible to `blame`.
+Every decision is recorded in `merge_decision`; a loser is retracted, never deleted, and stays
+visible to `blame`.
 
 ### 7.3 Ontology
 
@@ -297,25 +294,23 @@ Every claim carries the hash of what it depends on. On read (and in `status`):
 | `human` | never |
 | `agent` | the model id changed |
 
-A second case must be distinguished: the claim was observed on **newer code than this checkout**
-(evidence records the git HEAD at observation time). That claim is `ahead-of-checkout`, not stale:
-excluded from retrieval by default, included with `--trust-remote`, and labelled as such in `blame`.
+A claim observed on **newer code than this checkout** is `ahead-of-checkout`, not stale: excluded
+by default, included with `--trust-remote`, labelled in `blame`.
 
-Consequences: retrieval excludes stale claims by default (`--include-stale` overrides); `status`
-reports stale and ahead separately; `export` marks them. Stale claims are kept, never deleted, and return to valid when
-re-observed.
+Consequences: retrieval excludes stale claims (`--include-stale` overrides); `status` reports stale
+and ahead separately; `export` marks them; stale claims are kept, never deleted, and become valid
+when re-observed.
 
-**Decay.** Canon adds two first-class triggers on top of the evidence hash: `ttl_days` (null by
-default, measured from `last_verified_at`) and `path-disappeared` (a file/test evidence path no
-longer exists). `lore canon decay` evaluates live claims and persists `trust = stale` with the
-trigger in `invalidated_by_json`; the read path checks TTL and disappeared paths lazily, so a claim
-cannot be injected between sweeps. A commit that is no longer an ancestor remains `ahead-of-checkout`,
-never stale. `lore canon confirm` and `lore verify --accept` clear the trigger, refresh
-`last_verified_at`, and restore `canonical` (or `contested` while a tier-1 conflict is open).
+**Decay.** Canon adds two triggers on top of the evidence hash: `ttl_days` (null by default,
+measured from `last_verified_at`) and `path-disappeared` (a file/test path no longer exists).
+`lore canon decay` persists `trust = stale` with the trigger in `invalidated_by_json`; the read path
+checks TTL and vanished paths lazily, so nothing is injected between sweeps. A non-ancestor commit
+stays `ahead-of-checkout`, never stale. `lore canon confirm` and `lore verify --accept` clear the
+trigger and restore `canonical` (or `contested` while a tier-1 conflict is open).
 
 ## 9. Retrieval
 
-Not vector search. Vector is a tiebreak at most.
+Not vector search; vectors tiebreak.
 
 **Injection requires `active AND canonical`.** `candidate`, `contested`, `stale` (trust) and
 `retracted` claims are never returned. A contested fact contributes one warning line per
@@ -329,10 +324,13 @@ score = 3.0 * anchor        # evidence/subject path is in scope
       + 2.0 * coverage      # fraction of query tokens present
       + 2.5 * phrase        # normalized query appears contiguously
       + 0.5 * similarity    # Jaccard overlap (tie-break)
+      + predicate class     # +3 invariant, +0.75 route, -3 static AST/TOC (#193)
       - 10.0 * stale
 ```
 
-Hits show the score breakdown; phrase and full coverage sort first, then score; budget ~tokens (chars/4).
+Query hits require a claim-text match; anchor/proximity alone do not count. Static facts are
+demoted, not deleted; `imports_module` still feeds the 2-hop index.
+Hits show breakdown; phrase/full coverage sort first, then score; budget ~tokens (chars/4).
 
 ## 10. Interfaces
 
@@ -360,15 +358,15 @@ memory_commit({message})
 ```
 
 `memory_write` never writes to `main`; it always lands on `agent/<session>`.
-`memory_search` returns only `active AND canonical` claims; contested facts add `warnings` and a
-`contested` array to `structuredContent`, and never contribute content.
+`memory_search` returns only `active AND canonical` claims; contested facts add `warnings` and
+`contested`, never content.
 
 ### 10.3 Markdown projection
 
 `lore export --md` emits a deterministic file: sorted by subject, then predicate, then object; header
-without timestamps; evidence in an HTML comment. Deterministic output means it reviews like a
-document and diffs cleanly in git. Canon keeps only canonical claims inline; non-canonical claims are
-listed under `Withheld by Canon` without their object.
+without timestamps; evidence in an HTML comment. Deterministic output reviews like a document and
+diffs cleanly. Canon keeps only canonical claims inline; others are listed under `Withheld by Canon`
+without their object.
 
 ## 11. Eval
 
@@ -381,6 +379,7 @@ No LLM judge. Outcome metrics on real repositories:
 | `conflict_rate` | aborts among merges that should succeed | < 10% |
 | `revert_correctness` | active set equals the pre-write snapshot | 100% |
 | `token_savings` | tokens to answer via `search` vs reading files | > 30% |
+| `negative_recall@5` | operational traps found in the top 5 of a 1,000-claim structural scope | 100% |
 | `time_to_first_useful` | invocations before a claim is read back | < 10 |
 
 `revert_correctness` and `token_savings` decide the outcome.
@@ -474,6 +473,8 @@ No LLM judge. Outcome metrics on real repositories:
 | status trusts persisted counts; GC uses row age | status separates trust, drift, branch/store; GC ages drafts from last observation | fresh-draft warnings (#181) |
 | similarity = Jaccard token overlap | coverage and exact-phrase weights rank before authority | one token must not bury an exact rule |
 | ingest reads root manifests | package.json, Makefile, docker-compose*, Python requirements/pyproject/imports, go.mod | monorepos are the common shape |
+| retrieval ranks by scope and similarity | predicate classes (invariants > routes > static AST/TOC facts) and a query-text gate; static facts demoted, never deleted | guardrails must survive structural noise (#193) |
+| markdown rules stop at any heading | nested `###` rules kept under numbered headings; dated lessons-log entries yield `has_known_bug`/`has_guardrail`; 1,200-char prose cap | nested rules and non-`LNN` logs were dropped |
 | no readiness command; store has no schema version | `lore doctor` checks store shape (tables/columns, WAL, integrity), branch parity, MCP configs, ontology, health | one actionable report; shape drift is detected, not assumed |
 
 ## Glossary
