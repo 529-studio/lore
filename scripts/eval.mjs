@@ -121,7 +121,32 @@ function makeSampleFixture() {
   return dir;
 }
 
+const NEGATIVE_STRUCTURAL_FILES = 250; // 4 imports each -> 1,000 structural claims
+const NEGATIVE_IMPORTS_PER_FILE = 4;
+const NEGATIVE_RECALL_K = 5;
+
+// Ten operational traps a team would put in a lessons log. Each is a
+// high-value guardrail that must survive 1,000 static AST claims in the same
+// 2,000-token retrieval budget.
+// Queries deliberately overlap each trap only partially (2 of 4 tokens): a
+// full-coverage query would already be lifted by the #181 lexical tier. The
+// old bug was that an anchored structural claim (score 7.125) still beat a
+// partially matching guardrail (score ~6.1) inside the same budget.
+const NEGATIVE_TRAPS = [
+  { slug: 'alpha', query: 'alpha refund rollback safety', object: 'Operational trap alpha: retrying a non-idempotent refund POST duplicates charges' },
+  { slug: 'beta', query: 'beta timezone migration rollout', object: 'Operational trap beta: parsing a date without a timezone shifts reminders by a day' },
+  { slug: 'gamma', query: 'gamma deadlock retry budget', object: 'Operational trap gamma: taking two row locks in opposite order deadlocks the payout worker' },
+  { slug: 'delta', query: 'delta tenant permission audit', object: 'Operational trap delta: caching an auth decision without the tenant id leaks permission' },
+  { slug: 'epsilon', query: 'epsilon validation retry policy', object: 'Operational trap epsilon: retrying a 4xx response masks a permanent validation failure' },
+  { slug: 'zeta', query: 'zeta offset scan migration', object: 'Operational trap zeta: paginating by offset skips rows inserted during the scan' },
+  { slug: 'eta', query: 'eta locale ranking test', object: 'Operational trap eta: sorting strings with the host locale changes ranking between machines' },
+  { slug: 'theta', query: 'theta webhook delivery retry', object: 'Operational trap theta: processing a webhook before acknowledging it duplicates delivery' },
+  { slug: 'iota', query: 'iota currency rounding audit', object: 'Operational trap iota: comparing currency floats loses a cent on rounding' },
+  { slug: 'kappa', query: 'kappa lock network latency', object: 'Operational trap kappa: holding a lock during network IO stalls every request' },
+];
+
 const THRESHOLDS = {
+  negative_recall_at_5: { op: '>=', value: 1.0, label: `negative_recall@${NEGATIVE_RECALL_K} = 100%` },
   stale_rate: { op: '<', value: 0.15, label: 'stale_rate < 15%' },
   false_claim_rate: { op: '<', value: 0.05, label: 'false_claim_rate < 5%' },
   conflict_rate: { op: '<', value: 0.1, label: 'conflict_rate < 10%' },
@@ -700,6 +725,100 @@ function replaySessions(root, sess, result, note, count) {
   return rows;
 }
 
+/**
+ * Negative-knowledge recall benchmark (#193): 1,000 static `imports_module`
+ * claims anchored in the same scope as 10 operational traps. With the default
+ * 2,000-token budget, every trap must land in the top 5. Runs through the real
+ * `lore ingest` / `lore write` / `lore search` CLI, like every other metric.
+ */
+function runNegativeKnowledge() {
+  const parent = mkdtempSync(path.join(os.tmpdir(), 'lore-eval-negative-'));
+  const root = path.join(parent, 'negative-knowledge');
+  const details = { structural_claims: 0, traps: [], structural_still_retrievable: false };
+  let recall = 0;
+  try {
+    mkdirSync(path.join(root, 'src'), { recursive: true });
+    writeFileSync(path.join(root, 'README.md'), '# Negative knowledge fixture\n');
+    const scopeFiles = [];
+    for (let file = 0; file < NEGATIVE_STRUCTURAL_FILES; file += 1) {
+      const name = `src/module-${String(file).padStart(3, '0')}.ts`;
+      const imports = Array.from(
+        { length: NEGATIVE_IMPORTS_PER_FILE },
+        (_, k) => `import { feature${file}_${k} } from 'pkg-${String(file).padStart(3, '0')}-${k}';`,
+      );
+      writeFileSync(path.join(root, name), `${imports.join('\n')}\nexport const ready = true;\n`);
+      scopeFiles.push(name);
+    }
+    const git = (args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+    git(['init', '-q']);
+    git(['config', 'user.email', 'eval@lore.local']);
+    git(['config', 'user.name', 'eval']);
+    git(['add', '.']);
+    git(['commit', '-qm', 'negative knowledge fixture']);
+
+    const session = 'eval_negative';
+    let run = runCli(root, ['init'], session);
+    if (run.status !== 0) throw new Error(`negative init failed: ${run.stderr || run.stdout}`);
+    run = runCli(root, ['ingest'], session);
+    if (run.status !== 0) throw new Error(`negative ingest failed: ${run.stderr || run.stdout}`);
+
+    details.structural_claims = withStore(root, (db) =>
+      db.prepare("SELECT COUNT(*) n FROM claim WHERE predicate = 'imports_module' AND state = 'active'").get().n,
+    );
+
+    for (const trap of NEGATIVE_TRAPS) {
+      const subject = `rule:trap-${trap.slug}`;
+      run = runCli(
+        root,
+        ['write', '--subject', subject, '--predicate', 'has_known_bug', '--object', trap.object, '--kind', 'human', '--author', 'human:eval'],
+        session,
+      );
+      const parsed = /^[+=] (\S+) (draft|active)/m.exec(run.stdout);
+      const id = parsed && ID_RE.test(parsed[1]) ? parsed[1] : null;
+      if (!id || !claimExists(root, id)) throw new Error(`negative trap write failed: ${run.stderr || run.stdout}`);
+      run = runCli(root, ['approve', id], session);
+      if (run.status !== 0) throw new Error(`negative trap approve failed: ${run.stderr || run.stdout}`);
+      details.traps.push({ subject, query: trap.query });
+    }
+
+    const scoped = scopeFiles.join(',');
+    let structuralInTrapHits = 0;
+    for (const trap of details.traps) {
+      const search = runCli(root, ['search', trap.query, '--files', scoped, '--json'], session);
+      let hits = [];
+      try {
+        hits = JSON.parse(search.stdout).hits ?? [];
+      } catch {
+        throw new Error(`negative search did not return JSON: ${search.stdout.slice(0, 200)}`);
+      }
+      const rank = hits.findIndex((h) => h.subject === trap.subject);
+      const structural = hits.filter((h) => (h.predicate === 'imports_module' || h.predicate === 'has_section' || h.predicate === 'section_title')).length;
+      structuralInTrapHits += structural;
+      trap.rank = rank >= 0 ? rank + 1 : null;
+      trap.structural_hits = structural;
+      if (rank >= 0 && rank < NEGATIVE_RECALL_K) recall += 1;
+    }
+    details.structural_in_trap_hits = structuralInTrapHits;
+
+    // The demotion must not delete static facts: an explicit structural query
+    // still returns the matching imports_module claim.
+    const structuralQuery = 'pkg-042-1';
+    const structuralSearch = runCli(root, ['search', structuralQuery, '--files', scoped, '--json'], session);
+    try {
+      const hits = JSON.parse(structuralSearch.stdout).hits ?? [];
+      details.structural_still_retrievable = hits.some(
+        (h) => h.predicate === 'imports_module' && String(h.object).includes('pkg-042-1'),
+      );
+    } catch {
+      details.structural_still_retrievable = false;
+    }
+
+    return { recall: recall / NEGATIVE_TRAPS.length, details };
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+}
+
 function runScenario(fixture, replays) {
   const result = {
     fixture: fixture.name,
@@ -750,6 +869,35 @@ function runScenario(fixture, replays) {
     result.scenarios.checks.idempotency = idemOk ? 'ok' : 'FAIL';
     if (!idemOk) {
       fatal(result, 'idempotency', r.stdout.split('\n')[0], 'second `lore ingest` must add 0 claims');
+    }
+
+    // -- 3b. negative knowledge: 10 traps vs 1,000 structural claims (#193) -----
+    const negative = runNegativeKnowledge();
+    result.metrics.negative_recall_at_5 = negative.recall;
+    result.details.negativeKnowledge = negative.details;
+    if (negative.details.structural_claims < 1000) {
+      fatal(result, 'negative_knowledge_seed', `${negative.details.structural_claims} structural claims (need 1000)`,
+        'the benchmark must reproduce the AST-noise ratio, not a toy scope');
+    }
+    if (negative.details.structural_in_trap_hits > 0) {
+      fatal(result, 'negative_knowledge_noise', `${negative.details.structural_in_trap_hits} structural hits in trap queries`,
+        'scope alone must not put imports_module in a rule answer');
+    } else {
+      result.scenarios.checks.negative_knowledge_noise = 'ok';
+    }
+    if (negative.recall < 1) {
+      const missed = negative.details.traps.filter((t) => t.rank === null || t.rank > NEGATIVE_RECALL_K);
+      fatal(result, 'negative_knowledge_recall',
+        `${missed.length}/${NEGATIVE_TRAPS.length} traps outside top ${NEGATIVE_RECALL_K}: ${missed.map((t) => `${t.subject}@${t.rank ?? 'absent'}`).join(', ')}`,
+        'a query-matching guardrail must survive 1,000 structural claims inside 2,000 tokens');
+    } else {
+      result.scenarios.checks.negative_knowledge_recall = 'ok';
+    }
+    if (!negative.details.structural_still_retrievable) {
+      fatal(result, 'negative_knowledge_structural_query', 'imports_module disappeared from an explicit structural query',
+        'demote static facts, do not delete them');
+    } else {
+      result.scenarios.checks.negative_knowledge_structural_query = 'ok';
     }
 
     // -- 4. first useful read-back: blame a known subject ----------------------
@@ -1172,6 +1320,7 @@ function main() {
       if ((r.metrics.stale_rate_worst ?? 0) > worst) worst = r.metrics.stale_rate_worst;
     }
     overall = {
+      negative_recall_at_5: Math.min(...ok.map((r) => r.metrics.negative_recall_at_5 ?? 0)),
       stale_rate: staleDen > 0 ? staleNum / staleDen : 0,
       stale_rate_worst: worst,
       false_claim_rate: checkedSum > 0 ? sum('false_claims') / checkedSum : 0,
@@ -1198,13 +1347,15 @@ function main() {
           ` | revert=${m.revert_snapshot_ok ? 'OK' : 'FAIL'}` +
           ` | suite-after-revert=${(r.details.revertTests?.status === 'ran') ? (r.details.revertTests.passed ? 'ok' : `FAIL (${r.details.revertTests.exit})`) : `skipped — ${r.details.revertTests?.reason ?? 'unknown reason'}`}` +
           ` | token_savings=${pct(m.token_savings)} (via lore search)` +
+          ` | negative_recall@${NEGATIVE_RECALL_K}=${pct(m.negative_recall_at_5)} (${m.negative_recall_at_5 === 1 ? 'ok' : 'FAIL'})` +
           ` | ttfu=${m.time_to_first_useful ?? '—'} inv (${m.invocations ?? '—'} total)`));
     for (const d of m.drift ?? []) console.log(`    drift ${d.ref}: during=${d.stale_during} after-restore=${d.stale_after}`);
   }
   if (overall) {
     console.log(
       `  OVERALL :` +
-      ` stale=${pct(overall.stale_rate)} (worst-file ${pct(overall.stale_rate_worst)})` +
+      ` negative_recall@${NEGATIVE_RECALL_K}=${pct(overall.negative_recall_at_5)}` +
+      ` | stale=${pct(overall.stale_rate)} (worst-file ${pct(overall.stale_rate_worst)})` +
       ` | false_claims=${pct(overall.false_claim_rate)}` +
       ` | conflicts=${pct(overall.conflict_rate)}` +
       ` | revert=${pct(overall.revert_correctness)}` +
@@ -1244,6 +1395,8 @@ function main() {
     fixtures: selected.map((f) => f.name),
     scenario_schema: { replays_per_fixture: replays, sessions_replayed: ok.length },
     definitions: {
+      negative_recall_at_5:
+        'traps found in the top 5 / 10. A dedicated fixture seeds 1,000 static imports_module claims (250 files x 4 imports) and 10 operational traps, then asks each trap query through the real `lore search <query> --files <all 250 files>` subprocess with the default 2,000-token budget. A structural claim must not satisfy the query gate by scope alone.',
       stale_rate:
         'active claims whose evidence hash mismatched during the pre-registered drift set (docs included), pooled across fixtures: Σ stale_during / Σ (active_total × drift files). `stale_rate_worst` is the worst single-file case.',
       false_claim_rate:
