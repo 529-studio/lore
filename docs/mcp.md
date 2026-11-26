@@ -1,8 +1,8 @@
 # Wiring Lore into coding agents — MCP config
 
 Lore ships an MCP server over **stdio**: `lore mcp` (JSON-RPC 2.0, protocol on stdout, logs on stderr).
-It exposes 8 tools (`memory_search`, `memory_write`, `memory_approve`, `memory_commit`,
-`memory_blame`, `memory_status`, `memory_diff`, `memory_sync`) and the **MCP Resource Subscription protocol**
+It exposes 9 tools (`memory_search`, `memory_write`, `memory_approve`, `memory_commit`,
+`memory_blame`, `memory_status`, `memory_diff`, `memory_sync`, `memory_propose`) and the **MCP Resource Subscription protocol**
 (`resources/list`, `resources/read`, `resources/subscribe`, `resources/unsubscribe`).
 
 ### MCP Resources
@@ -27,6 +27,16 @@ Subscribed clients receive real-time `notifications/resources/updated` on claim 
 - **One branch per agent session.** Writes always go to `agent/<session>`, never `main`. Set a **different `LORE_SESSION` env var per agent** (e.g. `claude`, `codex`, `gemini-1`) so agents don't overwrite each other's drafts. Merge them with `lore merge agent/<session>` when a session proved itself.
 - `kind: agent|human` claims are written as **draft** and stay out of retrieval until `lore approve`.
 - `memory_write` accepts `ttl_days`; `lore.ontology.yml` can set it per predicate. A claim past its TTL or pointing at a deleted evidence path is not injected, and `lore canon decay` persists it as stale.
+
+## Team sync on session start
+
+With a configured team remote, `initialize` answers first and then pulls the remote delta in the
+background (`auto_sync`). Disable it with `auto_sync: false` in `.lore.yml` or `LORE_AUTO_SYNC=0`.
+An unreachable remote logs `auto_sync skipped, working offline` and never fails the handshake.
+`memory_status` adds `remote_behind` (commits and rows), `remote_state` (`synced`, `behind`,
+`unreachable`, `not-configured`) and the last error; `memory_sync` dispatches to the configured
+`http`, `postgres` or `dir` adapter, while an explicit `replica_url` keeps the single-writer
+Litestream backup path.
 
 ---
 

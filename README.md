@@ -146,7 +146,9 @@ lore setup opencode   # OpenCode (opencode.json)
 Or configure manually: `claude mcp add lore --scope project --env LORE_SESSION=claude -- node "$(command -v lore)" mcp`.
 
 Each client sets its own `LORE_SESSION` (a branch `agent/<session>`); agents never write to `main`.
-Full details: [docs/mcp.md](docs/mcp.md).
+Team sessions pull the remote delta on initialize (`auto_sync`; `LORE_AUTO_SYNC=0` disables it).
+`memory_status` reports `remote_behind`; `memory_sync` dispatches to the configured http, postgres
+or dir adapter. Full details: [docs/mcp.md](docs/mcp.md).
 
 ### Daily workflow
 
@@ -329,11 +331,10 @@ Set `LORE_EVAL_FIXTURES` to evaluate against your repositories; details in [docs
 
 These numbers are measured proxies; the harness fails the build when a scenario check fails.
 
-## Limitations (v0.1)
+## Limitations
 
-- **`verify` does not rewrite hashes**; a legitimately changed file stays stale until `ingest` re-observes it ([#3](https://github.com/529-studio/lore/issues/3)).
+- **`verify` does not rewrite hashes**; a changed file stays stale until `ingest` re-observes it ([#3](https://github.com/529-studio/lore/issues/3)).
 - **Code repositories only.** Entity ids come from `path#symbol`, which is what makes merge deterministic. Non-code entities are v0.3 ([#20](https://github.com/529-studio/lore/issues/20)).
-- **No team backend yet.** SQLite per repo; shared Postgres and auth are v0.2 ([#15](https://github.com/529-studio/lore/issues/15), [#16](https://github.com/529-studio/lore/issues/16)).
 
 ## Contributing
 

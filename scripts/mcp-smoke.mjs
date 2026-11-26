@@ -2,8 +2,9 @@
 // MCP smoke test: real stdio handshake against a throwaway repo.
 // initialize → initialized → tools/list → tools/call memory_search/memory_write,
 // and asserts the write landed on an agent/<session> branch.
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -35,14 +36,18 @@ writeFileSync(
 );
 writeFileSync(path.join(work, 'src', 'cli.ts'), 'import { z } from "zod";\nexport const s = z.string();\n');
 
-function lore(args, env = {}) {
-  return new Promise((resolve, reject) => {
-    spawn(process.execPath, [CLI, ...args], { cwd: work, env: { ...process.env, ...env } })
-      .on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`lore ${args.join(' ')} exit ${code}`))));
+function loreAt(cwd, args, env = {}) {
+  const result = spawnSync(process.execPath, [CLI, ...args], {
+    cwd,
+    encoding: 'utf8',
+    env: { ...process.env, ...env },
   });
+  if (result.status !== 0) {
+    throw new Error(`lore ${args.join(' ')} failed (${result.status}):\n${result.stdout}\n${result.stderr}`);
+  }
 }
-await lore(['init']);
-await lore(['ingest']);
+await loreAt(work, ['init']);
+await loreAt(work, ['ingest']);
 
 const mockBin = path.join(work, 'mock-litestream');
 writeFileSync(mockBin, '#!/usr/bin/env bash\nexit 0\n', 'utf8');
@@ -53,7 +58,14 @@ chmodSync(mockBin, 0o755);
 // session that ingest wrote to — the realistic no-env agent launch.
 const server = spawn(process.execPath, [CLI, 'mcp'], {
   cwd: work,
-  env: { ...process.env, LORE_LITESTREAM_PATH: process.env.LORE_LITESTREAM_PATH ?? mockBin },
+  env: {
+    ...process.env,
+    LORE_LITESTREAM_PATH: process.env.LORE_LITESTREAM_PATH ?? mockBin,
+    // Loopback hub remotes are allowed only with this flag; the offline
+    // scenario needs the security check to reach the connection attempt.
+    LORE_HUB_ALLOW_INSECURE: '1',
+    LORE_HUB_TOKEN: 'offline-token',
+  },
 });
 const outChunks = [];
 server.stdout.on('data', (c) => {
@@ -276,8 +288,8 @@ try {
   }
   expectContains(
     syncMissing.result?.content?.[0]?.text,
-    'replica URL is required',
-    'memory_sync missing replica error',
+    'no remote configured',
+    'memory_sync missing remote error',
   );
 
   const syncWithReplica = await rpc('tools/call', {
@@ -294,12 +306,15 @@ try {
   if (syncStructured.replica_url !== 'file:///mock/replica/lore.db') {
     fail(`memory_sync replica_url mismatch: ${syncStructured.replica_url}`);
   }
+  if (syncStructured.kind !== 'litestream') {
+    fail(`memory_sync explicit replica should use the litestream adapter, got ${syncStructured.kind}`);
+  }
   if (syncStructured.push.walCheckpointed !== true) {
-    fail('memory_sync push walCheckpointed should be true');
+    fail('memory_sync push walCheckpointed should be true for the litestream backup path');
   }
   expectContains(
     syncWithReplica.result?.content?.[0]?.text,
-    'synced with file:///mock/replica/lore.db',
+    'synced litestream file:///mock/replica/lore.db',
     'memory_sync text',
   );
 
@@ -310,6 +325,116 @@ try {
   await new Promise((r) => setTimeout(r, 150));
   const alive = await rpc('ping', undefined, { timeoutMs: 3000 });
   if (!('result' in alive)) fail('server did not survive malformed JSON (ping failed)');
+
+  // --- initialize pulls a remote that is ahead (dir adapter) ------------------
+  const repoId = JSON.parse(readFileSync(path.join(work, '.lore', 'config.json'), 'utf8')).repo_id;
+  const teamRepo = path.join(work, 'team-repo');
+  const sharedDir = path.join(work, 'team-shared');
+  mkdirSync(path.join(teamRepo, 'src'), { recursive: true });
+  mkdirSync(sharedDir, { recursive: true });
+  writeFileSync(path.join(teamRepo, '.lore.yml'), `repo_id: ${repoId}\n`);
+  writeFileSync(path.join(teamRepo, 'package.json'), JSON.stringify({ name: 'team-repo' }));
+  writeFileSync(path.join(teamRepo, 'src', 'team.ts'), 'export const teamAuth = true;\n');
+  loreAt(teamRepo, ['init'], { LORE_TRUST_MODE: 'permissive' });
+  loreAt(teamRepo, ['ingest'], { LORE_TRUST_MODE: 'permissive' });
+  loreAt(
+    teamRepo,
+    [
+      'write',
+      '--subject',
+      'sym:src/team.ts#sync',
+      '--predicate',
+      'enforces_invariant',
+      '--object',
+      'team claim delivered by the shared remote',
+      '--kind',
+      'file',
+      '--ref',
+      'src/team.ts',
+    ],
+    { LORE_TRUST_MODE: 'permissive' },
+  );
+  loreAt(teamRepo, ['promote'], { LORE_TRUST_MODE: 'permissive' });
+  loreAt(teamRepo, ['push', '--path', sharedDir], { LORE_TRUST_MODE: 'permissive' });
+  loreAt(work, ['remote', sharedDir]);
+
+  const aheadInit = await rpc('initialize', {
+    protocolVersion: '2025-06-18',
+    capabilities: {},
+    clientInfo: { name: 'team-client', version: '0' },
+  });
+  if (!aheadInit.result?.serverInfo) fail('initialize with a remote ahead must succeed');
+
+  let dirStatus = {};
+  for (let i = 0; i < 80; i += 1) {
+    const status = await rpc('tools/call', { name: 'memory_status', arguments: {} });
+    dirStatus = status.result?.structuredContent ?? {};
+    if (dirStatus.remote_state === 'synced') break;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  if (dirStatus.remote_state !== 'synced') {
+    fail(`auto_sync should pull the dir delta, state=${dirStatus.remote_state} error=${dirStatus.remote?.error}`);
+  }
+  if (dirStatus.remote_behind !== 0) fail(`remote_behind should be 0 after the pull, got ${dirStatus.remote_behind}`);
+  expectContains(JSON.stringify(dirStatus), 'rows_behind', 'memory_status remote detail');
+
+  // The long-lived smoke session owns unmerged commits, so the pulled main is
+  // not its active set; blame proves the claim landed in the shared store and a
+  // fresh session inherits it from main.
+  const teamBlame = await rpc('tools/call', {
+    name: 'memory_blame',
+    arguments: { subject: 'sym:src/team.ts#sync' },
+  });
+  if (teamBlame.result?.isError) {
+    fail(`auto_sync import did not land the team claim: ${JSON.stringify(teamBlame.result)}`);
+  }
+  expectContains(
+    JSON.stringify(teamBlame.result?.structuredContent ?? {}),
+    'team claim delivered by the shared remote',
+    'pulled team claim object',
+  );
+
+  const dirSync = await rpc('tools/call', { name: 'memory_sync', arguments: {} });
+  if (dirSync.result?.isError) fail(`memory_sync dir returned isError: ${JSON.stringify(dirSync.result)}`);
+  if (dirSync.result?.structuredContent?.kind !== 'dir') {
+    fail(`memory_sync should dispatch to the dir adapter, got ${dirSync.result?.structuredContent?.kind}`);
+  }
+  if (dirSync.result?.structuredContent?.push?.walCheckpointed !== false) {
+    fail('dir adapter must not claim a Litestream WAL checkpoint');
+  }
+
+  // --- unreachable remote degrades to a warning ------------------------------
+  const closed = createServer();
+  await new Promise((resolve) => closed.listen(0, '127.0.0.1', resolve));
+  const closedPort = closed.address().port;
+  await new Promise((resolve) => closed.close(resolve));
+  loreAt(work, ['remote', '--hub', `http://127.0.0.1:${closedPort}`]);
+
+  const started = Date.now();
+  const offlineInit = await rpc('initialize', {
+    protocolVersion: '2025-06-18',
+    capabilities: {},
+    clientInfo: { name: 'offline-client', version: '0' },
+  });
+  const elapsed = Date.now() - started;
+  if (!offlineInit.result?.serverInfo) fail('initialize must succeed while the remote is unreachable');
+  if (elapsed > 3000) fail(`initialize blocked ${elapsed}ms on an unreachable remote`);
+
+  let offlineStatus = {};
+  for (let i = 0; i < 80; i += 1) {
+    const status = await rpc('tools/call', { name: 'memory_status', arguments: {} });
+    offlineStatus = status.result?.structuredContent ?? {};
+    if (offlineStatus.remote_state === 'unreachable') break;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  if (offlineStatus.remote_state !== 'unreachable') {
+    fail(`unreachable remote should degrade, got state=${offlineStatus.remote_state}`);
+  }
+  if (offlineStatus.remote?.reachable !== false) fail('memory_status should mark the remote unreachable');
+  if (!offlineStatus.remote?.error) fail('memory_status should explain why the remote is unreachable');
+
+  const afterOffline = await rpc('ping', undefined, { timeoutMs: 3000 });
+  if (!('result' in afterOffline)) fail('server died after a failed auto_sync');
 } catch (error) {
   fail(error.message);
 } finally {
@@ -327,4 +452,6 @@ if (failures > 0) {
   console.error(`MCP SMOKE FAILED — ${failures} failure(s)`);
   process.exit(1);
 }
-console.log('MCP SMOKE OK — initialize, tools/list, search, draft gating, approve, commit, contested warning, error handling');
+console.log(
+  'MCP SMOKE OK — initialize, tools/list, search, draft gating, approve, commit, contested warning, adapter dispatch, auto_sync, offline degradation, error handling',
+);

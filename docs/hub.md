@@ -50,6 +50,9 @@ remote:
   token_env: LORE_HUB_TOKEN
 ```
 
+MCP sessions use the same remote: `memory_sync` dispatches to `HttpSyncAdapter`, and `initialize`
+pulls a non-blocking delta when `auto_sync` is enabled.
+
 `fetch` pulls only rows newer than the stored `hub_seq` (repository rows) and `hub_auth_seq`
 (revocations) plus the current main, then merges with the normal 3-way ladder. Import records the
 observed tip as `refs/remotes/origin/main` before merging; a conflicted merge keeps that ref and
@@ -72,6 +75,23 @@ token's role and subject:
 `redact` and `purge` travel as tombstones in both directions, so a pull cannot resurrect a deleted or
 redacted claim. Attestations travel as rows too (`repo_attestations`), because a quorum needs the
 review records even when the attested claim itself is already on the hub.
+
+## CI baseline
+
+The GitHub Action accepts the same hub as optional inputs:
+
+```yaml
+- uses: 529-studio/lore/.github/actions/lore@v0.4.0
+  with:
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+    hub-url: ${{ vars.LORE_HUB_URL }}
+    hub-token: ${{ secrets.LORE_HUB_TOKEN }}
+```
+
+When `hub-url` is set, the action runs `lore remote --hub ...` and `lore fetch` after building the
+base memory, so the PR drift report includes human and agent claims stored on the hub. Leave both
+inputs empty to keep the action purely local. Set `LORE_HUB_ALLOW_INSECURE=1` only for a loopback
+test hub.
 
 ## Proposals
 

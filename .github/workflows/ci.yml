@@ -41,6 +41,12 @@ jobs:
       - name: MCP concurrency (4 servers x 25 writes)
         run: npm run mcp:concurrency
 
+      - name: Sync adapter dispatch (dir, http, litestream backup)
+        run: npm run sync:adapter
+
+      - name: GitHub Action JSON parsing (team claim invalidation)
+        run: npm run action:smoke
+
       - name: Canon trust axis (migration, backfill, idempotence)
         run: npm run canon:smoke
 

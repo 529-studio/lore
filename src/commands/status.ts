@@ -1,5 +1,5 @@
 import pc from 'picocolors';
-import { openDb, requireRoot } from '../db.js';
+import { openDb, requireRoot, type DB } from '../db.js';
 import { hashCache } from '../hash-cache.js';
 import { gcCandidates, tombstoneCandidates, getDatabaseStorageStats } from '../gc.js';
 import { activeAt, head } from '../model.js';
@@ -21,6 +21,23 @@ export interface StatusOptions {
   maxConflicts?: string;
   stats?: boolean;
   noCache?: boolean;
+  json?: boolean;
+}
+
+/** Commit ids reachable from a tip, following both parents of a merge. */
+function ancestry(db: DB, tip: string): Set<string> {
+  const seen = new Set<string>();
+  const queue = [tip];
+  const stmt = db.prepare('SELECT parent_id, merge_parent_id FROM memory_commit WHERE id = ?');
+  while (queue.length) {
+    const id = queue.shift()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const row = stmt.get(id) as { parent_id: string | null; merge_parent_id: string | null } | undefined;
+    if (row?.parent_id) queue.push(row.parent_id);
+    if (row?.merge_parent_id) queue.push(row.merge_parent_id);
+  }
+  return seen;
 }
 
 export function statusCommand(opts: StatusOptions = {}): void {
@@ -94,6 +111,91 @@ export function statusCommand(opts: StatusOptions = {}): void {
   const gcEligible = gcCandidates(db, { ttlSessions: 3 }).length;
   const tombstonesEligible = tombstoneCandidates(db, { tombstoneTtlDays: 30 }).length;
   const storage = getDatabaseStorageStats(db);
+  const permissive = isPermissiveTrust(root);
+
+  const config = readConfig(root);
+  const localMain = head(db, 'main');
+  const remoteMain = config?.remote_main ?? null;
+  let remoteState = 'not synced yet';
+  if (localMain && remoteMain) {
+    if (localMain === remoteMain) remoteState = 'in sync';
+    else if (isAncestor(db, remoteMain, localMain)) remoteState = 'local ahead';
+    else if (isAncestor(db, localMain, remoteMain)) remoteState = 'behind';
+    else remoteState = 'diverged';
+  }
+  const staleRefs = new Map<string, string[]>();
+  for (const row of stale) {
+    const refs = staleRefs.get(row.claim_id) ?? [];
+    refs.push(row.ref);
+    staleRefs.set(row.claim_id, refs);
+  }
+  const aheadRefs = new Map<string, string[]>();
+  for (const row of ahead) {
+    const refs = aheadRefs.get(row.claim_id) ?? [];
+    refs.push(row.ref);
+    aheadRefs.set(row.claim_id, refs);
+  }
+  const claimDetails = (ids: Iterable<string>, refs: Map<string, string[]>) => {
+    const stmt = db.prepare('SELECT id, subject_id, predicate, author FROM claim WHERE id = ?');
+    const out: Array<{ id: string; subject: string; predicate: string; author: string; evidence: string[] }> = [];
+    for (const id of ids) {
+      const row = stmt.get(id) as
+        | { id: string; subject_id: string; predicate: string; author: string }
+        | undefined;
+      if (row) {
+        out.push({
+          id: row.id,
+          subject: row.subject_id,
+          predicate: row.predicate,
+          author: row.author,
+          evidence: refs.get(id) ?? [],
+        });
+      }
+    }
+    return out;
+  };
+
+  if (opts.json) {
+    const localAncestry = localMain ? ancestry(db, localMain) : new Set<string>();
+    const report = {
+      branch: ref,
+      session,
+      claims: {
+        total,
+        active: byState.get('active') ?? 0,
+        draft: byState.get('draft') ?? 0,
+        retracted: byState.get('retracted') ?? 0,
+      },
+      trust: canon.trust,
+      active_set: branchIds.size,
+      branch_stale: branchStale,
+      stale: staleClaimIds.size,
+      stale_claims: claimDetails(staleClaimIds, staleRefs),
+      ahead: ahead.length,
+      ahead_claims: claimDetails(new Set(ahead.map((a) => a.claim_id)), aheadRefs),
+      conflicts,
+      tier1_conflicts: canon.unresolved_conflicts,
+      gc_eligible: gcEligible,
+      tombstones_eligible: tombstonesEligible,
+      trust_mode: permissive ? 'permissive' : 'strict',
+      remote: config?.remote
+        ? {
+            type: config.remote.type,
+            label: remoteLabel(config.remote),
+            state: remoteState,
+            local_main: localMain,
+            remote_main: remoteMain,
+            behind:
+              localMain && remoteMain && isAncestor(db, localMain, remoteMain)
+                ? [...ancestry(db, remoteMain)].filter((id) => !localAncestry.has(id)).length
+                : 0,
+          }
+        : null,
+    };
+    console.log(JSON.stringify(report, null, 2));
+    db.close();
+    return;
+  }
 
   console.log(pc.bold('lore status'));
   console.log(`  claims     ${pc.bold(String(total))} total  ${pc.green(`${byState.get('active') ?? 0} active`)}  ${pc.yellow(`${byState.get('draft') ?? 0} draft`)}  ${pc.red(`${byState.get('retracted') ?? 0} retracted`)}  ${pc.dim('(store-wide)')}`);
@@ -103,7 +205,6 @@ export function statusCommand(opts: StatusOptions = {}): void {
       `${canon.trust.retracted ? pc.red(`${canon.trust.retracted} retracted`) : pc.dim('0 retracted')}  ` +
       `${pc.dim('(persisted canon state, store-wide)')}`,
   );
-  const permissive = isPermissiveTrust(root);
   console.log(
     `  branch     ${ref}  ${pc.dim(`${branchIds.size} in active set`)}  ` +
       `${branchStale ? pc.red(`${branchStale} stale`) : pc.dim('0 stale')}  ` +
@@ -112,19 +213,11 @@ export function statusCommand(opts: StatusOptions = {}): void {
   );
   console.log(`  commits    ${commits}   branches ${branches}`);
 
-  const config = readConfig(root);
   if (config?.remote) {
-    const local = head(db, 'main');
-    const remote = config.remote_main;
-    let state = 'not synced yet';
-    if (local && remote) {
-      if (local === remote) state = 'in sync';
-      else if (isAncestor(db, remote, local)) state = 'local ahead';
-      else if (isAncestor(db, local, remote)) state = 'behind — run lore fetch';
-      else state = 'diverged';
-    }
     const label = remoteLabel(config.remote);
-    console.log(`  remote     ${label} ${pc.dim(`(${state})`)}`);
+    console.log(
+      `  remote     ${label} ${pc.dim(`(${remoteState === 'behind' ? 'behind — run lore fetch' : remoteState})`)}`,
+    );
   }
   console.log(
     `  stale      ${staleClaimIds.size ? pc.red(String(staleClaimIds.size)) : pc.green('0')} ` +

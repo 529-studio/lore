@@ -455,12 +455,12 @@ No LLM judge. Outcome metrics on real repositories:
 | SQLite WAL static 1000-page autocheckpoint | adaptive WAL checkpoint auto-tuning (`LORE_WAL_AUTOCHECKPOINT`) | high-write sessions need scaling |
 | temporal query requires absolute timestamps | relative temporal query parsing (`src/canon/temporal.ts`) | agents query memory with relative expressions |
 | GC only soft-retracts drafts | GC compaction & tombstone purging (`src/gc.ts`) | stores accumulate tombstones and fragmented SQLite pages |
-| benchmark is terminal-only | Prometheus/OTel export (`exportPrometheusMetrics`) | dashboards need metrics |
-| UI lacks multi-agent sync | sync indicators and `/api/sync/status` (`src/ui/server.ts`) | agents need live convergence signals |
+| benchmark is terminal-only | Prometheus/OTel export | dashboards need metrics |
+| UI lacks multi-agent sync | sync indicators and `/api/sync/status` | agents need convergence signals |
 | lexical retrieval | semantic hybrid (`src/search/vector.ts`) | synonyms missed |
 | equal-tier merge aborts | semantic 3-way resolver (`src/merge.ts`) | confidence and vectors break ties |
-| MCP supports tools only | resource subscription (`resources/list`, `read`, `subscribe`, notifications) | agents need push updates on memory changes |
-| secret detection throws | scrubbing + ZK attestations (`src/security/scrub.ts`) | credentials must be redacted |
+| MCP supports tools only | resource subscription (list, read, subscribe, notifications) | agents need push updates |
+| secret detection throws | scrubbing + ZK attestations | credentials must be redacted |
 | main-thread UI graph | worker force layout + quadtree (`/graph-worker.js`) | 1k+ nodes freeze UI |
 | packaging needs host node | portable bundles (`scripts/package-binary.mjs`) | air-gapped hosts |
 | omitted predicates default to `one` | `many` fallback for extractor predicates (`src/ontology.ts`) | avoids day-0 tier-1 conflicts |
@@ -469,11 +469,12 @@ No LLM judge. Outcome metrics on real repositories:
 | config only in gitignored `.lore/config.json` | `.lore.yml` + `lore join` adopt `repo_id`/remote; `init` keeps it | clones must not fork team memory |
 | team mode needs the env secret | `team_mode: true` activates policy and fails closed without credentials | no silent downgrade |
 | direct Postgres sync | `lore-hub`: http delta + CAS + per-user tokens (`src/hub/`) | no DB creds on dev machines |
-| sync dropped `agent/*` refs and ignored `resolution` rows | `push --propose` + hub proposal refs; `proposals` and `review --remote`; `mergeTip` replays `resolution`, records `merge_conflict` and `refs/remotes/origin/main`; optional `min_attestations` | review must not need `main` write |
+| sync dropped `agent/*` refs and ignored `resolution` rows | proposal refs + `proposals`/`review --remote`; `mergeTip` replays `resolution`, records `merge_conflict` and the origin ref | review must not need `main` write |
 | hosts hardcoded in `setup` | personal/repo plugin scopes (`src/plugins/loader.ts`) | extend without core edits |
-| status trusts persisted counts; GC uses row age | status separates trust, drift, branch/store; GC ages drafts from last observation | contradictory counts and fresh-draft warnings (#181) |
+| status trusts persisted counts; GC uses row age | status separates trust, drift, branch/store; GC ages drafts from last observation | contradictory counts (#181) |
 | similarity = Jaccard token overlap | coverage and exact-phrase weights rank before authority | one token must not bury an exact rule (#181) |
 | ingest reads root manifests only | package.json, Makefile, docker-compose* at any depth; Python requirements/pyproject/imports; go.mod | monorepos are the common shape |
+| Litestream for multi-writer team sync | adapter dispatch by remote (http/postgres/dir); MCP `initialize` pulls a delta; Litestream is backup only | whole-file replication loses concurrent commits (#196) |
 
 ## Glossary
 
