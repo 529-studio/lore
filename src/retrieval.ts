@@ -82,6 +82,31 @@ const W_PHRASE = 2.5;
 const W_SIMILARITY = 0.5;
 const W_STALE = -10.0;
 
+// Predicate classes (#193). Structural extraction is the bulk of a repository's
+// claims, but an `imports_module` fact must never outrank an architectural
+// rule inside the same token budget. Invariants get a positive class bonus,
+// routes a small one, and static AST/TOC facts a demotion. They stay
+// retrievable for an explicit structural query; they just sort last.
+const W_INVARIANT = 3.0;
+const W_ROUTE = 0.75;
+const W_STRUCTURAL_FACT = -3.0;
+
+const INVARIANT_PREDICATES: Record<string, true> = {
+  enforces_invariant: true,
+  defines_rule: true,
+  has_known_bug: true,
+  decides: true,
+  has_constraint: true,
+  has_guardrail: true,
+};
+const ROUTE_PREDICATES: Record<string, true> = { exposes_route: true };
+/** Pure AST/TOC facts: demoted from default hits, still indexed for proximity. */
+const STRUCTURAL_PREDICATES: Record<string, true> = {
+  imports_module: true,
+  has_section: true,
+  section_title: true,
+  declared_dependency: true,
+};
 
 /** A verification older than this no longer earns the recency bonus. */
 const VERIFIED_WINDOW_DAYS = 14;
@@ -145,6 +170,15 @@ function pathFromEntity(id: string): string | null {
   return m[2]?.split('#')[0] ?? null;
 }
 
+/**
+ * Paths an entity can be anchored by. `lesson:`/`adr:`/`rule:` have no path in
+ * the id, so their evidence refs are the only link back to a scoped file;
+ * `pkg:`/`env:` claims likewise resolve through the manifest or source file.
+ */
+function scopePaths(subjectPath: string | null, evidence: Array<{ ref: string }>): string[] {
+  return [subjectPath, ...evidence.map((ev) => ev.ref)].filter((p): p is string => Boolean(p));
+}
+
 function dirOf(p: string): string {
   const idx = p.lastIndexOf('/');
   return idx === -1 ? '.' : p.slice(0, idx);
@@ -185,8 +219,11 @@ function jaccard(a: Set<string>, b: Set<string>): number {
 interface ScoreParts {
   score: number;
   reasons: string[];
-  /** True when the query or scope actually touches this claim. */
-  relevant: boolean;
+  /**
+   * True only when the query itself matches this claim (tokens, phrase or
+   * semantic). Scope bonuses may not satisfy the gate for a query search.
+   */
+  queryMatched: boolean;
   /**
    * Lexical precedence: 2 = exact phrase, 1 = every query token present,
    * 0 = partial coverage. Phrase and full coverage must outrank single-token
@@ -248,8 +285,9 @@ function scoreClaim(
 ): ScoreParts {
   const parts: number[] = [];
   const reasons: string[] = [];
-  let relevant = false;
+  let queryMatched = false;
   let lexicalTier = 0;
+  const paths = scopePaths(subjectPath, evidence);
 
   // --- anchor: evidence ref or subject path inside the task scope -------------
   const anchorRefs: string[] = [];
@@ -265,27 +303,33 @@ function scoreClaim(
     if (ctx.files.includes(ev.ref)) anchorRefs.push(`evidence ${ev.ref}`);
   }
   if (anchorRefs.length) {
-    relevant = true;
     parts.push(W_ANCHOR);
     reasons.push(`+${W_ANCHOR.toFixed(1)} anchor (${anchorRefs.join(', ')})`);
   }
 
   // --- proximity: same directory prefix or a 2-hop import link ---------------
-  const proxPaths = [subjectPath, ...evidence.map((e) => e.ref)].filter(
-    (p): p is string => Boolean(p),
-  );
-  const byPrefix = sameDirPrefix(proxPaths, ctx);
+  const byPrefix = sameDirPrefix(paths, ctx);
   if (byPrefix) {
-    relevant = true;
     parts.push(W_PROXIMITY);
     reasons.push(`+${W_PROXIMITY.toFixed(1)} proximity (same directory prefix as scope: ${dirOf(byPrefix)})`);
   } else {
-    const link = closeByImports(subjectPath, ctx);
+    const link = closeByImports(paths[0] ?? null, ctx);
     if (link) {
-      relevant = true;
       parts.push(W_PROXIMITY);
       reasons.push(`+${W_PROXIMITY.toFixed(1)} proximity (imports_module: ${link})`);
     }
+  }
+
+  // --- predicate class: invariants > routes > static structure ----------------
+  if (INVARIANT_PREDICATES[claim.predicate]) {
+    parts.push(W_INVARIANT);
+    reasons.push(`+${W_INVARIANT.toFixed(1)} invariant predicate (${claim.predicate})`);
+  } else if (ROUTE_PREDICATES[claim.predicate]) {
+    parts.push(W_ROUTE);
+    reasons.push(`+${W_ROUTE.toFixed(1)} route predicate (${claim.predicate})`);
+  } else if (STRUCTURAL_PREDICATES[claim.predicate]) {
+    parts.push(W_STRUCTURAL_FACT);
+    reasons.push(`${W_STRUCTURAL_FACT.toFixed(1)} structural predicate (${claim.predicate})`);
   }
 
   // --- authority: (4 - tier) / 4, low tier wins -------------------------------
@@ -330,7 +374,9 @@ function scoreClaim(
       queryPhrase.split(' ').length >= 2 &&
       ` ${normalizePhrase(claimText)} `.includes(` ${queryPhrase} `);
 
-    if (tokenCoverage > 0 || phraseHit) relevant = true;
+    if (tokenCoverage > 0 || phraseHit) {
+      queryMatched = true;
+    }
     if (phraseHit) lexicalTier = 2;
     else if (tokenCoverage === 1) lexicalTier = 1;
     if (tokenCoverage > 0) {
@@ -348,7 +394,9 @@ function scoreClaim(
       const vectorSim = Math.max(0, cosineSimilarity(ctx.queryEmbedding, claimVector));
       const hybridSim = computeHybridSimilarity(lexicalSim, vectorSim, ctx.vectorWeight);
 
-      if (hybridSim >= 0.08) relevant = true;
+      if (hybridSim >= 0.08) {
+        queryMatched = true;
+      }
       if (hybridSim >= 0.08 || lexicalSim > 0) {
         const part = W_SIMILARITY * hybridSim;
         parts.push(part);
@@ -368,7 +416,7 @@ function scoreClaim(
     reasons.push(`${W_STALE.toFixed(1)} stale (evidence hash no longer matches)`);
   }
 
-  return { score: parts.reduce((sum, v) => sum + v, 0), reasons, relevant, lexicalTier };
+  return { score: parts.reduce((sum, v) => sum + v, 0), reasons, queryMatched, lexicalTier };
 }
 
 /** Approximate context cost of a hit, in tokens (chars/4 — SPEC §9 budget). */
@@ -533,9 +581,18 @@ export function searchMemory(db: DB, root: string, opts: SearchOptions = {}): Se
     if (ahead && !opts.trustRemote) continue;
     const evidence = hashlessEvidence.get(c.id) ?? [];
     const subjectPath = pathFromEntity(c.subject_id);
-    const { score, reasons, relevant, lexicalTier } = scoreClaim(db, c, evidence, subjectPath, ctx, stale);
-    // A query must touch the claim: authority and freshness alone are not relevance.
-    if (ctx.queryTokens && !relevant) continue;
+    const { score, reasons, queryMatched, lexicalTier } = scoreClaim(
+      db,
+      c,
+      evidence,
+      subjectPath,
+      ctx,
+      stale,
+    );
+    // A query must touch the claim text. Anchor and proximity describe where a
+    // claim lives, not whether it answers the question: a scoped
+    // `imports_module` fact must not outrank a query-matching rule (#193).
+    if (ctx.queryTokens && !queryMatched) continue;
     hits.push({ claim: c, score, reasons, lexicalTier, stale, ahead });
   }
 

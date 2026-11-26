@@ -2,9 +2,8 @@
 
 **Git for what your AI agents know.**
 
-Lore is a memory layer for AI coding agents. It stores what an agent learned as claims with
-provenance, detects when those claims go stale, merges memory from agents working in parallel,
-and lets you undo a session that learned something wrong.
+Lore is a memory layer for AI coding agents: claims with provenance, stale detection,
+parallel-agent merges, and undo for a bad session.
 
 [![CI](https://github.com/529-studio/lore/actions/workflows/ci.yml/badge.svg)](https://github.com/529-studio/lore/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -39,12 +38,11 @@ Lore fixes the **trust** problem, not the storage problem.
 
 ![CLI demo: init, ingest, search, drift, status, verify](docs/assets/demo-cli.gif)
 
-*The CLI: initialise, derive claims, search with a score breakdown, edit a file, watch the claim go
-stale, then accept the new reality with `verify --accept`.*
+*The CLI: init, ingest, search with scores, then accept drift with `verify --accept`.*
 
-**Canon demo:** [memory stops being injected after npm → pnpm](scripts/demo/canon-pnpm.sh).
+**Canon demo:** [npm → pnpm invalidation](scripts/demo/canon-pnpm.sh).
 
-**GUI:** `lore ui` serves a dashboard (Health, Sync, Review, Conflicts) with SSE and search. See [docs/desktop.md](docs/desktop.md).
+**GUI:** `lore ui` serves a live dashboard (Health, Sync, Review, Conflicts) with search; see [docs/desktop.md](docs/desktop.md).
 
 ![Lore dashboard](docs/assets/dashboard.png)
 
@@ -114,7 +112,7 @@ lore.ontology.yml      # which predicates may hold one value vs many
 .gitignore             # .lore/ appended, so the store is not committed
 ```
 
-`lore ingest` then derives claims deterministically (no LLM, no cost):
+`lore ingest` derives claims deterministically (no LLM):
 
 | Source | Claim example |
 |---|---|
@@ -164,7 +162,7 @@ Full details: [docs/mcp.md](docs/mcp.md).
 lore init [--solo] [--full]    initialise .lore/ (--full: rules, ingest, MCP)
 lore ingest [--dry-run]        derive claims from deterministic extractors
 lore write                     write one claim (draft for agent/human); --valid-from <iso>
-lore search "<query>"          score claims; --semantic, --valid-at, --as-of
+lore search "<query>"          rank rules over static facts; --files, --semantic, --valid-at
 lore explain <claim|key>       why a claim is injected: trust, provenance, evidence
 lore canon status|decay|confirm|resolve|metrics  trust, decay, re-confirm, resolve, metrics
 lore blame <subject>           provenance: author, evidence, branch membership
@@ -208,6 +206,10 @@ lore mcp                       MCP server over stdio
 
 Exit codes: `0` ok · `2` unresolved merge conflict · `3` stale above threshold.
 
+`search` ranks invariant predicates above routes and static AST/TOC facts, and a query must match
+the claim text; structural facts stay retrievable but never fill the budget ahead of a rule. See
+[docs/retrieval.md](docs/retrieval.md).
+
 ### Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -237,7 +239,7 @@ After that, you use Claude / Codex / Gemini exactly as before. What changes:
 - a bad session can be undone.
 
 **Without tooling:** `lore export --md --out AGENTS.md` writes what the agent knows, grouped by
-subject, with evidence in comments.
+subject.
 
 **GUI:** `lore ui`; desktop packaging: [#66](https://github.com/529-studio/lore/issues/66).
 
