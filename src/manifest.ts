@@ -13,6 +13,8 @@ export interface LoreManifest {
   team_mode?: boolean;
   remote?: RemoteConfig;
   extractors?: string[];
+  /** Repo-relative ESM files that may register deterministic extractors. */
+  plugins?: string[];
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -111,7 +113,7 @@ export function readManifest(root: string): LoreManifest | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) invalid('expected a mapping');
   const doc = raw as Record<string, unknown>;
   assertNoSecrets(doc, '');
-  const topKeys: Record<string, true> = { repo_id: true, team_mode: true, remote: true, extractors: true };
+  const topKeys: Record<string, true> = { repo_id: true, team_mode: true, remote: true, extractors: true, plugins: true };
   for (const key of Object.keys(doc)) {
     if (!Object.hasOwn(topKeys, key)) invalid(`unknown key ${key}`);
   }
@@ -131,6 +133,17 @@ export function readManifest(root: string): LoreManifest | null {
     }
     manifest.extractors = doc.extractors as string[];
   }
+  if (doc.plugins !== undefined) {
+    if (
+      !Array.isArray(doc.plugins) ||
+      !doc.plugins.every(
+        (entry) => typeof entry === 'string' && entry.trim() && !path.isAbsolute(entry) && !entry.split('/').includes('..'),
+      )
+    ) {
+      invalid('plugins must be a list of repo-relative paths');
+    }
+    manifest.plugins = doc.plugins as string[];
+  }
   return manifest;
 }
 
@@ -140,5 +153,6 @@ export function applyManifest(config: LoreConfig, manifest: LoreManifest): LoreC
   if (manifest.remote) next.remote = manifest.remote;
   if (manifest.team_mode !== undefined) next.team_mode = manifest.team_mode;
   if (manifest.extractors) next.extractors = manifest.extractors;
+  if (manifest.plugins) next.plugins = manifest.plugins;
   return next;
 }

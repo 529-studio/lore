@@ -4,8 +4,10 @@ import path from 'node:path';
 import type { DB } from './db.js';
 import { stateDirFor } from './scope.js';
 import { gitDir, isLinkedGitWorktree } from './util/git.js';
+import { runSessionHook } from './plugins/loader.js';
 
 const SESSION_FILE = 'session';
+const FIRED_SESSION_HOOKS = new Set<string>();
 
 /**
  * A session maps to a branch: agent/<session>. The session file follows the
@@ -50,6 +52,14 @@ export function rotateSession(root: string): string {
 /** Register the current session so GC can count how many ran after a draft was created. */
 export function ensureSession(db: DB, root: string, override?: string): string {
   const id = currentSession(root, override);
+  if (!FIRED_SESSION_HOOKS.has(id)) {
+    FIRED_SESSION_HOOKS.add(id);
+    runSessionHook(
+      'beforeSession',
+      { workspaceRoot: path.resolve(root), stateDir: stateDirFor(root), session: id },
+      (message) => console.error(`[WARN] ${message}`),
+    );
+  }
   const now = new Date().toISOString();
   db.prepare(
     `INSERT INTO session(id, started_at, last_seen_at) VALUES (?, ?, ?)

@@ -44,6 +44,7 @@ import { canonConfirmCommand, canonDecayCommand, canonMetricsCommand, canonResol
 import { verifyCommand } from './commands/verify.js';
 import { writeCommand } from './commands/write.js';
 import { setupCommand } from './commands/setup.js';
+import { pluginsCommand } from './commands/plugins.js';
 import { rulesCommand } from './commands/rules.js';
 import { configCommand } from './commands/config.js';
 import { checkUpdateCommand } from './commands/update.js';
@@ -51,6 +52,7 @@ import { wrapupCommand } from './commands/wrapup.js';
 import { branchFor, currentSession, rotateSession } from './session.js';
 import type { EvidenceKind } from './model.js';
 import { installCanon } from './canon/index.js';
+import { applyPersonalContext } from './plugins/loader.js';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json') as { version: string };
@@ -156,7 +158,7 @@ program
   .option('--dry-run', 'print candidates without writing')
   .option('--author <id>')
   .option('--session <id>')
-  .action((opts) => ingestCommand(opts));
+  .action(async (opts) => ingestCommand(opts));
 
 program
   .command('log')
@@ -604,6 +606,16 @@ program
   .action((opts) => exportCommand({ md: opts.md, out: opts.out }));
 
 program
+  .command('plugins [action]')
+  .description('list loaded personal and repository plugins (default: list)')
+  .option('--root <path>', 'repository root (default: cwd)')
+  .option('--json', 'print machine-readable JSON')
+  .action((action, opts) => {
+    if (action && action !== 'list') throw new Error('usage: lore plugins [list]');
+    return pluginsCommand({ root: opts.root, json: opts.json });
+  });
+
+program
   .command('setup [agent]')
   .description('configure MCP integration and agent instructions for coding agents (agy, claude, cursor, codex, gemini, opencode)')
   .option('--all', 'configure all detected agents')
@@ -696,6 +708,8 @@ program
 
 try {
   installCanon();
+  const personal = await applyPersonalContext();
+  for (const warning of personal.warnings) console.error(pc.yellow(`[WARN] ${warning}`));
   await program.parseAsync();
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);

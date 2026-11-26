@@ -258,19 +258,21 @@ main ──────────●──────────────
   - delete-vs-edit resolves to deletion;
   - if nothing applies, the merge **aborts with exit 2** and asks a human.
 - `lore resolve <subject> <predicate> --take theirs --reason "..."` records the decision, and the
-  next merge applies it. Every decision is stored in `merge_decision` for audit.
+  next merge applies it.
 - Linked worktrees share `.lore/`; a committed `.lore.yml` plus `lore join` attaches a fresh clone —
   see [team mode](docs/team-mode.md#joining-a-clone).
 
-**Team identity.** Local mode trusts the OS user. Team mode (set `LORE_TEAM_SECRET`) requires an
-identity and enforces `lore.policy.yml`: `LORE_TOKEN` from `lore identity issue`, or `LORE_OIDC_EMAIL`
-asserted by a trusted launcher. See [docs/team-mode.md](docs/team-mode.md).
+**Team identity.** Local mode trusts the OS user. Team mode requires `LORE_TEAM_SECRET`, an identity
+(`LORE_TOKEN` or `LORE_OIDC_EMAIL`), and enforces `lore.policy.yml`. See [docs/team-mode.md](docs/team-mode.md).
 
 **Internal or offline repositories.** Memory does not depend on a git host: `lore remote`
 shares commits via directory or Postgres, `lore bundle` moves commits across air gaps,
-and `lore replicate` streams WAL frames. SQLite WAL checkpoints auto-tune (or set `LORE_WAL_AUTOCHECKPOINT`).
-Replicas converge via `lore sync` and gossip meshes. Ahead-of-checkout claims are preserved;
-`--trust-remote` includes them. See [docs/team-mode.md](docs/team-mode.md).
+and `lore replicate` streams WAL frames. WAL checkpoints auto-tune (`LORE_WAL_AUTOCHECKPOINT`).
+Replicas converge via `lore sync`; `--trust-remote` includes ahead-of-checkout claims. See
+[docs/team-mode.md](docs/team-mode.md).
+
+**Plugins.** Personal (`~/.config/lore/config.yml`) add hosts, context and hooks; committed `.lore.yml`
+plugins add deterministic extractors. See [docs/plugins.md](docs/plugins.md).
 
 **CI integration.** The GitHub Action comments on every pull request with what it teaches the agent
 and which claims it invalidates. See [docs/github-action.md](docs/github-action.md).
