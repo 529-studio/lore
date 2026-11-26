@@ -191,6 +191,8 @@ try {
   const infraToken = issueToken('infra-owner@team', 'maintainer', INFRA_ID);
   const appToken = issueToken('app-dev@team', 'contributor', APP_ID);
   const otherToken = issueToken('other-dev@team', 'contributor', OTHER_ID);
+  // No --repo: a team-wide token must not bypass the publish policy via /pull.
+  const unscopedToken = issueToken('roaming-dev@team', 'contributor');
 
   // --- private origin: allowlist publication, deny secrets/env --------------
   const infraPolicy = `publish:
@@ -256,7 +258,11 @@ try {
 
   const forbidden = await postJson(`${HUB}/v1/repos/${encodeURIComponent(INFRA_ID)}/external`, otherToken, {});
   assert.equal(forbidden.status, 403, `unauthorized repo pull returned ${forbidden.status}`);
-  ok('unauthorized repository receives 403');
+  const unscopedPull = await postJson(`${HUB}/v1/repos/${encodeURIComponent(INFRA_ID)}/pull`, unscopedToken, {});
+  assert.equal(unscopedPull.status, 403, `unscoped pull returned ${unscopedPull.status}`);
+  const ownerPull = await postJson(`${HUB}/v1/repos/${encodeURIComponent(INFRA_ID)}/pull`, infraToken, {});
+  assert.equal(ownerPull.status, 200, `owner pull returned ${ownerPull.status}`);
+  ok('unauthorized repository and unscoped token receive 403; owner pull still works');
 
   // --- consumer: links subscription, ext namespace, no collision ------------
   const appPolicy = `links:\n  ${INFRA}:\n    repo_id: "${INFRA_ID}"\n`;

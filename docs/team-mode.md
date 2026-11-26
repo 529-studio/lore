@@ -231,6 +231,8 @@ links:
   block.
 - External hits may consume at most 25% of the token budget (`externalBudgetShare`) and are ranked
   after local hits, so upstream memory cannot crowd out local memory.
+- `lore bundle` stays a full-store owner transfer (backup and air gap). Only the hub external
+  endpoint and `lore export --md --filter publish` apply the publish policy.
 
 ## Permissions and automation
 

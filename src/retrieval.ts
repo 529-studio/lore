@@ -35,7 +35,7 @@ export interface SearchOptions {
   vectorWeight?: number;
   /** Include cached claims imported from linked repositories (`ext:` namespace). */
   includeExternal?: boolean;
-  /** Maximum share of the token budget external claims may consume (default 0.25, cap 0.30). */
+  /** Maximum share of the token budget external claims may consume (default 0.25). */
   externalBudgetShare?: number;
 }
 
@@ -678,7 +678,7 @@ export function searchMemory(db: DB, root: string, opts: SearchOptions = {}): Se
 
   // Local memory always fills first; linked claims may only take a capped
   // share of what remains (issue #197), so upstream rules never crowd it out.
-  const share = Math.max(0, Math.min(0.3, opts.externalBudgetShare ?? 0.25));
+  const share = Math.max(0, Math.min(0.25, opts.externalBudgetShare ?? 0.25));
   const externalCap = Math.floor(budget * share);
   let externalUsed = 0;
   for (const hit of external) {

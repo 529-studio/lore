@@ -418,6 +418,23 @@ function assertPolicyAllows(
   }
 }
 
+/**
+ * A repository with a publish policy is not readable through the ordinary
+ * team pull: a caller scoped elsewhere (or unscoped) could otherwise bypass
+ * `to_repos` and receive denied subjects. Owners and maintainers keep full
+ * access; everyone else must use the filtered external endpoint.
+ */
+export async function assertPullAuthorized(
+  client: Client,
+  repoId: string,
+  principal: HubPrincipal,
+): Promise<void> {
+  if (principal.role === 'maintainer' || principal.repoId === repoId) return;
+  const state = await repoState(client, repoId);
+  if (!state.policy?.publish) return;
+  throw new HubError(403, `repository ${repoId} publishes only through the external endpoint`);
+}
+
 export interface PushResult {
   main: string | null;
   seq: number;
