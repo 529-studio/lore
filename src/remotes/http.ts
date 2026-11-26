@@ -1,5 +1,5 @@
 import type { RemoteConfig } from '../config.js';
-import type { Bundle } from '../sync.js';
+import type { Bundle, ExternalBundle } from '../sync.js';
 import type { ProposalMeta } from '../hub/store.js';
 
 export type { ProposalMeta };
@@ -73,6 +73,18 @@ export async function httpPull(
     `/v1/repos/${encodeURIComponent(repoId)}/pull`,
     { since_seq: opts.sinceSeq, since_auth_seq: opts.sinceAuthSeq, known_main: opts.knownMain },
     opts.timeoutMs,
+  );
+  return json;
+}
+
+export async function httpPullExternal(
+  remote: HttpRemote,
+  sourceRepoId: string,
+): Promise<{ bundle: ExternalBundle; cursor: number }> {
+  const { json } = await call<{ bundle: ExternalBundle; cursor: number }>(
+    remote,
+    `/v1/repos/${encodeURIComponent(sourceRepoId)}/external`,
+    {},
   );
   return json;
 }

@@ -38,11 +38,9 @@ Lore fixes the **trust** problem, not the storage problem.
 
 ![CLI demo: init, ingest, search, drift, status, verify](docs/assets/demo-cli.gif)
 
-*The CLI: init, ingest, search with scores, then accept drift with `verify --accept`.*
-
 **Canon demo:** [npm → pnpm invalidation](scripts/demo/canon-pnpm.sh).
 
-**GUI:** `lore ui` serves a live dashboard (Health, Sync, Review, Conflicts) with search; see [docs/desktop.md](docs/desktop.md).
+**GUI:** `lore ui` serves a live dashboard; see [docs/desktop.md](docs/desktop.md).
 
 ![Lore dashboard](docs/assets/dashboard.png)
 
@@ -51,7 +49,7 @@ Lore fixes the **trust** problem, not the storage problem.
 ## 60-second demo
 
 ```bash
-npm i -g @529studio/lore        # or install the tarball from Releases
+npm i -g @529studio/lore        # or a Release tarball
 
 cd my-project
 lore init                       # creates .lore/ + lore.ontology.yml
@@ -72,7 +70,7 @@ lore verify --all --strict      # exit 3 — memory health is a CI gate
 
 ## Who this is for
 
-Developers and teams using coding agents on a repository. CLI and MCP server requiring Node 22+ and git. Non-terminal users: see [Track B](#track-b--non-terminal-setup).
+For developers using coding agents on a repository (Node 22+, git). Non-terminal: [Track B](#track-b--non-terminal-setup).
 
 ---
 
@@ -80,9 +78,9 @@ Developers and teams using coding agents on a repository. CLI and MCP server req
 
 ### Prerequisites
 
-- **Node.js 22+** (`node --version`)
-- **git** (`git ls-files` drives extraction; memory lives beside the repo)
-- An MCP-capable client: Claude Code, Codex CLI, Gemini CLI, Cursor, or anything speaking MCP over stdio.
+- **Node.js 22+**
+- **git** (drives extraction; memory lives beside the repo)
+- An MCP-capable client: Claude Code, Codex CLI, Gemini CLI, Cursor, or any MCP-over-stdio client.
 
 ### Install
 
@@ -104,7 +102,7 @@ cd my-project
 lore init
 ```
 
-This creates:
+Creates:
 
 ```
 .lore/lore.db          # SQLite store: claims, evidence, commits, refs
@@ -126,7 +124,7 @@ lore.ontology.yml      # which predicates may hold one value vs many
 | rule registries | `rule:MCP-001 — detects — Remote endpoint uses plain HTTP` |
 | root docs | `doc:README.md — has_section — Quick start` |
 
-Re-running `ingest` is idempotent: claims are content-addressed.
+Re-running `ingest` is idempotent.
 
 ### Connect your agents (MCP)
 
@@ -189,14 +187,15 @@ lore attest <claim>           independent review: agree or disagree, linked to t
 lore digest                   what changed since the last review
 lore ui                       dashboard on localhost (health, sync indicators, review)
 lore remote <dir>             point fetch/push at a shared directory
-lore fetch | push             exchange commits with that directory
+lore fetch | push             exchange commits; fetch refreshes links:
+lore links [sync]             refresh read-only ext: memory from links:
 lore bundle export|import     air-gapped exchange of commits
 lore replicate [action]       Litestream streaming replication
 lore sync                     bi-directional sync with a remote replica
 lore redact <claim>           replace the object with [redacted], keep id and audit
 lore purge <claim> --yes      remove the row permanently, keep an audit entry
 lore gc [--ttl-sessions 3]     retract drafts, purge tombstones, --compact
-lore export --md               deterministic markdown projection
+lore export --md [--filter publish]  deterministic filtered markdown
 lore supersede <claim>         replace a claim, preserving history
 lore setup [agent]             configure MCP for agents
 lore rules [--update]          install or update agent rules
@@ -217,7 +216,7 @@ the claim text; structural facts stay retrievable but never fill the budget ahea
 | Symptom | Cause | Fix |
 |---|---|---|
 | `not inside a lore repo` | no `.lore/` above cwd | `lore init` at the repo root |
-| `search` returns nothing | empty branch | `lore ingest`, or `lore promote` from the session that has memory |
+| `search` returns nothing | empty branch | `lore ingest`, or `lore promote` from the session with memory |
 | claim is `draft` forever | agent inference needs approval | `lore approve <id>` or set `trust_mode permissive` |
 | everything is `stale` | files changed since ingest | `lore ingest`, then `lore verify --all` |
 | merge exits 2 | genuine conflict | `lore resolve ... --take ours\|theirs\|both`, then re-run merge |
@@ -226,14 +225,14 @@ the claim text; structural facts stay retrievable but never fill the budget ahea
 
 ## Track B — non-terminal setup
 
-A developer sets this up once in the project folder:
+A developer sets this up once:
 
 ```bash
 lore init && lore ingest
 claude mcp add lore --scope project --env LORE_SESSION=team -- node "$(command -v lore)" mcp
 ```
 
-After that, you use Claude / Codex / Gemini exactly as before. What changes:
+After that, use Claude / Codex / Gemini as before. What changes:
 
 - the agent stops re-discovering the same facts every session;
 - when a file changes, the agent is told the old fact is stale instead of repeating it;
@@ -257,7 +256,7 @@ main ──────────●──────────────
 ```
 
 - Every session writes to `agent/<session>`. Nothing lands in `main` by accident.
-- `lore promote` merges your branch into `main`. It uses the same 3-way merge and ladder.
+- `lore promote` merges your branch into `main` with the same ladder.
 - Two agents editing the same fact produce a **conflict**, not a silent overwrite:
   - `T0 test` beats `T1 file` beats `T2 human` beats `T4 inference`;
   - a stale side loses to a verified side;
@@ -273,11 +272,15 @@ and `lore.policy.yml`. See [docs/team-mode.md](docs/team-mode.md).
 
 **Internal or offline repositories.** Memory does not depend on a git host: `lore remote` shares
 commits via directory or Postgres, `lore bundle` crosses air gaps, `lore replicate`/`lore sync`
-stream WAL (`LORE_WAL_AUTOCHECKPOINT`); `--trust-remote` includes ahead-of-checkout claims. See
+stream WAL; `--trust-remote` includes ahead-of-checkout claims. See
 [docs/team-mode.md](docs/team-mode.md).
 
 **Team hub.** `lore hub serve` adds per-user tokens, delta sync, CAS, server policy, contributor
 proposals and N-of-M review. See [docs/hub.md](docs/hub.md).
+
+**Cross-repo memory.** A private origin declares `publish:` allow/deny and `to_repos`; a consumer
+declares `links:` and receives read-only `ext:<slug>/...` claims rendered `[EXT]`, capped at 25% of
+the search budget. See [team mode](docs/team-mode.md#cross-repository-memory).
 
 **Plugins.** Personal config adds hosts/hooks; committed `.lore.yml` plugins add extractors. See
 [docs/plugins.md](docs/plugins.md).

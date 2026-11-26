@@ -46,6 +46,9 @@ export function evaluateDecay(
   opts: { checkHash?: boolean } = {},
 ): DecayResult | null {
   if (claim.state !== 'active' || claim.trust === 'retracted' || claim.trust === 'stale') return null;
+  // External evidence belongs to the origin checkout; this store cannot verify
+  // it and must not decay it by hashing foreign paths locally (issue #197).
+  if (claim.origin_repo_id) return null;
 
   if (claim.ttl_days != null) {
     const base = Date.parse(claim.last_verified_at ?? claim.tx_from);

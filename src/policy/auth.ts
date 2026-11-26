@@ -56,6 +56,28 @@ export function quorumFor(policy: GranularPolicyFile | null, subject: string): n
   return quorum;
 }
 
+/**
+ * What may leave a repository. `default_scope: internal` makes the allow list
+ * authoritative; `public` opens everything not denied. `to_repos` names the
+ * consumer repositories allowed to subscribe to an external payload.
+ */
+export interface PublishPolicy {
+  default_scope?: 'internal' | 'public';
+  allow?: string[];
+  deny?: string[];
+  to_repos?: string[];
+  require_trust?: 'canonical' | 'candidate';
+}
+
+/**
+ * Consumer subscriptions. A list names origin repositories directly; a mapping
+ * names a local slug and may carry the origin's hub `repo_id`. The slug is what
+ * appears in `ext:<slug>/`.
+ */
+export type LinksPolicy =
+  | string[]
+  | Record<string, string | string[] | { repo_id?: string } | null>;
+
 export interface GranularPolicyFile {
   roles?: Record<string, string[]>;
   approve?: Record<string, string[]>;
@@ -69,6 +91,8 @@ export interface GranularPolicyFile {
   read?: Record<string, string[]>;
   admin?: string[];
   protected?: Record<string, ProtectedRule>;
+  publish?: PublishPolicy;
+  links?: LinksPolicy;
 }
 
 export function policyPath(root: string): string {

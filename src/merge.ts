@@ -43,7 +43,8 @@ const SEP = '\u0000';
  * cardinality many → (subject, predicate, object)  several values coexist, so they never collide.
  */
 export function factKey(c: ClaimRow, cardinality: (p: string) => Cardinality): string {
-  const base = `${c.subject_id}${SEP}${c.predicate}`;
+  // Origin attribution keeps an import from ever merging into a local fact.
+  const base = `${c.origin_repo_id ?? ''}${SEP}${c.subject_id}${SEP}${c.predicate}`;
   return cardinality(c.predicate) === 'many' ? `${base}${SEP}${c.object_json}` : base;
 }
 
@@ -89,7 +90,11 @@ export function byKey(
   return out;
 }
 
-export type Freshness = 'valid' | 'stale' | 'ahead';
+/**
+ * `external` is origin-verified: the claim was observed against the origin
+ * repository's filesystem, so a consumer must never re-hash it locally.
+ */
+export type Freshness = 'valid' | 'stale' | 'ahead' | 'external';
 
 /**
  * Distinguish "the file changed" from "my checkout is older than the claim".
@@ -101,6 +106,13 @@ export interface FreshnessOptions {
 }
 
 export function claimFreshness(db: DB, root: string, claimId: string, options?: FreshnessOptions): Freshness {
+  const origin = db.prepare('SELECT origin_repo_id FROM claim WHERE id = ?').get(claimId) as
+    | { origin_repo_id: string | null }
+    | undefined;
+  // Foreign evidence refs are relative to another checkout: hashing them here
+  // would mark 100% of external claims stale (issue #197).
+  if (origin?.origin_repo_id) return 'external';
+
   const rows = db
     .prepare(`SELECT ref, hash, commit_id FROM evidence WHERE claim_id = ? AND kind IN ('file','test')`)
     .all(claimId) as Array<{ ref: string; hash: string | null; commit_id: string | null }>;

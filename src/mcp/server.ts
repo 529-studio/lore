@@ -301,6 +301,7 @@ interface SearchArgs {
   trust_remote?: boolean;
   semantic?: boolean;
   vector_weight?: number;
+  include_external?: boolean;
 }
 
 function toolSearch(args: SearchArgs): ToolResult {
@@ -318,6 +319,7 @@ function toolSearch(args: SearchArgs): ToolResult {
       trustRemote: args.trust_remote,
       semantic: args.semantic,
       vectorWeight: args.vector_weight,
+      includeExternal: args.include_external,
     });
     const warnings = contested.map(contestedWarning);
 
@@ -329,6 +331,8 @@ function toolSearch(args: SearchArgs): ToolResult {
       score: Number(h.score.toFixed(3)),
       stale: h.stale,
       ahead: h.ahead,
+      external: h.external,
+      origin_repo_id: h.originRepo,
       trust: h.claim.trust,
       authority: h.claim.authority,
       author: h.claim.author,
@@ -342,7 +346,7 @@ function toolSearch(args: SearchArgs): ToolResult {
         ? `${hits.length} hit(s):\n${structured
             .map(
               (h) =>
-                `[${h.score}] ${oneLine(h.subject)} — ${oneLine(h.predicate)}: ${oneLine(h.object)}${h.stale ? ' (STALE)' : ''}\n` +
+                `[${h.score}] ${oneLine(h.subject)} — ${oneLine(h.predicate)}: ${oneLine(h.object)}${h.external ? ' [EXT]' : ''}${h.stale ? ' (STALE)' : ''}\n` +
                 `  ${h.id} T${h.authority} ${oneLine(h.author)}\n` +
                 h.evidence.map((e) => `  evidence: ${oneLine(e.kind)}:${oneLine(e.ref)} (${e.status})`).join('\n'),
             )
@@ -483,6 +487,8 @@ function toolBlame(args: BlameArgs): ToolResult {
       object: objectOf(c),
       state: c.state,
       in_branch: ctx.branchActive.has(c.id),
+      external: Boolean(c.origin_repo_id),
+      origin_repo_id: c.origin_repo_id,
       authority: c.authority,
       confidence: c.confidence,
       author: c.author,
@@ -492,8 +498,8 @@ function toolBlame(args: BlameArgs): ToolResult {
     const text = structured
       .map(
         (c) =>
-          `${oneLine(c.subject)} — ${oneLine(c.predicate)}: ${oneLine(c.object)}\n` +
-          `  ${c.id} ${c.state}${c.in_branch ? '' : ' (out-of-branch)'} T${c.authority} conf ${c.confidence.toFixed(2)} ${c.author}\n` +
+          `${oneLine(c.subject)} — ${oneLine(c.predicate)}: ${oneLine(c.object)}${c.external ? ' [EXT]' : ''}\n` +
+          `  ${c.id} ${c.state}${c.external ? ` (external origin ${c.origin_repo_id})` : c.in_branch ? '' : ' (out-of-branch)'} T${c.authority} conf ${c.confidence.toFixed(2)} ${c.author}\n` +
           c.evidence.map((e) => `  ↳ ${e.kind}:${e.ref} ${e.status}`).join('\n'),
       )
       .join('\n');
@@ -835,6 +841,7 @@ const TOOLS: ToolDef[] = [
         valid_at: { type: 'string', description: 'ISO instant: read memory valid in the world at this instant' },
         tx_at: { type: 'string', description: 'ISO instant: read memory recorded by the system at this instant' },
         trust_remote: { type: 'boolean', description: 'include claims observed on newer code than this checkout' },
+        include_external: { type: 'boolean', description: 'include read-only [EXT] claims cached from linked repositories (ext: namespace)' },
         semantic: { type: 'boolean', description: 'enable vector embeddings and semantic hybrid search' },
         vector_weight: { type: 'number', minimum: 0, maximum: 1, description: 'weight of vector similarity in hybrid search (default 0.5)' },
       },
@@ -978,6 +985,8 @@ const OUTPUT_SCHEMAS: Record<string, Record<string, unknown>> = {
             score: { type: 'number' },
             stale: { type: 'boolean' },
             ahead: { type: 'boolean' },
+            external: { type: 'boolean' },
+            origin_repo_id: { type: ['string', 'null'] },
             trust: {
               type: 'string',
               enum: ['canonical', 'candidate', 'contested', 'stale', 'retracted'],

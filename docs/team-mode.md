@@ -171,6 +171,46 @@ A colleague can fetch memory about code they have not pulled. That is not stalen
 `--trust-remote` accepts the remote evidence hash when the local file is absent, so a reviewer can read
 memory for a branch they do not have.
 
+## Cross-repository memory
+
+A repository can publish a filtered, read-only view of its memory to other repositories through
+`lore-hub`. Nothing leaves the origin unless its `lore.policy.yml` says so.
+
+Origin (`infra-repo`):
+
+```yaml
+publish:
+  default_scope: internal            # the allow list is authoritative
+  allow: ["doc:*", "sym:src/services/*"]
+  deny: ["env:*", "file:secrets/*"]
+  to_repos: ["<app-repo repo_id>"]   # consumers allowed to subscribe; "*" opens to all
+  require_trust: canonical
+```
+
+Consumer (`app-repo`):
+
+```yaml
+links:
+  infra-repo:                        # slug used in ext:<slug>/...
+    repo_id: "<infra-repo repo_id>"
+```
+
+- `lore push` sends the policy only for a maintainer. The hub stores it and filters every external
+  payload with the same `publishDecision` helper `lore export --md --filter publish` uses, so a
+  denied subject never appears in a pull payload or an export. A token scoped to a repository that
+  is not in `to_repos` receives `403`.
+- `lore fetch` (or `lore links sync`) refreshes subscriptions. Foreign claims are cached read-only
+  under `ext:<slug>/<kind>:<canonical>` with `origin_repo_id` attribution. They never enter the
+  local commit graph, `factKey` or tier-1 conflicts, and `memory_write` rejects `ext:` targets.
+- External freshness is `external`: origin-verified evidence is never re-hashed against the consumer
+  filesystem, and external claims are capped at T2 authority. `search` and `blame` render `[EXT]`.
+  Linked repositories are included automatically; `--include-external` opts in without a `links:`
+  block.
+- External hits may consume at most 25% of the token budget (`externalBudgetShare`) and are ranked
+  after local hits, so upstream memory cannot crowd out local memory.
+- `lore bundle` stays a full-store owner transfer (backup and air gap). Only the hub external
+  endpoint and `lore export --md --filter publish` apply the publish policy.
+
 ## Permissions and automation
 
 `lore.policy.yml`, versioned in the repository:

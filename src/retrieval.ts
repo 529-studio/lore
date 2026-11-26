@@ -3,6 +3,8 @@ import { hashCache } from './hash-cache.js';
 import { evidenceFor, activeAtAsOf, head, claimIsEligible, type ClaimRow } from './model.js';
 import { byKey, claimFreshness, isStale } from './merge.js';
 import { loadOntology } from './ontology.js';
+import { loadPolicy } from './policy.js';
+import { linkedRepos } from './policy/publish.js';
 import { branchFor, currentSession } from './session.js';
 import { oneLine } from './util/text.js';
 import { parseTemporalInstant } from './canon/temporal.js';
@@ -31,6 +33,10 @@ export interface SearchOptions {
   semantic?: boolean;
   /** Weight of vector similarity in hybrid search (0.0 to 1.0, default 0.5 when semantic is enabled). */
   vectorWeight?: number;
+  /** Include cached claims imported from linked repositories (`ext:` namespace). */
+  includeExternal?: boolean;
+  /** Maximum share of the token budget external claims may consume (default 0.25). */
+  externalBudgetShare?: number;
 }
 
 export interface SearchHit {
@@ -42,6 +48,9 @@ export interface SearchHit {
   stale: boolean;
   /** The claim describes newer code than this checkout. */
   ahead: boolean;
+  /** Imported from a linked repository; read-only and origin-verified. */
+  external: boolean;
+  originRepo: string | null;
 }
 
 /** A fact key with at least one open tier-1 conflict in the caller's branch. */
@@ -161,9 +170,37 @@ function branchSnapshot(
   return { claims: byKey(rows, loadOntology(root).cardinality), activeIds: new Set(ids) };
 }
 
+/**
+ * Read-only cached claims from linked repositories. They live in `claim` with
+ * `origin_repo_id` set but are absent from every commit graph, so they can
+ * never enter a local fact key or merge decision.
+ */
+function externalClaimsFor(db: DB, origins: string[], cardinality: (p: string) => 'one' | 'many'): ClaimRow[] {
+  const rows = origins.length
+    ? (db
+        .prepare(
+          `SELECT * FROM claim
+           WHERE origin_repo_id IN (${origins.map(() => '?').join(', ')})
+             AND state = 'active' AND trust = 'canonical' AND valid_to IS NULL
+           ORDER BY subject_id, predicate, tx_from DESC`,
+        )
+        .all(...origins) as ClaimRow[])
+    : (db
+        .prepare(
+          `SELECT * FROM claim
+           WHERE origin_repo_id IS NOT NULL
+             AND state = 'active' AND trust = 'canonical' AND valid_to IS NULL
+           ORDER BY subject_id, predicate, tx_from DESC`,
+        )
+        .all() as ClaimRow[]);
+  return [...byKey(rows, cardinality).values()];
+}
+
 /** Entity ids that carry a path as their canonical part (file/doc/test/sym). */
 function pathFromEntity(id: string): string | null {
-  const m = /^([a-z]+):(.+)$/.exec(id);
+  // `ext:<origin>/<kind>:<canonical>`: scope the canonical part, not the namespace.
+  const external = /^ext:[^/]+\/(.+)$/.exec(id);
+  const m = /^([a-z]+):(.+)$/.exec(external ? external[1] : id);
   if (!m) return null;
   if (!['file', 'doc', 'test', 'sym'].includes(m[1] ?? '')) return null;
   // sym:src/a.ts#refundOrder → src/a.ts
@@ -593,10 +630,10 @@ export function searchMemory(db: DB, root: string, opts: SearchOptions = {}): Se
     // claim lives, not whether it answers the question: a scoped
     // `imports_module` fact must not outrank a query-matching rule (#193).
     if (ctx.queryTokens && !queryMatched) continue;
-    hits.push({ claim: c, score, reasons, lexicalTier, stale, ahead });
+    hits.push({ claim: c, score, reasons, lexicalTier, stale, ahead, external: false, originRepo: null });
   }
 
-  hits.sort((a, b) => {
+  const byRelevance = (a: SearchHit, b: SearchHit): number => {
     // Exact phrase and full coverage beat partial matches before score:
     // anchor/proximity bonuses must not let single-token boilerplate bury an
     // exact rule (#181).
@@ -604,7 +641,31 @@ export function searchMemory(db: DB, root: string, opts: SearchOptions = {}): Se
     if (a.score !== b.score) return b.score - a.score;
     const key = (h: SearchHit) => `${h.claim.subject_id}\u0000${h.claim.predicate}`;
     return key(a).localeCompare(key(b));
-  });
+  };
+  hits.sort(byRelevance);
+
+  const linked = linkedRepos(loadPolicy(root));
+  const includeExternal = Boolean(opts.includeExternal || linked.length);
+  const external: SearchHit[] = [];
+  if (includeExternal) {
+    for (const c of externalClaimsFor(db, linked, loadOntology(root).cardinality)) {
+      const evidence = evidenceFor(db, c.id);
+      const subjectPath = pathFromEntity(c.subject_id);
+      const { score, reasons, queryMatched, lexicalTier } = scoreClaim(db, c, evidence, subjectPath, ctx, false);
+      if (ctx.queryTokens && !queryMatched) continue;
+      external.push({
+        claim: c,
+        score,
+        reasons,
+        lexicalTier,
+        stale: false,
+        ahead: false,
+        external: true,
+        originRepo: c.origin_repo_id,
+      });
+    }
+    external.sort(byRelevance);
+  }
 
   const out: SearchHit[] = [];
   let used = 0;
@@ -612,6 +673,20 @@ export function searchMemory(db: DB, root: string, opts: SearchOptions = {}): Se
     const cost = approxTokens(hit);
     if (used + cost > budget) break;
     out.push(hit);
+    used += cost;
+  }
+
+  // Local memory always fills first; linked claims may only take a capped
+  // share of what remains (issue #197), so upstream rules never crowd it out.
+  const share = Math.max(0, Math.min(0.25, opts.externalBudgetShare ?? 0.25));
+  const externalCap = Math.floor(budget * share);
+  let externalUsed = 0;
+  for (const hit of external) {
+    const cost = approxTokens(hit);
+    if (externalUsed + cost > externalCap) break;
+    if (used + cost > budget) break;
+    out.push(hit);
+    externalUsed += cost;
     used += cost;
   }
 

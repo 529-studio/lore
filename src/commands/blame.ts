@@ -55,7 +55,9 @@ export function blameCommand(opts: { subject: string; predicate?: string }): voi
         | undefined;
       const state = redaction
         ? pc.magenta('redacted')
-        : c.state === 'draft'
+        : c.origin_repo_id
+          ? pc.magenta(`external [EXT] origin ${c.origin_repo_id}`)
+          : c.state === 'draft'
           ? pc.yellow('draft')
           : c.state === 'retracted'
             ? pc.red('retracted')

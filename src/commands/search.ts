@@ -16,6 +16,7 @@ export interface SearchCommandOptions {
   txAt?: string;
   noCache?: boolean;
   trustRemote?: boolean;
+  includeExternal?: boolean;
   semantic?: boolean;
   vectorWeight?: string;
   json?: boolean;
@@ -43,6 +44,7 @@ export function searchCommand(opts: SearchCommandOptions): void {
     validAt: opts.validAt,
     txAt: opts.txAt,
     trustRemote: opts.trustRemote,
+    includeExternal: opts.includeExternal,
     semantic: opts.semantic,
     vectorWeight: opts.vectorWeight !== undefined ? Number(opts.vectorWeight) : undefined,
   });
@@ -64,6 +66,8 @@ export function searchCommand(opts: SearchCommandOptions): void {
             lexical_tier: h.lexicalTier,
             reasons: h.reasons,
             stale: h.stale,
+            external: h.external,
+            origin_repo_id: h.originRepo,
             evidence: evidenceFor(db, h.claim.id),
           })),
           warnings,
@@ -93,7 +97,7 @@ export function searchCommand(opts: SearchCommandOptions): void {
     } catch {
       // keep raw json
     }
-    const badge = h.stale ? pc.red(' STALE') : '';
+    const badge = `${h.external ? pc.magenta(' [EXT]') : ''}${h.stale ? pc.red(' STALE') : ''}`;
     console.log(
       `  [${i + 1}] ${pc.bold(pc.green(h.score.toFixed(1)))}  ${pc.cyan(oneLine(c.subject_id))} ${pc.dim('—')} ${pc.bold(
         oneLine(c.predicate),
