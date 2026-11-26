@@ -1,0 +1,6 @@
+repo_id: 5e4d23fd-7c16-4282-9c39-297cc0e96e9b
+team_mode: true
+remote:
+  type: http
+  url: https://lore-hub.529studio.site
+  token_env: LORE_HUB_TOKEN_LORE
