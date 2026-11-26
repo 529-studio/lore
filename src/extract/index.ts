@@ -162,6 +162,45 @@ function headingLevel(line: string): number {
   return m?.[1]?.length ?? 0;
 }
 
+interface Fence {
+  char: string;
+  length: number;
+}
+
+/** Opening code fence: the marker character and its full run length. */
+function fenceOpen(line: string): Fence | null {
+  const m = /^(`{3,}|~{3,})/.exec(line.trimStart());
+  const marker = m?.[1];
+  return marker ? { char: marker[0] ?? '`', length: marker.length } : null;
+}
+
+/** A closing fence uses the same character and at least the opening length. */
+function isFenceClose(line: string, fence: Fence): boolean {
+  const trimmed = line.trim();
+  if (trimmed.length < fence.length) return false;
+  for (const ch of trimmed) if (ch !== fence.char) return false;
+  return true;
+}
+
+/** Drop fenced code blocks so examples are never read as rules or headings. */
+function stripFencedBlocks(text: string): string {
+  const out: string[] = [];
+  let fence: Fence | null = null;
+  for (const line of text.split('\n')) {
+    if (fence) {
+      if (isFenceClose(line, fence)) fence = null;
+      continue;
+    }
+    const open = fenceOpen(line);
+    if (open) {
+      fence = open;
+      continue;
+    }
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
 /**
  * Offset of the first heading at `level` or above in `text`, skipping fenced
  * code blocks. A `##` body therefore keeps its nested `###` subsections while
@@ -169,16 +208,19 @@ function headingLevel(line: string): number {
  */
 function nextHeadingIndex(text: string, level: number): number {
   let offset = 0;
-  let fence: string | null = null;
+  let fence: Fence | null = null;
   for (const line of text.split('\n')) {
     const trimmed = line.trimStart();
     if (fence) {
-      if (trimmed.startsWith(fence)) fence = null;
-    } else if (trimmed.startsWith('```') || trimmed.startsWith('~~~')) {
-      fence = trimmed.slice(0, 3);
+      if (isFenceClose(trimmed, fence)) fence = null;
     } else {
-      const found = headingLevel(trimmed);
-      if (found > 0 && found <= level) return offset;
+      const open = fenceOpen(trimmed);
+      if (open) {
+        fence = open;
+      } else {
+        const found = headingLevel(trimmed);
+        if (found > 0 && found <= level) return offset;
+      }
     }
     offset += line.length + 1;
   }
@@ -218,16 +260,19 @@ interface MarkdownHeading {
 function markdownHeadings(text: string): MarkdownHeading[] {
   const out: MarkdownHeading[] = [];
   let offset = 0;
-  let fence: string | null = null;
+  let fence: Fence | null = null;
   for (const line of text.split('\n')) {
     const trimmed = line.trimStart();
     if (fence) {
-      if (trimmed.startsWith(fence)) fence = null;
-    } else if (trimmed.startsWith('```') || trimmed.startsWith('~~~')) {
-      fence = trimmed.slice(0, 3);
+      if (isFenceClose(trimmed, fence)) fence = null;
     } else {
-      const m = /^(#{1,6})\s+(.+?)\s*$/.exec(trimmed);
-      if (m?.[1] && m[2]) out.push({ index: offset, level: m[1].length, title: m[2] });
+      const open = fenceOpen(trimmed);
+      if (open) {
+        fence = open;
+      } else {
+        const m = /^(#{1,6})\s+(.+?)\s*$/.exec(trimmed);
+        if (m?.[1] && m[2]) out.push({ index: offset, level: m[1].length, title: m[2] });
+      }
     }
     offset += line.length + 1;
   }
@@ -269,7 +314,8 @@ const LESSON_BLOCK_RE =
 
 /** Problem / root-cause / prevention blocks inside one dated entry. */
 function lessonBlocks(body: string): Array<{ label: string; text: string }> {
-  const matches = [...body.matchAll(LESSON_BLOCK_RE)];
+  const searchable = stripFencedBlocks(body);
+  const matches = [...searchable.matchAll(LESSON_BLOCK_RE)];
   const blocks: Array<{ label: string; text: string }> = [];
   for (let i = 0; i < matches.length; i += 1) {
     const match = matches[i];
@@ -277,8 +323,8 @@ function lessonBlocks(body: string): Array<{ label: string; text: string }> {
     if (!match || !label) continue;
     const start = (match.index ?? 0) + match[0].length;
     const next = matches[i + 1];
-    const end = next ? next.index ?? body.length : body.length;
-    const text = cleanText(body.slice(start, end), RULE_MAX_LEN);
+    const end = next ? next.index ?? searchable.length : searchable.length;
+    const text = cleanText(searchable.slice(start, end), RULE_MAX_LEN);
     if (text.length > 5) blocks.push({ label, text });
   }
   return blocks;

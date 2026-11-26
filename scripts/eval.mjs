@@ -792,7 +792,7 @@ function runNegativeKnowledge() {
         throw new Error(`negative search did not return JSON: ${search.stdout.slice(0, 200)}`);
       }
       const rank = hits.findIndex((h) => h.subject === trap.subject);
-      const structural = hits.filter((h) => (h.predicate === 'imports_module' || h.predicate === 'has_section' || h.predicate === 'section_title')).length;
+      const structural = hits.filter((h) => (h.predicate === 'imports_module' || h.predicate === 'has_section' || h.predicate === 'section_title' || h.predicate === 'declared_dependency')).length;
       structuralInTrapHits += structural;
       trap.rank = rank >= 0 ? rank + 1 : null;
       trap.structural_hits = structural;
