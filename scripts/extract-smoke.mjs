@@ -145,6 +145,7 @@ try {
       '"""',
       'import os',
       'import this',
+      'import pydoc_data',
       'import json',
       'import requests  # noqa: E402',
       'import requests.adapters',
@@ -210,7 +211,7 @@ try {
   for (const spec of ['requests', 'requests.adapters', 'django.db']) {
     assert.equal(imported(spec), 1, `expected imports_module ${spec}`);
   }
-  for (const spec of ['os', 'json', 'this', '__future__', '.', '.helpers', 'fake.module', 'fake.late']) {
+  for (const spec of ['os', 'json', 'this', 'pydoc_data', '__future__', '.', '.helpers', 'fake.module', 'fake.late']) {
     assert.equal(imported(spec), 0, `stdlib/relative/docstring import must be ignored: ${spec}`);
   }
 
