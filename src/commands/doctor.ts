@@ -218,11 +218,12 @@ function validateToml(content: string): { ok: true; document: TomlDocument } | {
     for (;;) {
       skipSpaces();
       if (at() === '"') {
-        // Quoted segments are literal keys: ["mcp_servers.lore"] is one key,
-        // not the nested mcp_servers.lore table, so keep the quotes.
-        parts.push(JSON.stringify(readBasicString()));
+        // A quoted segment is one literal key: ["mcp_servers.lore"] is a single
+        // key, while [mcp_servers."lore"] is the nested table. Escape dots so
+        // boundaries survive the join without breaking nested quoted keys.
+        parts.push(readBasicString().replace(/\\/g, '\\\\').replace(/\./g, '\\.'));
       } else if (at() === "'") {
-        parts.push(JSON.stringify(readLiteralString()));
+        parts.push(readLiteralString().replace(/\\/g, '\\\\').replace(/\./g, '\\.'));
       } else {
         const match = /^[A-Za-z0-9_-]+/.exec(content.slice(index));
         if (!match) fail('expected a bare or quoted key');
@@ -245,7 +246,13 @@ function validateToml(content: string): { ok: true; document: TomlDocument } | {
     if (!token) fail('missing value');
     if (token === 'true' || token === 'false') return;
     if (/^[+-]?(inf|nan)$/.test(token)) return;
-    if (/^[+-]?[0-9][0-9_]*(\.[0-9_]+)?([eE][+-]?[0-9_]+)?$/.test(token)) return;
+    const decimal = '[+-]?(?:0|[1-9](?:_?[0-9])*)';
+    if (new RegExp(`^${decimal}$`).test(token)) return;
+    if (new RegExp(`^${decimal}\\.(?:[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?$`).test(token)) return;
+    if (new RegExp(`^${decimal}[eE][+-]?[0-9](?:_?[0-9])*$`).test(token)) return;
+    if (/^[+-]?0x[0-9A-Fa-f](?:_?[0-9A-Fa-f])*$/.test(token)) return;
+    if (/^[+-]?0o[0-7](?:_?[0-7])*$/.test(token)) return;
+    if (/^[+-]?0b[01](?:_?[01])*$/.test(token)) return;
     if (/^[0-9]{4}-[0-9]{2}-[0-9]{2}([Tt ].*)?$/.test(token)) return;
     fail(`unsupported value "${token}"`);
   }
@@ -445,6 +452,7 @@ function stripJsonc(text: string): string {
       index += 2;
       while (index < text.length && !(text[index] === '*' && text[index + 1] === '/')) index += 1;
       index += 2;
+      out += ' ';
       continue;
     }
     if (char === ',') {

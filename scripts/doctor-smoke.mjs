@@ -183,6 +183,38 @@ try {
   const quotedCheck = checkById(parseJson('quoted: doctor --json', quotedRun), 'mcp:codex');
   if (quotedCheck.status !== 'warn') fail('quoted: a quoted header was treated as the lore server', quotedRun);
 
+  // [mcp_servers."lore"] is the nested table and must be recognized.
+  writeFileSync(
+    path.join(brokenToml, '.codex', 'config.toml'),
+    '[mcp_servers."lore"]\ncommand = "lore"\nargs = ["mcp"]\n',
+    'utf8',
+  );
+  const nestedRun = lore(['doctor', '--json'], brokenToml);
+  const nestedCheck = checkById(parseJson('nested: doctor --json', nestedRun), 'mcp:codex');
+  if (nestedCheck.status !== 'ok') fail('nested: [mcp_servers."lore"] was not recognized', nestedRun);
+
+  // Invalid numeric separators must be rejected.
+  writeFileSync(
+    path.join(brokenToml, '.codex', 'config.toml'),
+    '[mcp_servers.lore]\ncommand = "lore"\nport = 1__2\n',
+    'utf8',
+  );
+  const numberRun = lore(['doctor', '--json'], brokenToml);
+  const numberCheck = checkById(parseJson('number: doctor --json', numberRun), 'mcp:codex');
+  if (numberCheck.status !== 'err' || !numberCheck.message.includes('unsupported value')) {
+    fail('number: invalid numeric separator was accepted', numberRun);
+  }
+
+  // A block comment between tokens must not fuse them into valid JSON.
+  writeFileSync(
+    path.join(brokenToml, 'opencode.json'),
+    '{"mcp":{"servers":{"lore":1/* api */2}}}\n',
+    'utf8',
+  );
+  const fusedRun = lore(['doctor', '--json'], brokenToml);
+  const fusedCheck = checkById(parseJson('fused: doctor --json', fusedRun), 'mcp:opencode');
+  if (fusedCheck.status !== 'err') fail('fused: a block comment fused two numbers into valid JSON', fusedRun);
+
   // Duplicate keys inside an inline table are invalid TOML.
   writeFileSync(
     path.join(brokenToml, '.codex', 'config.toml'),
