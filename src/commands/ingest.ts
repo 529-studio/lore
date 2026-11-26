@@ -10,6 +10,7 @@ import { gitHead } from '../util/git.js';
 import { gateTier, PolicyError, requireWriteSubjects } from '../policy.js';
 import { loadOntology } from '../ontology.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
+import { collectRepoExtractors } from '../plugins/loader.js';
 import { promoteCommand } from './promote.js';
 
 /**
@@ -54,12 +55,21 @@ export function publishIngestBaseline(root: string, session: string): boolean {
   }
 }
 
-export function ingestCommand(opts: { root?: string; author?: string; session?: string; dryRun?: boolean; quiet?: boolean } = {}): void {
+export async function ingestCommand(
+  opts: { root?: string; author?: string; session?: string; dryRun?: boolean; quiet?: boolean } = {},
+): Promise<void> {
   const root = opts.root ? path.resolve(opts.root) : requireRoot();
   const db = openDb(root);
   const session = ensureSession(db, root, opts.session);
   const ref = branchFor(session);
-  const candidates = extractAll(root);
+  const plugin = await collectRepoExtractors(root);
+  for (const warning of plugin.warnings) console.log(pc.yellow(`[WARN] ${warning}`));
+  const candidates: Candidate[] = [
+    ...extractAll(root),
+    ...plugin.candidates.filter(
+      (c) => typeof c.subject === 'string' && typeof c.predicate === 'string' && typeof c.object === 'string',
+    ),
+  ];
 
   if (opts.dryRun) {
     for (const c of candidates) console.log(`${c.subject} | ${c.predicate} | ${c.object}`);

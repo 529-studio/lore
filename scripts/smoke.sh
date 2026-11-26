@@ -635,6 +635,7 @@ node "$LORE_ROOT/scripts/worktree-smoke.mjs"
 
 # --- committed project manifest & lore join ----------------------------------
 node "$LORE_ROOT/scripts/join-smoke.mjs"
+node "$LORE_ROOT/scripts/plugins-smoke.mjs"
 
 # --- bi-temporal search & timeline -------------------------------------------
 node "$LORE_BIN" timeline doc:README.md | grep -q "Bi-temporal Timeline" || fail "timeline must display bi-temporal revisions"

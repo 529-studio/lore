@@ -22,7 +22,7 @@ export interface InitOptions {
   ingest?: boolean;
 }
 
-export function initCommand(opts: InitOptions = {}): void {
+export async function initCommand(opts: InitOptions = {}): Promise<void> {
   const root = path.resolve(opts.root ?? process.cwd());
   const stateDir = stateDirFor(root);
   const sharedState = stateDir !== path.join(root, '.lore');
@@ -97,7 +97,7 @@ export function initCommand(opts: InitOptions = {}): void {
     try {
       process.chdir(root);
       const session = createOnboardSession();
-      ingestCommand({ root, session });
+      await ingestCommand({ root, session });
       publishIngestBaseline(root, session);
     } finally {
       process.chdir(previous);

@@ -5,6 +5,8 @@ import path from 'node:path';
 import process from 'node:process';
 import pc from 'picocolors';
 import { installAgentRules } from './rules.js';
+import { pluginHosts } from '../plugins/loader.js';
+import type { AgentHostAdapter } from '../plugins/types.js';
 
 export type AgentName = 'agy' | 'claude' | 'cursor' | 'codex' | 'gemini' | 'opencode';
 export const SUPPORTED_AGENTS: AgentName[] = ['agy', 'claude', 'cursor', 'codex', 'gemini', 'opencode'];
@@ -132,7 +134,7 @@ function updateOpencodeMcpConfig(
   writeFileSync(filePath, `${JSON.stringify(content, null, 2)}\n`, 'utf8');
 }
 
-interface AgentDefinition {
+interface AgentDefinition extends AgentHostAdapter {
   name: AgentName;
   displayName: string;
   defaultSession: string;
@@ -317,34 +319,38 @@ export function setupCommand(target?: string, opts: SetupOptions = {}): void {
   const scope: 'project' | 'global' = opts.scope ?? 'project';
   const cmd = resolveLoreCommand(opts.bin);
 
-  const targets: AgentName[] = [];
+  const hosts: Record<string, AgentHostAdapter> = { ...AGENTS };
+  for (const host of pluginHosts()) hosts[host.name] = host;
+  const hostNames = Object.keys(hosts);
+
+  const targets: string[] = [];
 
   if (opts.all || target === 'all') {
-    for (const name of SUPPORTED_AGENTS) {
-      if (AGENTS[name].isInstalled(root)) {
+    for (const name of hostNames) {
+      if (hosts[name].isInstalled(root)) {
         targets.push(name);
       }
     }
     if (!targets.length) {
       // If none explicitly detected, configure all standard ones
-      targets.push(...SUPPORTED_AGENTS);
+      targets.push(...hostNames);
     }
   } else if (target) {
-    const normalized = target.toLowerCase() as AgentName;
-    if (!SUPPORTED_AGENTS.includes(normalized)) {
-      throw new Error(`unknown agent "${target}"; supported: ${SUPPORTED_AGENTS.join(', ')}, all`);
+    const normalized = target.toLowerCase();
+    if (!hosts[normalized]) {
+      throw new Error(`unknown agent "${target}"; supported: ${hostNames.join(', ')}, all`);
     }
     targets.push(normalized);
   } else {
     // If no agent specified, detect installed agents or show list
-    for (const name of SUPPORTED_AGENTS) {
-      if (AGENTS[name].isInstalled(root)) {
+    for (const name of hostNames) {
+      if (hosts[name].isInstalled(root)) {
         targets.push(name);
       }
     }
     if (!targets.length) {
       console.log(`[WARN] No supported coding agents automatically detected.`);
-      console.log(`Specify an agent to configure: lore setup <${SUPPORTED_AGENTS.join('|')}>`);
+      console.log(`Specify an agent to configure: lore setup <${hostNames.join('|')}>`);
       return;
     }
   }
@@ -352,9 +358,10 @@ export function setupCommand(target?: string, opts: SetupOptions = {}): void {
   console.log(`Configuring Lore MCP for ${targets.length} agent(s) (scope: ${scope})...`);
 
   for (const agentName of targets) {
-    const def = AGENTS[agentName];
+    const def = hosts[agentName];
     const session = opts.session ?? def.defaultSession;
     const configFile = def.getConfigFile(root, scope);
+
 
     try {
       def.applyConfig(configFile, cmd, session);
@@ -367,7 +374,10 @@ export function setupCommand(target?: string, opts: SetupOptions = {}): void {
 
   if (opts.rules !== false) {
     console.log(`\n${pc.bold('Agent memory directives:')}`);
-    const rulesResults = installAgentRules(root, { targets });
+    const rulesResults = installAgentRules(
+      root,
+      { targets: targets.filter((name): name is AgentName => (SUPPORTED_AGENTS as string[]).includes(name)) },
+    );
     for (const r of rulesResults) {
       if (r.action === 'created') {
         console.log(`  ${pc.green('[OK]')} Created ${pc.bold(r.file)} with autonomous memory protocol`);
