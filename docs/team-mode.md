@@ -79,8 +79,12 @@ those in any tracked `.lore.yml`.
 `lore join` in a fresh clone reads the manifest, initialises `.lore/` with the committed `repo_id`
 (never a random UUID), writes the local remote, and fetches the team baseline so `lore search` works
 immediately. `url_env` stays an environment-variable name; a `dir` path resolves relative to the
-checkout. `--no-fetch` configures the store without pulling. A warning is printed when `team_mode`
-is true but `LORE_TEAM_SECRET` is unset.
+checkout. `--no-fetch` configures the store without pulling.
+
+`team_mode: true` is authoritative: it turns team policy on even when `LORE_TEAM_SECRET` is missing,
+and any write then fails closed with an explicit message instead of falling back to a local
+maintainer identity. A clone can neither disable team mode locally nor act as a maintainer without
+`LORE_TOKEN` or a trusted `LORE_OIDC_EMAIL` assertion.
 
 `lore init` and `lore onboard` in a manifest repo adopt the same `repo_id` and remote. If the local
 store already belongs to another `repo_id`, they refuse to continue instead of forking team memory

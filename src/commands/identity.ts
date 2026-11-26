@@ -85,7 +85,7 @@ export function identityCommand(opts: IdentityOptions): void {
   }
 
   const root = findStateRoot() ?? process.cwd();
-  const principal = resolvePrincipal();
+  const principal = resolvePrincipal(root);
   let statusText = pc.green('active');
 
   if (principal.source === 'token') {
@@ -102,16 +102,16 @@ export function identityCommand(opts: IdentityOptions): void {
       source: principal.source,
       jti: principal.jti ?? null,
       status: statusText.includes('revoked') ? 'revoked' : 'active',
-      teamMode: teamMode(),
+      teamMode: teamMode(root),
     }, null, 2));
     return;
   }
 
   console.log(`identity   ${pc.bold(principal.id)} ${pc.dim(`(${principal.role}, ${principal.source}${principal.jti ? `, jti: ${principal.jti}` : ''})`)}`);
   console.log(`status     ${statusText}`);
-  console.log(`team mode  ${teamMode() ? pc.yellow('on') : pc.green('off')}`);
+  console.log(`team mode  ${teamMode(root) ? pc.yellow('on') : pc.green('off')}`);
   console.log(`policy     ${describePolicy(root)}`);
-  if (!teamMode()) {
+  if (!teamMode(root)) {
     console.log(pc.dim('  enable team mode with LORE_TEAM_SECRET, then issue tokens per person'));
   }
 }
