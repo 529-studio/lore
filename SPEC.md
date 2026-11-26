@@ -328,11 +328,11 @@ score = 3.0 * anchor        # evidence/subject path is in scope
       + 1.0 * verified      # recency of verification, 14-day window
       + 2.0 * coverage      # fraction of query tokens present
       + 2.5 * phrase        # normalized query appears contiguously
-      + 0.5 * similarity    # Jaccard token overlap (tie-break)
+      + 0.5 * similarity    # Jaccard overlap (tie-break)
       - 10.0 * stale
 ```
 
-Hits carry the score breakdown; budget is ~tokens (chars/4), in score order.
+Hits show the score breakdown; phrase and full coverage sort first, then score; budget ~tokens (chars/4).
 
 ## 10. Interfaces
 
@@ -383,7 +383,7 @@ No LLM judge. Outcome metrics on real repositories:
 | `token_savings` | tokens to answer via `search` vs reading files | > 30% |
 | `time_to_first_useful` | invocations before a claim is read back | < 10 |
 
-`revert_correctness` and `token_savings` decide if the product lives.
+`revert_correctness` and `token_savings` decide the outcome.
 
 ## 12. Milestones
 
@@ -398,7 +398,7 @@ No LLM judge. Outcome metrics on real repositories:
 
 ## 13. Open questions
 
-- Entity resolution outside code (issues, ADRs, decisions) — what replaces `path#symbol`?
+- Entity resolution outside code (issues, ADRs) — what replaces `path#symbol`?
 - Encryption at rest: ours, or the OS?
 
 ## 14. Risks

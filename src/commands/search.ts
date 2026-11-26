@@ -61,6 +61,7 @@ export function searchCommand(opts: SearchCommandOptions): void {
             predicate: h.claim.predicate,
             object: h.claim.object_json,
             score: Number(h.score.toFixed(3)),
+            lexical_tier: h.lexicalTier,
             reasons: h.reasons,
             stale: h.stale,
             evidence: evidenceFor(db, h.claim.id),
