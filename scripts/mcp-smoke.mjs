@@ -116,7 +116,7 @@ try {
   // --- tools/list ------------------------------------------------------------------
   const list = await rpc('tools/list');
   const names = (list.result?.tools ?? []).map((t) => t.name).sort();
-  const expected = ['memory_approve', 'memory_blame', 'memory_commit', 'memory_diff', 'memory_search', 'memory_status', 'memory_sync', 'memory_write'];
+  const expected = ['memory_approve', 'memory_blame', 'memory_commit', 'memory_diff', 'memory_propose', 'memory_search', 'memory_status', 'memory_sync', 'memory_write'];
   if (JSON.stringify(names) !== JSON.stringify(expected)) fail(`tools/list: ${JSON.stringify(names)} != ${JSON.stringify(expected)}`);
   for (const tool of list.result?.tools ?? []) {
     if (!tool.outputSchema || tool.outputSchema.type !== 'object') {
