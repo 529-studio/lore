@@ -1,7 +1,14 @@
 import pc from 'picocolors';
 import { findStateRoot, requireRoot } from '../db.js';
 import { issueToken, resolvePrincipal, teamMode, type Role } from '../identity.js';
-import { describePolicy, isTokenRevoked, listRevocations, requireAction, revokeToken } from '../policy.js';
+import {
+  describePolicy,
+  isTokenRevoked,
+  listRevocations,
+  PolicyError,
+  requireAction,
+  revokeToken,
+} from '../policy.js';
 
 export interface IdentityOptions {
   action?: string;
@@ -24,9 +31,18 @@ export function identityCommand(opts: IdentityOptions): void {
     const authenticated = Boolean(
       process.env.LORE_TOKEN || process.env.LORE_OIDC_EMAIL || process.env.LORE_MACHINE === '1',
     );
-    // An authenticated caller must be an admin even outside a repository:
-    // otherwise `cd /tmp && lore identity issue` would bypass the check.
-    if (authenticated) requireAction(findStateRoot() ?? process.cwd(), 'admin');
+    // An authenticated caller must be an admin. Outside a repository there is
+    // no trusted policy source, so fail closed rather than reading a
+    // `lore.policy.yml` from an arbitrary working directory.
+    if (authenticated) {
+      const stateRoot = findStateRoot();
+      if (!stateRoot) {
+        throw new PolicyError(
+          'identity issue outside a lore repository needs a trusted admin policy; run it inside the repository',
+        );
+      }
+      requireAction(stateRoot, 'admin');
+    }
     const role: Role = opts.role === 'contributor' ? 'contributor' : 'maintainer';
     const token = issueToken(opts.user, role, secret, Number(opts.days ?? 30), opts.jti);
     console.log(token);

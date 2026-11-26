@@ -159,12 +159,25 @@ export function isMember(policy: GranularPolicyFile | null, role: string, princi
   return role === principal.role;
 }
 
-export function protectedRoles(policy: GranularPolicyFile | null, subject: string | undefined): string[] | null {
-  if (!policy?.protected || !subject) return null;
+/**
+ * Every protected rule that matches a subject is enforced. Broad patterns such
+ * as `doc:*` must not shadow a stricter exact rule listed after them.
+ */
+function assertProtectedAllowed(
+  principal: Principal,
+  policy: GranularPolicyFile | null,
+  subject: string | undefined,
+  policyName: string,
+): void {
+  if (!policy?.protected || !subject) return;
   for (const [pattern, roles] of Object.entries(policy.protected)) {
-    if (matchSubject(pattern, subject)) return roles;
+    if (!matchSubject(pattern, subject)) continue;
+    if (!roles.some((r) => isMember(policy, r, principal))) {
+      throw new PolicyError(
+        `subject ${subject} is protected; requires role ${roles.join(' or ')}; ${principal.id} is ${principal.role} (policy: ${policyName})`,
+      );
+    }
   }
-  return null;
 }
 
 /** Resolve the caller and reject revoked tokens before any policy decision. */
@@ -196,15 +209,7 @@ function assertWriteAllowed(
       }
     }
   }
-  if (policy?.protected) {
-    for (const [pattern, roles] of Object.entries(policy.protected)) {
-      if (matchSubject(pattern, subject) && !roles.some((r) => isMember(policy, r, principal))) {
-        throw new PolicyError(
-          `subject ${subject} is protected; requires role ${roles.join(' or ')}; ${principal.id} is ${principal.role} (policy: ${policyName})`,
-        );
-      }
-    }
-  }
+  assertProtectedAllowed(principal, policy, subject, policyName);
 }
 
 /**
@@ -253,12 +258,7 @@ export function checkAuthorization(
   // Lifecycle action: approve. Protected access is an additional gate, not an
   // alternative to the tier rule.
   if (action === 'approve') {
-    const guarded = protectedRoles(policy, ctx.subject);
-    if (guarded && !guarded.some((r) => isMember(policy, r, principal))) {
-      throw new PolicyError(
-        `approve protected subject ${ctx.subject} requires role ${guarded.join(' or ')}; ${principal.id} is ${principal.role} (policy: ${policyName})`,
-      );
-    }
+    assertProtectedAllowed(principal, policy, ctx.subject, policyName);
     const key = `t${ctx.tier ?? 4}`;
     const roles = policy?.approve?.[key] ?? policy?.approve?.t4 ?? ['maintainers'];
     if (roles.some((r) => isMember(policy, r, principal))) return principal;
@@ -269,12 +269,7 @@ export function checkAuthorization(
 
   // Lifecycle action: resolve
   if (action === 'resolve') {
-    const guarded = protectedRoles(policy, ctx.subject);
-    if (guarded && !guarded.some((r) => isMember(policy, r, principal))) {
-      throw new PolicyError(
-        `resolve requires role ${guarded.join(' or ')}; ${principal.id} is ${principal.role} (policy: ${policyName})`,
-      );
-    }
+    assertProtectedAllowed(principal, policy, ctx.subject, policyName);
     const roles = Array.isArray(policy?.resolve)
       ? policy.resolve
       : (policy?.resolve as Record<string, string[]> | undefined)?.['*'] ?? ['maintainers'];

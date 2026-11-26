@@ -151,6 +151,7 @@ purge: [maintainers]
 redact: [maintainers]
 admin: [maintainers]
 protected:
+  "doc:*": [contributors]
   "doc:locked.md": [maintainers]
   "doc:tier.md": [contributors, maintainers]
   "doc:AGENTS.md*": [maintainers]
@@ -216,7 +217,7 @@ protected:
      VALUES (NULL, NULL, 'doc:locked.md', 'has_section', ?, NULL, NULL, 'smoke conflict', ?)`,
   ).run(lockedId, new Date().toISOString());
   db.close();
-  expectDenied(['resolve', '--auto-semantic'], { ...bobEnv, LORE_SESSION: 'bob' }, 'resolve requires role', 'resolve --auto-semantic');
+  expectDenied(['resolve', '--auto-semantic'], { ...bobEnv, LORE_SESSION: 'bob' }, 'protected', 'resolve --auto-semantic');
   const afterResolve = openDb();
   const resolutions = afterResolve.prepare('SELECT COUNT(*) AS n FROM resolution').get().n;
   afterResolve.close();
@@ -291,7 +292,7 @@ protected:
     tmpdir(),
     ['identity', 'issue', '--user', 'evil@company', '--role', 'maintainer', '--jti', 'evil-2'],
     bobEnv,
-    'admin requires role',
+    'lore repository',
     'identity issue outside a repository',
   );
 
