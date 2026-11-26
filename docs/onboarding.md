@@ -10,12 +10,16 @@ memory on for an agent.
 
 ## What it does
 
-1. **Detects the stack** from files: `package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `src/`,
-   `docs/adr/`, `issues/`, `content/`.
+1. **Detects the stack** from root manifests (`package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`,
+   `Makefile`, workspace files), containers (`Dockerfile`, `docker-compose*.yml`), nested manifests
+   (`frontend/package.json`, `backend/requirements.txt`), `src/`, `app/`, `scripts/`, `docs/adr/`,
+   `issues/`, `content/`.
 2. **Suggests a template** and copies it to `lore.ontology.yml` if that file does not exist yet.
 3. **Initialises** `.lore/` (and adds it to `.gitignore`).
-4. **Ingests** the repository with the deterministic extractors.
-5. **Prints next steps**: the MCP command for Claude Code, `lore ui`, `lore review`, `lore remote`.
+4. **Ingests** on a fresh `agent/onboard_<id>` branch, then promotes that baseline to `main`, so
+   every agent session forked from `main` sees the claims immediately.
+5. **Configures MCP** for detected agents (unless `--no-setup`) and prints next steps: `lore ui`,
+   `lore review`, `lore remote`.
 
 ## Templates
 
@@ -36,14 +40,18 @@ and are versioned with the repository.
 | `--path <dir>` | onboard another directory |
 | `--template <name>` | skip detection |
 | `--yes` | no prompts, suitable for CI or a script |
+| `--setup [agent]` | configure MCP for detected agents (or one named agent) |
+| `--no-setup` | skip MCP configuration |
 
 Without `--yes` and with a TTY, it asks which template to use and whether to ingest.
 
 ## What it will not do
 
 - It never overwrites an existing `lore.ontology.yml`.
-- It does not create an MCP client configuration; it prints the command so you can review it.
-- It does not commit anything.
+- It merges `lore` into existing MCP client configs; other servers are preserved.
+- It does not promote the baseline when team policy denies `promote`: the claims stay on the
+  onboarding branch for a maintainer to review.
+- It never promotes a pre-existing `agent/onboard` ref; every run uses a fresh branch id.
 
 ## Desktop
 

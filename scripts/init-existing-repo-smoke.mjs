@@ -112,6 +112,27 @@ try {
     throw new Error(`expected search to find pkg:express in ingested memory, got:\n${searchOut}`);
   }
 
+  // The onboarding baseline must live on main, so an independent agent session
+  // forking from main sees it immediately.
+  for (const session of ['antigravity', 'claude']) {
+    const agentOut = execFileSync('node', [cli, 'search', 'express'], {
+      cwd: tmp,
+      encoding: 'utf8',
+      env: { ...process.env, LORE_SESSION: session },
+    });
+    if (!agentOut.includes('pkg:express')) {
+      throw new Error(`agent session ${session} did not inherit the onboarding baseline, got:\n${agentOut}`);
+    }
+  }
+
+  // Work left on the legacy agent/onboard branch must not be published by a later
+  // onboarding run: each run uses a fresh branch.
+  execFileSync(
+    'node',
+    [cli, 'write', '--subject', 'env:ONBOARD_LEFTOVER', '--predicate', 'read_by', '--object', 'must not promote', '--kind', 'human', '--author', 'human:tester'],
+    { cwd: tmp, env: { ...process.env, LORE_SESSION: 'onboard' } },
+  );
+
   // Step 5: Test idempotency (re-running init --full must succeed cleanly)
   const rerunOut = execFileSync(
     'node',
@@ -122,6 +143,40 @@ try {
   const startMatches = rerunAgents.match(/<!-- lore:memory-protocol:start -->/g) || [];
   if (startMatches.length !== 1) {
     throw new Error(`expected exactly 1 protocol marker block, found ${startMatches.length}`);
+  }
+  const leftoverOut = execFileSync('node', [cli, 'search', 'ONBOARD_LEFTOVER'], {
+    cwd: tmp,
+    encoding: 'utf8',
+    env: { ...process.env, LORE_SESSION: 'claude' },
+  });
+  if (leftoverOut.includes('ONBOARD_LEFTOVER')) {
+    throw new Error(`onboarding promoted unrelated agent/onboard work, got:\n${leftoverOut}`);
+  }
+
+  // Step 6: containerized monorepo detection and non-redundant setup hint.
+  const tmpMonorepo = mkdtempSync(path.join(tmpdir(), 'lore-onboard-monorepo-'));
+  try {
+    mkdirSync(path.join(tmpMonorepo, 'frontend'), { recursive: true });
+    mkdirSync(path.join(tmpMonorepo, 'backend'), { recursive: true });
+    mkdirSync(path.join(tmpMonorepo, 'scripts'), { recursive: true });
+    writeFileSync(path.join(tmpMonorepo, 'docker-compose.yml'), 'services:\n  web:\n    build: .\n', 'utf8');
+    writeFileSync(path.join(tmpMonorepo, 'Makefile'), 'up:\n\tdocker compose up\n', 'utf8');
+    writeFileSync(path.join(tmpMonorepo, 'frontend', 'package.json'), JSON.stringify({ name: 'web' }), 'utf8');
+    writeFileSync(path.join(tmpMonorepo, 'backend', 'requirements.txt'), 'flask==3.0.0\n', 'utf8');
+    writeFileSync(path.join(tmpMonorepo, 'scripts', 'deploy.sh'), '#!/bin/sh\necho deploy\n', 'utf8');
+    writeFileSync(path.join(tmpMonorepo, 'README.md'), '# Monorepo\n', 'utf8');
+    const onboardOut = execFileSync('node', [cli, 'onboard', '--yes', '--path', tmpMonorepo], {
+      encoding: 'utf8',
+      env: { ...process.env, LORE_SESSION: '' },
+    });
+    if (!onboardOut.includes('ontology from template code')) {
+      throw new Error(`expected monorepo to detect the code template, got:\n${onboardOut}`);
+    }
+    if (onboardOut.includes('run lore setup --all')) {
+      throw new Error(`onboard printed the setup hint after running setup, got:\n${onboardOut}`);
+    }
+  } finally {
+    rmSync(tmpMonorepo, { recursive: true, force: true });
   }
 
   console.log('[OK] init-existing-repo-smoke passed');
