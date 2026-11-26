@@ -4,7 +4,7 @@ import process from 'node:process';
 import Database from 'better-sqlite3';
 import pc from 'picocolors';
 import { parse as parseYaml } from 'yaml';
-import { dbPathFor, openDb } from '../db.js';
+import { dbPathFor } from '../db.js';
 import { activeAt, head } from '../model.js';
 import { loadOntology } from '../ontology.js';
 import { requireAction } from '../policy.js';
@@ -40,7 +40,19 @@ const REQUIRED_TABLES = Array.from(
 
 /** Columns added by migrations; older stores lack them until a lore command opens them. */
 const REQUIRED_COLUMNS: Record<string, string[]> = {
-  claim: ['trust', 'ttl_days', 'last_verified_at', 'tags_json'],
+  claim: [
+    'trust',
+    'ttl_days',
+    'last_verified_at',
+    'confirmations',
+    'contradictions',
+    'invalidated_by_json',
+    'written_by',
+    'agent_id',
+    'session_id',
+    'run_id',
+    'tags_json',
+  ],
   evidence: ['commit_id'],
   file_hash: ['workspace_id', 'ctime_ns'],
   memory_commit: ['merge_parent_id'],
@@ -112,6 +124,8 @@ function validateToml(content: string): { ok: true; document: TomlDocument } | {
   let line = 1;
   const length = content.length;
   const paths = new Set<string>();
+  const definedKeys = new Set<string>();
+  const definedTables = new Set<string>();
   let tablePrefix = '';
 
   const fail = (message: string): never => {
@@ -325,7 +339,10 @@ function validateToml(content: string): { ok: true; document: TomlDocument } | {
         if (isArrayTable) {
           if (at() !== ']') fail('unterminated array table header');
           index += 1;
+        } else if (definedTables.has(name)) {
+          fail(`duplicate table [${name}]`);
         }
+        if (!isArrayTable) definedTables.add(name);
         tablePrefix = name;
         paths.add(name);
         endOfLine();
@@ -336,7 +353,10 @@ function validateToml(content: string): { ok: true; document: TomlDocument } | {
       if (at() !== '=') fail(`expected "=" after key "${key}"`);
       index += 1;
       readValue();
-      paths.add(tablePrefix ? `${tablePrefix}.${key}` : key);
+      const fullKey = tablePrefix ? `${tablePrefix}.${key}` : key;
+      if (definedKeys.has(fullKey)) fail(`duplicate key "${fullKey}"`);
+      definedKeys.add(fullKey);
+      paths.add(fullKey);
       endOfLine();
     }
     return { ok: true, document: { paths } };
@@ -367,12 +387,50 @@ function jsonHasLoreServer(config: unknown, agent: string): boolean {
   return Boolean(servers && typeof servers === 'object' && 'lore' in (servers as Record<string, unknown>));
 }
 
-/** OpenCode configs may carry line comments; JSON.parse rejects them. */
-function stripJsonLineComments(text: string): string {
-  return text
-    .split('\n')
-    .map((line) => (/^\s*\/\//.test(line) ? '' : line))
-    .join('\n');
+/** OpenCode configs are JSONC: line/block comments and trailing commas are legal. */
+function stripJsonc(text: string): string {
+  let out = '';
+  let index = 0;
+  let inString = false;
+  let escaped = false;
+  while (index < text.length) {
+    const char = text[index];
+    if (inString) {
+      out += char;
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') inString = false;
+      index += 1;
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      out += char;
+      index += 1;
+      continue;
+    }
+    if (char === '/' && text[index + 1] === '/') {
+      while (index < text.length && text[index] !== '\n') index += 1;
+      continue;
+    }
+    if (char === '/' && text[index + 1] === '*') {
+      index += 2;
+      while (index < text.length && !(text[index] === '*' && text[index + 1] === '/')) index += 1;
+      index += 2;
+      continue;
+    }
+    if (char === ',') {
+      let next = index + 1;
+      while (next < text.length && /\s/.test(text[next])) next += 1;
+      if (next < text.length && (text[next] === '}' || text[next] === ']')) {
+        index += 1;
+        continue;
+      }
+    }
+    out += char;
+    index += 1;
+  }
+  return out;
 }
 
 function checkMcpConfig(root: string, config: McpConfig): DoctorCheck {
@@ -403,7 +461,7 @@ function checkMcpConfig(root: string, config: McpConfig): DoctorCheck {
   } catch (error) {
     if (config.agent === 'opencode') {
       try {
-        parsed = JSON.parse(stripJsonLineComments(text));
+        parsed = JSON.parse(stripJsonc(text));
       } catch {
         parsed = undefined;
       }
@@ -513,9 +571,7 @@ interface ParityCandidate {
 
 function chooseBaseline(candidates: ParityCandidate[]): ParityCandidate | null {
   if (candidates.length === 1) return candidates[0];
-  const onboard = candidates.find((candidate) => candidate.ref.startsWith('agent/onboard'));
-  if (onboard) return onboard;
-  return null;
+  return candidates.find((candidate) => candidate.ref.startsWith('agent/onboard')) ?? null;
 }
 
 function diagnoseParity(root: string, db: Database.Database, fix: boolean): DoctorCheck {
@@ -544,38 +600,36 @@ function diagnoseParity(root: string, db: Database.Database, fix: boolean): Doct
 
   if (!fix) return check('warn', 'parity', base, remediation);
 
-  const target = chooseBaseline(leaders);
+  const target = chooseBaseline(candidates);
   if (!target) {
     return check(
       'warn',
       'parity',
-      `${base}; --fix skipped because several branches compete for the baseline`,
+      `${base}; --fix skipped because several branches hold claims and none is agent/onboard*`,
       'lore promote from the session that ran the ingest',
     );
   }
 
   let promotedAdd = 0;
   try {
-    requireAction(root, 'promote');
-    const writeDb = openDb(root);
-    try {
-      const plan = promoteRef(writeDb, root, target.ref, 'main', { dryRun: true, author: 'human:doctor' });
-      if (plan.mode === 'conflict' || plan.plan.retract.length > 0) {
-        return check(
-          'warn',
-          'parity',
-          `${base}; --fix could not promote ${target.ref} safely (${plan.mode}, ${plan.plan.retract.length} retractions)`,
-          'lore promote from that session and resolve the conflict',
-        );
-      }
-      promoteRef(writeDb, root, target.ref, 'main', {
-        author: 'human:doctor',
-        message: `doctor: promote baseline ${target.ref} into main`,
-      });
-      promotedAdd = activeAt(writeDb, head(writeDb, 'main')).size;
-    } finally {
-      writeDb.close();
+    const principal = requireAction(root, 'promote');
+    const author = `human:${principal.id}`;
+    db.pragma('busy_timeout = 5000');
+    db.pragma('foreign_keys = ON');
+    const plan = promoteRef(db, root, target.ref, 'main', { dryRun: true, author });
+    if (plan.mode === 'conflict' || plan.plan.retract.length > 0) {
+      return check(
+        'warn',
+        'parity',
+        `${base}; --fix could not promote ${target.ref} safely (${plan.mode}, ${plan.plan.retract.length} retractions)`,
+        'lore promote from that session and resolve the conflict',
+      );
     }
+    promoteRef(db, root, target.ref, 'main', {
+      author,
+      message: `doctor: promote baseline ${target.ref} into main`,
+    });
+    promotedAdd = activeAt(db, head(db, 'main')).size;
   } catch (error) {
     return check('warn', 'parity', `${base}; --fix failed: ${errorText(error)}`, 'lore promote from that session');
   }
@@ -672,15 +726,17 @@ export function doctorCommand(opts: DoctorOptions = {}): void {
   }
 
   let db: Database.Database | null = null;
+  let storeHealthy = false;
   if (storePath) {
     const store = diagnoseStore(workspaceRoot, storePath);
     checks.push(...store.checks);
     db = store.db;
+    storeHealthy = store.checks.every((item) => item.status !== 'err');
   }
 
   if (db) {
     try {
-      checks.push(diagnoseParity(workspaceRoot, db, Boolean(opts.fix)));
+      checks.push(diagnoseParity(workspaceRoot, db, Boolean(opts.fix) && storeHealthy));
     } catch (error) {
       checks.push(check('err', 'parity', `branch parity check failed: ${errorText(error)}`));
     }

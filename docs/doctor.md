@@ -32,7 +32,8 @@ the schema the running binary creates, so drift is detected rather than assumed 
 
 TOML validation is a narrow parser for the shapes Codex configs use (tables, dotted keys, strings,
 numbers, booleans, arrays, inline tables, multiline strings). A malformed file yields `[ERR]` with a
-line number; it never throws. No TOML dependency is added.
+line number; duplicate keys and duplicate tables are rejected. OpenCode's JSONC comments and trailing
+commas are accepted. No TOML dependency is added.
 
 ## --json output
 

@@ -137,6 +137,39 @@ try {
   const validJson = parseJson('toml valid: doctor --json', validRun);
   if (checkById(validJson, 'mcp:codex').status !== 'ok') fail('toml valid: mcp:codex is not ok', validRun);
 
+  // Duplicate table headers are invalid TOML and must not be reported as valid.
+  writeFileSync(
+    path.join(brokenToml, '.codex', 'config.toml'),
+    '[mcp_servers.lore]\ncommand = "lore"\n\n[mcp_servers.lore]\ncommand = "other"\n',
+    'utf8',
+  );
+  const duplicateRun = lore(['doctor', '--json'], brokenToml);
+  if (duplicateRun.status === 0) fail('toml duplicate: expected non-zero exit', duplicateRun);
+  const duplicateCheck = checkById(parseJson('toml duplicate: doctor --json', duplicateRun), 'mcp:codex');
+  if (duplicateCheck.status !== 'err' || !duplicateCheck.message.includes('duplicate table')) {
+    fail('toml duplicate: mcp:codex did not report the duplicate table', duplicateRun);
+  }
+
+  // OpenCode accepts JSONC: comments and trailing commas must not be [ERR].
+  writeFileSync(
+    path.join(brokenToml, 'opencode.json'),
+    [
+      '{',
+      '  // local config',
+      '  "mcp": {',
+      '    "servers": {',
+      '      "lore": { "type": "local", "command": ["lore", "mcp"], },',
+      '    },',
+      '  },',
+      '}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  const jsoncRun = lore(['doctor', '--json'], brokenToml);
+  const jsoncCheck = checkById(parseJson('jsonc: doctor --json', jsoncRun), 'mcp:opencode');
+  if (jsoncCheck.status !== 'ok') fail('jsonc: opencode JSONC was not accepted', jsoncRun);
+
   // 3. Empty main with an ingested agent/* baseline: WARN, then --fix promotes it.
   const skew = prepareRepo('doctor-skew', 'ses_baseline');
   const skewRun = expectOk('skew: doctor --json', lore(['doctor', '--json'], skew));
