@@ -180,6 +180,207 @@ function isRelativeOrBuiltin(spec: string): boolean {
   return spec.startsWith('.') || spec.startsWith('/') || spec.startsWith('node:') || spec.startsWith('~');
 }
 
+/** Manifest files are not extension-gated by TEXT_EXT (`go.mod`, `*.txt`). */
+function readManifestText(root: string, rel: string): string | null {
+  const real = resolveInside(root, rel);
+  if (!real) return null;
+  try {
+    const buf = readFileSync(real);
+    if (buf.length > MAX_BYTES) return null;
+    return buf.toString('utf8');
+  } catch {
+    return null;
+  }
+}
+
+/** PEP 503 normalisation: runs of `-`, `_` and `.` collapse to one `-`. */
+function pythonPackageName(raw: string): string | null {
+  const name = raw.trim().toLowerCase().replace(/[-_.]+/g, '-');
+  return /^[a-z0-9][a-z0-9-]*$/.test(name) ? name : null;
+}
+
+/** One requirement line -> package name and version specifier. Malformed line -> null. */
+function parseRequirement(raw: string): { name: string; spec: string } | null {
+  let line = raw.split('#')[0]?.trim() ?? '';
+  if (!line || line.startsWith('-')) return null; // options, -r/-e includes, index URLs
+  line = line.split(';')[0]?.trim() ?? ''; // environment markers are not the declared version
+  const at = line.indexOf(' @ ');
+  if (at !== -1) line = line.slice(0, at).trim(); // PEP 508 direct reference
+  const m = /^([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\]]*\])?\s*([<>=!~].*)?$/.exec(line);
+  if (!m || !m[1]) return null;
+  const name = pythonPackageName(m[1]);
+  if (!name) return null;
+  const spec = (m[2] ?? '').replace(/\s+/g, ' ').trim() || '*';
+  return { name, spec };
+}
+
+function addRequirementLines(rel: string, text: string, out: Candidate[]): void {
+  for (const line of text.split(/\r?\n/)) {
+    const req = parseRequirement(line);
+    if (!req) continue;
+    out.push({
+      subject: `pkg:${req.name}`,
+      predicate: 'declared_dependency',
+      object: req.spec,
+      evidenceRef: rel,
+    });
+  }
+}
+
+const PY_POETRY_DEP_SECTION_RE = /^tool\.poetry\.(?:group\.(?:"?[\w-]+"?\.))?(?:dev-)?dependencies$/;
+
+/** Which keys of a TOML table hold dependency arrays (`authors` must not be read). */
+function pyDependencyArrayKey(section: string, key: string): boolean {
+  if (section === 'project') return key === 'dependencies';
+  if (section === 'build-system') return key === 'requires';
+  return section === 'project.optional-dependencies';
+}
+const PY_QUOTED_RE = /"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'/g;
+
+/** pyproject.toml: `[project] dependencies`, optional groups and Poetry tables only. */
+function addPyproject(rel: string, text: string, out: Candidate[]): void {
+  const lines = text.split(/\r?\n/);
+  let section = '';
+  for (let i = 0; i < lines.length; i += 1) {
+    const raw = lines[i] ?? '';
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const header = /^\[([^\]]+)\]$/.exec(line);
+    if (header) {
+      section = (header[1] ?? '').trim();
+      continue;
+    }
+    const arrayKey = /^([\w.-]+)\s*=\s*\[/.exec(line);
+    if (arrayKey && arrayKey[1] && pyDependencyArrayKey(section, arrayKey[1])) {
+      let body = line.slice(line.indexOf('[') + 1);
+      // A TOML array may span lines; an unterminated array reads to EOF.
+      while (!body.includes(']') && i + 1 < lines.length) {
+        i += 1;
+        body += `\n${lines[i] ?? ''}`;
+      }
+      const close = body.indexOf(']');
+      if (close !== -1) body = body.slice(0, close);
+      for (const q of body.matchAll(PY_QUOTED_RE)) {
+        const entry = q[1] ?? q[2];
+        if (!entry) continue;
+        const req = parseRequirement(entry);
+        if (!req) continue;
+        out.push({
+          subject: `pkg:${req.name}`,
+          predicate: 'declared_dependency',
+          object: req.spec,
+          evidenceRef: rel,
+        });
+      }
+      continue;
+    }
+    if (PY_POETRY_DEP_SECTION_RE.test(section)) {
+      const entry = /^("?[\w.@/-]+"?)\s*=\s*(.+)$/.exec(line);
+      if (!entry || !entry[1]) continue;
+      const key = entry[1].replace(/^"|"$/g, '');
+      if (key === 'python') continue; // runtime constraint, not a package
+      const value = entry[2] ?? '';
+      const version = /version\s*=\s*"([^"]*)"/.exec(value)?.[1] ?? (/^["']([^"']*)["']$/.test(value) ? value.slice(1, -1) : null);
+      const name = pythonPackageName(key);
+      if (!name) continue;
+      out.push({
+        subject: `pkg:${name}`,
+        predicate: 'declared_dependency',
+        object: version?.trim() || '*',
+        evidenceRef: rel,
+      });
+    }
+  }
+}
+
+/** go.mod `require` entries, single-line and block form. */
+function addGoMod(rel: string, text: string, out: Candidate[]): void {
+  let inBlock = false;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.split('//')[0]?.trim() ?? '';
+    if (!line) continue;
+    if (!inBlock) {
+      const single = /^require\s+(.+)$/.exec(line);
+      if (!single || !single[1]) continue;
+      if (single[1].trim() === '(') {
+        inBlock = true;
+        continue;
+      }
+      addGoRequire(rel, single[1], out);
+      continue;
+    }
+    if (line === ')') {
+      inBlock = false;
+      continue;
+    }
+    addGoRequire(rel, line, out);
+  }
+}
+
+function addGoRequire(rel: string, entry: string, out: Candidate[]): void {
+  const parts = entry.trim().split(/\s+/);
+  const mod = parts[0];
+  const version = parts[1];
+  if (!mod || !version || !/^v\d/.test(version) || mod.startsWith('(')) return;
+  out.push({ subject: `pkg:${mod}`, predicate: 'declared_dependency', object: version, evidenceRef: rel });
+}
+
+const PY_STDLIB = new Set([
+  '__future__', '_thread', 'abc', 'aifc', 'argparse', 'array', 'ast', 'asyncio', 'atexit', 'base64',
+  'bdb', 'binascii', 'bisect', 'builtins', 'bz2', 'calendar', 'cgi', 'cgitb', 'chunk', 'cmath', 'cmd',
+  'code', 'codecs', 'codeop', 'collections', 'colorsys', 'compileall', 'concurrent', 'configparser',
+  'contextlib', 'contextvars', 'copy', 'crypt', 'csv', 'ctypes', 'curses', 'datetime', 'dbm',
+  'decimal', 'difflib', 'dis', 'doctest', 'email', 'encodings', 'ensurepip', 'enum', 'errno',
+  'faulthandler', 'fcntl', 'filecmp', 'fileinput', 'fnmatch', 'fractions', 'ftplib', 'functools',
+  'gc', 'getopt', 'getpass', 'gettext', 'glob', 'graphlib', 'grp', 'gzip', 'hashlib', 'heapq', 'hmac',
+  'html', 'http', 'imaplib', 'imghdr', 'imp', 'importlib', 'inspect', 'io', 'ipaddress', 'itertools',
+  'json', 'keyword', 'lib2to3', 'linecache', 'locale', 'logging', 'lzma', 'mailbox', 'mailcap',
+  'marshal', 'math', 'mimetypes', 'mmap', 'modulefinder', 'msilib', 'msvcrt', 'multiprocessing',
+  'netrc', 'nis', 'nntplib', 'numbers', 'operator', 'optparse', 'os', 'ossaudiodev', 'pathlib', 'pdb',
+  'pickle', 'pickletools', 'pipes', 'pkgutil', 'platform', 'plistlib', 'poplib', 'posix', 'posixpath',
+  'pprint', 'profile', 'pstats', 'pty', 'pwd', 'py_compile', 'pyclbr', 'pydoc', 'queue', 'quopri',
+  'random', 're', 'readline', 'reprlib', 'resource', 'rlcompleter', 'runpy', 'sched', 'secrets',
+  'select', 'selectors', 'shelve', 'shlex', 'shutil', 'signal', 'site', 'smtpd', 'smtplib', 'sndhdr',
+  'socket', 'socketserver', 'spwd', 'sqlite3', 'ssl', 'stat', 'statistics', 'string', 'stringprep',
+  'struct', 'subprocess', 'sunau', 'symtable', 'sys', 'sysconfig', 'syslog', 'tabnanny', 'tarfile',
+  'telnetlib', 'tempfile', 'termios', 'textwrap', 'threading', 'time', 'timeit', 'tkinter', 'token',
+  'tokenize', 'tomllib', 'trace', 'traceback', 'tracemalloc', 'tty', 'turtle', 'turtledemo', 'types',
+  'typing', 'unicodedata', 'unittest', 'urllib', 'uu', 'uuid', 'venv', 'warnings', 'wave', 'weakref',
+  'webbrowser', 'winreg', 'winsound', 'wsgiref', 'xdrlib', 'xml', 'xmlrpc', 'zipapp', 'zipfile',
+  'zipimport', 'zlib', 'zoneinfo',
+]);
+
+const PY_MODULE_RE = /^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$/;
+
+function addPythonImport(rel: string, spec: string, out: Candidate[]): void {
+  if (spec.startsWith('.') || !PY_MODULE_RE.test(spec)) return;
+  const root = spec.split('.')[0] ?? '';
+  if (!root || PY_STDLIB.has(root)) return;
+  out.push({ subject: `file:${rel}`, predicate: 'imports_module', object: spec, confidence: 0.9 });
+}
+
+/** Non-relative `import x` / `from x import y`; relative and stdlib imports are noise. */
+function scanPythonImports(rel: string, text: string, out: Candidate[]): void {
+  // Docstrings hold usage examples, not imports. Strip them before line matching.
+  const code = text.replace(/"""[\s\S]*?"""|'''[\s\S]*?'''/g, '');
+  for (const raw of code.split(/\r?\n/)) {
+    for (const part of raw.split(';')) {
+      const line = part.split('#')[0]?.trim() ?? '';
+      if (!line) continue;
+      const imported = /^import\s+(.+)$/.exec(line);
+      if (imported && imported[1]) {
+        for (const module of imported[1].split(',')) {
+          const spec = module.trim().split(/\s+as\s+/)[0]?.trim();
+          if (spec) addPythonImport(rel, spec, out);
+        }
+        continue;
+      }
+      const from = /^from\s+(\S+)\s+import\b/.exec(line);
+      if (from && from[1]) addPythonImport(rel, from[1], out);
+    }
+  }
+}
+
 function addPackageJson(root: string, rel: string, text: string, out: Candidate[]): void {
   let pkg: Record<string, unknown>;
   try {
@@ -187,11 +388,12 @@ function addPackageJson(root: string, rel: string, text: string, out: Candidate[
   } catch {
     return;
   }
+  const self = typeof pkg.name === 'string' ? pkg.name : 'unknown';
   if (typeof pkg.name === 'string') {
-    out.push({ subject: `pkg:${pkg.name}`, predicate: 'package_name', object: pkg.name });
+    out.push({ subject: `pkg:${pkg.name}`, predicate: 'package_name', object: pkg.name, evidenceRef: rel });
   }
   if (typeof pkg.main === 'string') {
-    out.push({ subject: `pkg:${String(pkg.name ?? 'unknown')}`, predicate: 'main_entry', object: pkg.main });
+    out.push({ subject: `pkg:${self}`, predicate: 'main_entry', object: pkg.main, evidenceRef: rel });
   }
   for (const section of ['dependencies', 'devDependencies', 'peerDependencies']) {
     const deps = pkg[section];
@@ -201,6 +403,7 @@ function addPackageJson(root: string, rel: string, text: string, out: Candidate[
         subject: `pkg:${name}`,
         predicate: 'declared_dependency',
         object: `${version} (${section})`,
+        evidenceRef: rel,
       });
     }
   }
@@ -211,27 +414,28 @@ function addPackageJson(root: string, rel: string, text: string, out: Candidate[
         subject: `file:${rel}`,
         predicate: 'defines_script',
         object: `${name} -> ${cmd}`,
+        evidenceRef: rel,
       });
     }
   }
   const bin = pkg.bin;
   if (typeof bin === 'string') {
-    out.push({ subject: `pkg:${String(pkg.name ?? 'unknown')}`, predicate: 'provides_command', object: bin });
+    out.push({ subject: `pkg:${self}`, predicate: 'provides_command', object: bin, evidenceRef: rel });
   } else if (bin && typeof bin === 'object') {
     for (const [name, target] of Object.entries(bin as Record<string, string>)) {
-      out.push({ subject: `pkg:${String(pkg.name ?? 'unknown')}`, predicate: 'provides_command', object: `${name} -> ${target}` });
+      out.push({ subject: `pkg:${self}`, predicate: 'provides_command', object: `${name} -> ${target}`, evidenceRef: rel });
     }
   }
   const engines = pkg.engines;
   if (engines && typeof engines === 'object') {
     for (const [runtime, version] of Object.entries(engines as Record<string, string>)) {
-      out.push({ subject: `pkg:${String(pkg.name ?? 'unknown')}`, predicate: 'requires_runtime', object: `${runtime} ${version}` });
+      out.push({ subject: `pkg:${self}`, predicate: 'requires_runtime', object: `${runtime} ${version}`, evidenceRef: rel });
     }
   }
   const keywords = pkg.keywords;
   if (Array.isArray(keywords)) {
     for (const keyword of keywords) {
-      out.push({ subject: `pkg:${String(pkg.name ?? 'unknown')}`, predicate: 'has_keyword', object: String(keyword) });
+      out.push({ subject: `pkg:${self}`, predicate: 'has_keyword', object: String(keyword), evidenceRef: rel });
     }
   }
 }
@@ -319,6 +523,7 @@ function scanCode(root: string, rel: string, text: string, out: Candidate[]): vo
     if (!spec || isRelativeOrBuiltin(spec)) continue;
     out.push({ subject: `file:${rel}`, predicate: 'imports_module', object: spec, confidence: 0.9 });
   }
+  if (rel.endsWith('.py')) scanPythonImports(rel, text, out);
   const routes = new Set<string>();
   for (const m of text.matchAll(DECORATOR_ROUTE_RE)) routes.add(`${m[1].toUpperCase()} ${m[2]}`);
   for (const m of text.matchAll(EXPRESS_ROUTE_RE)) {
@@ -339,13 +544,13 @@ export function extractAll(root: string): Candidate[] {
   for (const rel of files) {
     const base = path.basename(rel);
 
-    if (base === 'package.json' && !rel.includes('/')) {
+    if (base === 'package.json') {
       const text = readText(root, rel);
       if (text) addPackageJson(root, rel, text, out);
     }
 
-    if (base === 'Makefile' && !rel.includes('/')) {
-      const text = readText(root, rel);
+    if (base === 'Makefile') {
+      const text = readManifestText(root, rel);
       if (text) {
         for (const m of text.matchAll(MAKE_TARGET_RE)) {
           const target = m[1];
@@ -355,7 +560,7 @@ export function extractAll(root: string): Candidate[] {
       }
     }
 
-    if (/^docker-compose.*\.(yml|yaml)$/.test(base) && !rel.includes('/')) {
+    if (/^docker-compose.*\.(yml|yaml)$/.test(base)) {
       const text = readText(root, rel);
       if (text) {
         for (const m of text.matchAll(COMPOSE_IMAGE_RE)) {
@@ -365,6 +570,21 @@ export function extractAll(root: string): Candidate[] {
           out.push({ subject: `file:${rel}`, predicate: 'publishes_port', object: m[1] });
         }
       }
+    }
+
+    if (/^requirements[\w.-]*\.txt$/.test(base)) {
+      const text = readManifestText(root, rel);
+      if (text) addRequirementLines(rel, text, out);
+    }
+
+    if (base === 'pyproject.toml') {
+      const text = readManifestText(root, rel);
+      if (text) addPyproject(rel, text, out);
+    }
+
+    if (base === 'go.mod') {
+      const text = readManifestText(root, rel);
+      if (text) addGoMod(rel, text, out);
     }
 
     if (rel.endsWith('.md')) {
