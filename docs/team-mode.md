@@ -76,7 +76,9 @@ either fail with `not inside a lore repo` or create a second `repo_id`.
 - `"worktree_mode": "isolated"` in a worktree's local `.lore/config.json` keeps a separate store
   (useful for a throwaway clone that must not touch team memory).
 - Env overrides: `LORE_WORKSPACE_ROOT` (checkout) and `LORE_STATE_DIR` (the `.lore` directory).
-- `lore init` in a linked worktree attaches the shared store instead of creating a local one.
+- `lore init` in a linked worktree attaches the shared store, and does not edit the tracked `.gitignore`.
+- If Git cannot name the primary checkout (`git init --separate-git-dir`), Lore fails closed and asks
+  for `LORE_STATE_DIR` instead of silently forking the store.
 
 ## Bi-directional synchronization workflow
 

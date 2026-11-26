@@ -85,7 +85,15 @@ export function stateDirFor(workspaceRoot: string): string {
   if (worktreeModeFor(workspaceRoot) === 'isolated') return local;
 
   const primary = gitPrimaryRoot(workspaceRoot);
-  return primary ? path.join(primary, '.lore') : local;
+  if (!primary) {
+    // Git cannot name the primary working tree for this layout (for example
+    // `git init --separate-git-dir`). Falling back to a local store would fork
+    // the repo id and silently split memory, so fail closed with the override.
+    throw new Error(
+      'cannot resolve the primary checkout of this linked worktree; set LORE_STATE_DIR to its .lore directory, or set worktree_mode=isolated',
+    );
+  }
+  return path.join(primary, '.lore');
 }
 
 export function resolveScope(start = process.cwd()): LoreScope {
@@ -104,5 +112,9 @@ export function resolveScope(start = process.cwd()): LoreScope {
  */
 export function findStateRoot(start = process.cwd()): string | null {
   const workspaceRoot = findWorkspaceRoot(start);
-  return existsSync(stateDirFor(workspaceRoot)) ? workspaceRoot : null;
+  try {
+    return existsSync(stateDirFor(workspaceRoot)) ? workspaceRoot : null;
+  } catch {
+    return null;
+  }
 }

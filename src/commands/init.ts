@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import pc from 'picocolors';
@@ -6,6 +6,7 @@ import { createDb, stateDirFor } from '../db.js';
 import { makeCommit, head } from '../model.js';
 import { ONTOLOGY_TEMPLATE } from '../schema.js';
 import { ensureConfig, writeConfig } from '../config.js';
+import { isLinkedGitWorktree } from '../util/git.js';
 import { detectWorkspaceAgents, setupCommand } from './setup.js';
 import { installAgentRules } from './rules.js';
 import { ingestCommand } from './ingest.js';
@@ -56,8 +57,9 @@ export function initCommand(opts: InitOptions = {}): void {
   }
 
   const gitPath = path.join(root, '.git');
-  const isPrimaryCheckout = existsSync(gitPath) && statSync(gitPath).isDirectory();
-  if (opts.gitignore !== false && isPrimaryCheckout) {
+  // A linked worktree must not edit the tracked .gitignore of the branch it
+  // checks out; the primary checkout may use a .git file (--separate-git-dir).
+  if (opts.gitignore !== false && existsSync(gitPath) && !isLinkedGitWorktree(root)) {
     const gitignore = path.join(root, '.gitignore');
     const current = existsSync(gitignore) ? readFileSync(gitignore, 'utf8') : '';
     if (!/^\.lore\/?$/m.test(current)) {

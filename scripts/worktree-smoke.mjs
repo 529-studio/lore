@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { openDb } from '../dist/db.js';
+import { openDb, stateDirFor } from '../dist/db.js';
 import { currentSession, branchFor } from '../dist/session.js';
 import { head } from '../dist/model.js';
 
@@ -255,6 +255,28 @@ try {
   const isoConfig = JSON.parse(readFileSync(path.join(wtIso, '.lore', 'config.json'), 'utf8'));
   assert.notEqual(primaryConfig.repo_id, isoConfig.repo_id, 'isolated worktrees keep a distinct repo id');
   console.log('[OK] worktree_mode=isolated opts out of the shared store');
+
+  // git init --separate-git-dir uses a custom common directory name; the main
+  // checkout is only discoverable via `git worktree list`.
+  const sepPrimary = path.join(work, 'sep-primary');
+  git(work, ['init', '-q', '--separate-git-dir', path.join(work, 'sep-git'), sepPrimary]);
+  git(sepPrimary, ['config', 'user.email', 'smoke@lore.test']);
+  git(sepPrimary, ['config', 'user.name', 'Lore Smoke']);
+  writeFileSync(path.join(sepPrimary, 'README.md'), '# separate git dir\n');
+  lore(sepPrimary, ['init', '--solo']);
+  git(sepPrimary, ['add', '-A']);
+  git(sepPrimary, ['commit', '-q', '-m', 'init']);
+  const sepWt = path.join(work, 'sep-wt');
+  git(sepPrimary, ['worktree', 'add', '-q', '-b', 'sep-wt', sepWt]);
+  assert.throws(
+    () => stateDirFor(sepWt),
+    /LORE_STATE_DIR/,
+    'an unresolvable primary must fail closed instead of forking the store',
+  );
+  assert.ok(!existsSync(path.join(sepWt, '.lore')), 'separate git dir worktree must not create a local .lore');
+  const sepShared = { LORE_STATE_DIR: path.join(sepPrimary, '.lore') };
+  assert.match(lore(sepWt, ['status'], sepShared), /agent\/wt_/, 'status works with an explicit state dir');
+  console.log('[OK] separate-git-dir checkouts fail closed and honor LORE_STATE_DIR');
 
   console.log('WORKTREE SMOKE OK — shared store, isolated sessions, per-checkout hashing, concurrent commits');
 } finally {

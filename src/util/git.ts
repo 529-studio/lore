@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 const headCache = new Map<string, { head: string | null; time: number }>();
@@ -52,11 +53,33 @@ export function gitCommonDir(root: string): string | null {
   return gitDirs(root).commonDir;
 }
 
-/** Primary checkout root of a linked worktree, or null for the primary checkout itself. */
+/** Primary checkout root of a linked worktree, or null when it cannot be resolved. */
 export function gitPrimaryRoot(root: string): string | null {
   const common = gitCommonDir(root);
-  if (!common || path.basename(common) !== '.git') return null;
-  return path.dirname(common);
+  if (!common) return null;
+  // The normal layout names the common directory `.git`.
+  if (path.basename(common) === '.git') {
+    const candidate = path.dirname(common);
+    return existsSync(path.join(candidate, '.git')) ? candidate : null;
+  }
+  // `git init --separate-git-dir` uses a custom name. The worktree list names
+  // the main checkout first, except that it reports the custom git dir itself
+  // when Git cannot know the primary working tree. Never treat a git dir as a
+  // checkout; the caller must set LORE_STATE_DIR instead.
+  try {
+    const out = execFileSync('git', ['worktree', 'list', '--porcelain'], {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const first = out.split('\n').find((line) => line.startsWith('worktree '));
+    if (!first) return null;
+    const candidate = path.resolve(first.slice('worktree '.length).trim());
+    if (candidate === common || !existsSync(path.join(candidate, '.git'))) return null;
+    return candidate;
+  } catch {
+    return null;
+  }
 }
 
 /** True when `root` is a linked worktree rather than the primary checkout. */
