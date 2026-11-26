@@ -26,7 +26,7 @@ function line(prefix: string, row: ClaimRow): string {
   return `${prefix} ${pc.dim(row.id)}  ${pc.bold(row.subject_id)} ${pc.dim('—')} ${row.predicate} ${pc.dim('—')} ${objectOf(row)}`;
 }
 
-export function diffCommand(opts: { range: string; to?: string }): void {
+export function diffCommand(opts: { range: string; to?: string; json?: boolean }): void {
   const root = requireRoot();
   const db = openDb(root);
   const [fromSpec, toSpec] = parseRange(opts.range, opts.to);
@@ -44,6 +44,34 @@ export function diffCommand(opts: { range: string; to?: string }): void {
   const unchanged = [...b.keys()].filter((id) => a.has(id)).length;
 
   const rows = loadClaims(db, [...added, ...removed]);
+
+  if (opts.json) {
+    const describe = (ids: string[]) =>
+      ids
+        .map((id) => rows.get(id))
+        .filter((row): row is ClaimRow => Boolean(row))
+        .map((row) => ({
+          id: row.id,
+          subject: row.subject_id,
+          predicate: row.predicate,
+          object: objectOf(row),
+        }));
+    console.log(
+      JSON.stringify(
+        {
+          from: from.label,
+          to: to.label,
+          added: describe(added),
+          removed: describe(removed),
+          unchanged,
+        },
+        null,
+        2,
+      ),
+    );
+    db.close();
+    return;
+  }
 
   console.log(`${pc.dim(from.label)} ${pc.dim('..')} ${pc.dim(to.label)}`);
   for (const id of added) {

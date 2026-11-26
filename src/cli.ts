@@ -180,7 +180,8 @@ program
 program
   .command('diff <range> [to]')
   .description('claims added/removed between two revisions (main..agent/<ses>, or two commits)')
-  .action((range, to) => diffCommand({ range, to }));
+  .option('--json', 'machine-readable JSON')
+  .action((range, to, opts) => diffCommand({ range, to, json: opts.json }));
 
 program
   .command('revert <commit>')
@@ -445,8 +446,8 @@ program
 
 program
   .command('sync')
-  .description('bi-directional synchronization with remote replica or storage target')
-  .option('--replica <url>', 'override replica target URL')
+  .description('bi-directional sync through the configured team remote (http, postgres, dir)')
+  .option('--replica <url>', 'single-writer Litestream backup target instead of the team remote')
   .option('--author <id>', 'author identity for sync operations')
   .option('--config <path>', 'path to litestream.yml configuration')
   .action((opts) => syncCommand(opts));
@@ -547,6 +548,7 @@ program
   .option('--max-conflicts <n>', 'maximum unresolved conflicts (default 0)')
   .option('--stats', 'print hash-cache hits, reads and misses')
   .option('--no-cache', 'bypass the hash cache and re-read every file')
+  .option('--json', 'machine-readable JSON')
   .action((opts) =>
     statusCommand({
       strict: opts.strict,
@@ -554,6 +556,7 @@ program
       maxConflicts: opts.maxConflicts,
       stats: opts.stats,
       noCache: opts.cache === false,
+      json: opts.json,
     }),
   );
 

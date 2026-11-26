@@ -26,4 +26,9 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           base-ref: ${{ github.base_ref }}
+          lore-ref: v0.4.0
+          # Optional shared team memory. Set the repository variable and secret;
+          # the action skips the baseline pull when hub-url is empty.
+          hub-url: ${{ vars.LORE_HUB_URL }}
+          hub-token: ${{ secrets.LORE_HUB_TOKEN }}
           strict: 'false'

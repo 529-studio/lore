@@ -473,9 +473,10 @@ No LLM judge. Outcome metrics on real repositories:
 | status trusts persisted counts; GC uses row age | status separates trust, drift, branch/store; GC ages drafts from last observation | fresh-draft warnings (#181) |
 | similarity = Jaccard token overlap | coverage and exact-phrase weights rank before authority | one token must not bury an exact rule |
 | ingest reads root manifests | package.json, Makefile, docker-compose*, Python requirements/pyproject/imports, go.mod | monorepos are the common shape |
-| retrieval ranks by scope and similarity | predicate classes (invariants > routes > static AST/TOC facts) and a query-text gate; static facts demoted, never deleted | guardrails must survive structural noise (#193) |
-| markdown rules stop at any heading | nested `###` rules kept under numbered headings; dated lessons-log entries yield `has_known_bug`/`has_guardrail`; 1,200-char prose cap | nested rules and non-`LNN` logs were dropped |
-| no readiness command; store has no schema version | `lore doctor` checks store shape (tables/columns, WAL, integrity), branch parity, MCP configs, ontology, health | one actionable report; shape drift is detected, not assumed |
+| retrieval ranks by scope and similarity | predicate classes + query-text gate; static facts demoted, never deleted | guardrails survive structural noise (#193) |
+| markdown rules stop at any heading | nested `###` rules kept; dated logs yield `has_known_bug`/`has_guardrail`; 1,200-char prose cap | nested rules and non-`LNN` logs were dropped |
+| no readiness command | `lore doctor` checks store shape, WAL, integrity, branch parity, MCP configs, ontology, health | one actionable report |
+| Litestream for multi-writer team sync | adapter by remote (http/postgres/dir); MCP `initialize` pulls a delta; Litestream is backup only | loses concurrent commits (#196) |
 
 ## Glossary
 
