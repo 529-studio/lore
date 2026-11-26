@@ -2,10 +2,19 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { stateDirFor } from './scope.js';
+import { applyManifest, readManifest } from './manifest.js';
 
 export type RemoteConfig =
   | { type: 'dir'; path: string }
-  | { type: 'postgres'; url?: string; url_env?: string };
+  | { type: 'postgres'; url?: string; url_env?: string }
+  | { type: 'hub'; url: string };
+
+/** Human label for a remote; never prints credentials. */
+export function remoteLabel(remote: RemoteConfig): string {
+  if (remote.type === 'dir') return remote.path;
+  if (remote.type === 'hub') return remote.url;
+  return remote.url_env ? `postgres ($${remote.url_env})` : 'postgres';
+}
 
 export interface LitestreamConfig {
   replica_url: string;
@@ -32,6 +41,8 @@ export interface LoreConfig {
   auto_approve?: boolean | number[];
   /** Linked worktrees share the primary store by default; `isolated` keeps their own `.lore`. */
   worktree_mode?: 'shared' | 'isolated';
+  team_mode?: boolean;
+  extractors?: string[];
   [key: string]: unknown;
 }
 
@@ -56,11 +67,25 @@ export function writeConfig(root: string, config: LoreConfig): void {
   writeFileSync(configPath(root), `${JSON.stringify(config, null, 2)}\n`);
 }
 
-/** Create the repository identity on first use; never derive it from a git remote. */
+/**
+ * Create the repository identity on first use. A committed `.lore.yml` wins over
+ * a random UUID; a local store that already belongs to another repo id is a
+ * hard error rather than a silent split.
+ */
 export function ensureConfig(root: string): LoreConfig {
   const existing = readConfig(root);
-  if (existing?.repo_id) return existing;
-  const config: LoreConfig = { ...(existing ?? {}), repo_id: randomUUID() };
+  const manifest = readManifest(root);
+  if (existing?.repo_id) {
+    if (manifest && manifest.repo_id !== existing.repo_id) {
+      throw new Error(
+        `.lore/config.json repo_id ${existing.repo_id} does not match .lore.yml ${manifest.repo_id}; ` +
+          'use a fresh clone or run `lore join` in an empty store',
+      );
+    }
+    return existing;
+  }
+  const base: LoreConfig = { ...(existing ?? {}), repo_id: manifest?.repo_id ?? randomUUID() };
+  const config = manifest ? applyManifest(base, manifest) : base;
   writeConfig(root, config);
   return config;
 }

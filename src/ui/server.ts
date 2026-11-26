@@ -10,7 +10,7 @@ import { initCommand } from '../commands/init.js';
 import { claimFreshness } from '../merge.js';
 import { activeAt, head, inBranch, makeCommit, supersedeClaim, upsertClaim, type ClaimRow } from '../model.js';
 import { branchFor, currentSession } from '../session.js';
-import { readConfig } from '../config.js';
+import { readConfig, remoteLabel } from '../config.js';
 import { ActionError, approveDrafts, attestClaim, rejectDraft, revertCommit } from '../actions.js';
 import { resolvePrincipal, teamMode } from '../identity.js';
 import { describePolicy, isPermissiveTrust, requireAction, PolicyError } from '../policy.js';
@@ -245,12 +245,7 @@ export function getSyncStatus(db: DB, root: string): SyncStatusPayload {
 
   if (config?.remote) {
     remoteType = config.remote.type;
-    remotePath =
-      config.remote.type === 'dir'
-        ? config.remote.path
-        : config.remote.url_env
-          ? `$${config.remote.url_env}`
-          : 'postgres';
+    remotePath = remoteLabel(config.remote);
     const local = head(db, 'main');
     const remote = config.remote_main;
     if (!local || !remote) {
@@ -3069,11 +3064,7 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
           error,
           team: teamMode(),
           policy: describePolicy(root),
-          remote: config?.remote
-            ? config.remote.type === 'dir'
-              ? config.remote.path
-              : `postgres${config.remote.url_env ? ` ($${config.remote.url_env})` : ''}`
-            : null,
+          remote: config?.remote ? remoteLabel(config.remote) : null,
           branch: ref,
           repo: {
             name: path.basename(root),

@@ -19,6 +19,7 @@ import { renameCommand } from './commands/rename.js';
 import { digestCommand } from './commands/digest.js';
 import { bundleCommand } from './commands/bundle.js';
 import { fetchCommand } from './commands/fetch.js';
+import { joinCommand } from './commands/join.js';
 import { pushCommand } from './commands/push.js';
 import { purgeCommand } from './commands/purge.js';
 import { redactCommand } from './commands/redact.js';
@@ -404,6 +405,12 @@ program
   .option('--author <id>', 'author identity for sync operations')
   .option('--config <path>', 'path to litestream.yml configuration')
   .action((opts) => syncCommand(opts));
+
+program
+  .command('join')
+  .description('attach this clone to the shared store declared in .lore.yml')
+  .option('--no-fetch', 'configure the store without fetching the team baseline')
+  .action((opts) => joinCommand({ noFetch: opts.fetch === false }));
 
 program
   .command('fetch')

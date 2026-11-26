@@ -12,6 +12,7 @@ export interface RemoteOptions {
 
 function describe(remote: RemoteConfig): string {
   if (remote.type === 'dir') return `dir  ${remote.path}`;
+  if (remote.type === 'hub') return `hub  ${remote.url}`;
   if (remote.url_env) return `postgres  (url from $${remote.url_env})`;
   return 'postgres';
 }
