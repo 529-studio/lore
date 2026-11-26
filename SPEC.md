@@ -459,18 +459,19 @@ No LLM judge. Outcome metrics on real repositories:
 | temporal query requires absolute timestamps | relative temporal query parsing (`src/canon/temporal.ts`) | agents query memory with relative expressions |
 | GC only soft-retracts drafts | GC compaction & tombstone purging (`src/gc.ts`) | stores accumulate tombstones and fragmented SQLite pages |
 | benchmark emits terminal table only | Prometheus/OTel exporter (`exportPrometheusMetrics`) | dashboards require standard metrics exposition |
-| UI lacks multi-agent sync indicators | real-time sync indicators and diagnostics (`src/ui/server.ts`, `/api/sync/status`) | multi-agent sessions need live visual indicators of convergence |
+| UI lacks multi-agent sync | sync indicators and `/api/sync/status` (`src/ui/server.ts`) | agents need live convergence signals |
 | lexical retrieval only | semantic hybrid layer (`src/search/vector.ts`) | synonyms failed token matching |
 | merge aborts equal-tier inference | semantic 3-way resolver (`src/merge.ts`) | confidence and vectors break the tie |
 | MCP supports tools only | MCP resource subscription protocol (`resources/list`, `read`, `subscribe`, notifications) | agents need event-driven updates on memory changes without polling |
 | secret detection throws only | secret scrubbing and ZK attestations (`src/security/scrub.ts`) | credentials must be redacted |
 | main-thread UI graph | Web Worker force layout & quadtree (`/graph-worker.js`) | graphs >1k nodes freeze main thread |
 | packaging needs host node | portable bundles (`scripts/package-binary.mjs`) | air-gapped hosts |
-| omitted predicates default to `one` | built-in `many` fallback for omitted extractor predicates (`src/ontology.ts`) | prevents day-0 false tier-1 conflicts |
+| omitted predicates default to `one` | `many` fallback for extractor predicates (`src/ontology.ts`) | avoids day-0 tier-1 conflicts |
 | sync carries commits only | bundle applies redaction/purge/revocation tombstones (`src/sync.ts`) | no resurrection after fetch |
 | MCP/lifecycle commands trusted callers | all write paths enforce roles and protected subjects (`src/policy/auth.ts`) | no policy bypass |
 | `.lore` beside worktree | shared primary store, per-worktree sessions, workspace-keyed hash cache (`src/scope.ts`) | parallel agents must not fork memory |
 | config only in gitignored `.lore/config.json` | `.lore.yml` + `lore join` adopt `repo_id`/remote; `init` keeps it | clones must not fork team memory |
+| team mode needs the env secret | `team_mode: true` activates policy and fails closed without credentials | no silent downgrade |
 
 ## Glossary
 

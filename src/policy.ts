@@ -29,7 +29,7 @@ export {
  * In team mode (when LORE_TEAM_SECRET is set), this always returns false (fail-closed).
  */
 export function isPermissiveTrust(root: string): boolean {
-  if (teamMode()) return false;
+  if (teamMode(root)) return false;
   if (process.env.LORE_TRUST_MODE === 'permissive') return true;
   if (process.env.LORE_TRUST_MODE === 'strict') return false;
   const config = readConfig(root);
@@ -61,7 +61,7 @@ export function requireAction(
 
 /** True when the policy requires an explicit approval for this tier. */
 export function gateTier(root: string, tier: number): boolean {
-  if (!teamMode()) return false;
+  if (!teamMode(root)) return false;
   const policy = loadPolicy(root);
   const roles = policy?.approve?.[`t${tier}`];
   return Boolean(roles && !roles.includes('*'));

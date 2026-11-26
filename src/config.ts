@@ -48,6 +48,17 @@ export interface LoreConfig {
 
 const FILE = 'config.json';
 
+/**
+ * True when the committed manifest or a local store declares team mode. The
+ * manifest wins and can never be disabled by a local config, so a clone cannot
+ * downgrade a team repository to permissive single-user mode.
+ */
+export function declaresTeamMode(root: string): boolean {
+  const manifest = readManifest(root);
+  if (manifest?.team_mode === true) return true;
+  return readConfig(root)?.team_mode === true;
+}
+
 export function configPath(root: string): string {
   return path.join(stateDirFor(root), FILE);
 }

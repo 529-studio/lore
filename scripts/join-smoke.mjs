@@ -194,6 +194,37 @@ try {
   assert.match(flowRun.stderr, /must not contain credentials/);
   console.log('[OK] flow-style secret keys are rejected');
 
+  // A committed team_mode declaration activates policy even without the secret,
+  // and a clone without credentials fails closed instead of acting as maintainer.
+  const team = path.join(work, 'team-repo');
+  mkdirSync(team, { recursive: true });
+  git(team, ['init', '-q', '-b', 'main']);
+  git(team, ['config', 'user.email', 'smoke@lore.test']);
+  git(team, ['config', 'user.name', 'Lore Smoke']);
+  writeFileSync(path.join(team, '.lore.yml'), `repo_id: ${repoId}\nteam_mode: true\n`, 'utf8');
+  writeFileSync(path.join(team, 'lore.policy.yml'), 'write:\n  "rule:*": [maintainers]\n', 'utf8');
+  writeFileSync(path.join(team, 'README.md'), '# Team fixture\n', 'utf8');
+  git(team, ['add', '-A']);
+  git(team, ['commit', '-q', '-m', 'team manifest']);
+  lore(team, ['init']);
+
+  const writeArgs = [
+    'write', '--subject', 'rule:no-orms', '--predicate', 'enforces_invariant',
+    '--object', 'docs/adr/ADR-001.md', '--kind', 'human', '--ref', 'README.md',
+  ];
+  assert.match(
+    loreFails(team, writeArgs, { LORE_TOKEN: '', LORE_TEAM_SECRET: '', LORE_OIDC_EMAIL: '' }),
+    /declares team_mode but LORE_TEAM_SECRET is missing/,
+    'a declared team repo must fail closed without verification credentials',
+  );
+  assert.match(
+    loreFails(team, writeArgs, { LORE_TEAM_SECRET: '', LORE_OIDC_EMAIL: 'bob@company', LORE_OIDC_ROLE: 'contributor' }),
+    /write to rule:no-orms requires role maintainers/,
+    'declared team mode must apply lore.policy.yml without the signing secret',
+  );
+  lore(team, writeArgs, { LORE_TEAM_SECRET: '', LORE_OIDC_EMAIL: 'alice@company', LORE_OIDC_ROLE: 'maintainer' });
+  console.log('[OK] declared team mode fails closed and enforces policy without LORE_TEAM_SECRET');
+
   console.log('JOIN SMOKE OK — manifest adoption, one-command clone, no-fetch, mismatch and secret rejection');
 } finally {
   rmSync(work, { recursive: true, force: true });
