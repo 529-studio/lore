@@ -9,7 +9,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { request } from 'node:http';
 import Database from 'better-sqlite3';
+import pg from 'pg';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'dist', 'cli.js');
@@ -50,6 +52,46 @@ function runFail(cwd, args, extra = {}) {
   return `${result.stdout}\n${result.stderr}`;
 }
 
+/** Direct request without fetch: an idle keep-alive socket must not outlive its assertion. */
+function getJson(url) {
+  return new Promise((resolve, reject) => {
+    const req = request(url, { method: 'GET', agent: false }, (res) => {
+      res.resume();
+      res.on('end', () => resolve({ status: res.statusCode }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+/** Direct hub request without fetch: a lingering keep-alive socket outlives the assertion. */
+function postJson(url, token, body) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(body);
+    const req = request(
+      url,
+      {
+        method: 'POST',
+        agent: false,
+        headers: {
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(payload),
+          authorization: `Bearer ${token}`,
+        },
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () =>
+          resolve({ status: res.statusCode, body: JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') }),
+        );
+      },
+    );
+    req.on('error', reject);
+    req.end(payload);
+  });
+}
+
 function git(cwd, args) {
   spawnSync('git', args, { cwd, encoding: 'utf8' });
 }
@@ -72,13 +114,15 @@ function configure(dir, token, extraEnv = {}) {
   run(dir, ['remote', '--hub', HUB, '--token-env', 'LORE_HUB_TOKEN'], { LORE_HUB_TOKEN: token, ...extraEnv });
 }
 
-const hub = spawn(process.execPath, [CLI, 'hub', 'serve', '--port', String(PORT)], { env, stdio: 'ignore' });
+const hub = spawn(process.execPath, [CLI, 'hub', 'serve', '--port', String(PORT)], { env, stdio: ['ignore', 'ignore', 'pipe'] });
+// A crashed hub must be visible: the smoke fails on the next request otherwise.
+hub.stderr.on('data', (chunk) => process.stderr.write(chunk));
 
 try {
   for (let i = 0; i < 50; i += 1) {
     try {
-      const response = await fetch(`${HUB}/healthz`);
-      if (response.ok) break;
+      const response = await getJson(`${HUB}/healthz`);
+      if (response.status === 200) break;
     } catch {
       /* not listening yet */
     }
@@ -160,9 +204,17 @@ try {
   assert.match(run(a, ['proposals', 'list'], { LORE_HUB_TOKEN: ownerToken }), /open\s+bob@team/);
   assert.match(run(a, ['review', '--remote'], { LORE_HUB_TOKEN: ownerToken }), /hub-proposal-marker/);
 
-  // Promoting before approval is refused.
+  // Promoting before approval is refused, by the CLI and by the hub itself.
   const premature = runFail(a, ['proposals', 'promote', `bob@team/${bobSession}`], { LORE_HUB_TOKEN: ownerToken });
   assert.match(premature, /approve it first/);
+  const hubPromote = await postJson(`${HUB}/v1/repos/${encodeURIComponent(repoId)}/proposals/promote`, ownerToken, {
+    user: 'bob@team',
+    session: bobSession,
+    expected_main: null,
+    bundle: { format: 'lore-bundle/1', repo_id: repoId, refs: [] },
+  });
+  assert.equal(hubPromote.status, 409, `hub promotion of an open proposal returned ${hubPromote.status}`);
+  assert.match(hubPromote.body.error, /approve it before promoting/);
 
   run(a, ['proposals', 'approve', `bob@team/${bobSession}`], { LORE_HUB_TOKEN: ownerToken });
   const promoted = run(a, ['proposals', 'promote', `bob@team/${bobSession}`], { LORE_HUB_TOKEN: ownerToken });
@@ -309,12 +361,8 @@ try {
   assert.match(run(g, ['search', 'hub-first-row-marker']), /hub-first-row-marker/);
 
   // MCP transport accepts a repository token and lists the sync tools.
-  const mcp = await fetch(`${HUB}/mcp`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${ownerToken}` },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
-  });
-  const mcpJson = await mcp.json();
+  const mcp = await postJson(`${HUB}/mcp`, ownerToken, { jsonrpc: '2.0', id: 1, method: 'tools/list' });
+  const mcpJson = mcp.body;
   assert.equal(mcp.status, 200);
   assert.deepEqual(mcpJson.result.tools.map((tool) => tool.name).sort(), [
     'repo_proposals',
@@ -337,6 +385,19 @@ try {
   configure(q, ownerToken);
   run(q, ['fetch'], { LORE_HUB_TOKEN: ownerToken });
   assert.match(run(q, ['search', 'hub-quorum-marker']), /hub-quorum-marker/);
+
+  // A contributor may attest, but their submission must not count as review:
+  // quorum counts reviewer tokens, not client-authored actor strings.
+  run(c, ['fetch'], { LORE_HUB_TOKEN: carolToken });
+  run(c, ['attest', quorumClaim, '--verdict', 'agree'], { LORE_HUB_TOKEN: carolToken });
+  run(c, ['push'], { LORE_HUB_TOKEN: carolToken });
+  const reviewer = new pg.Client({ connectionString: DB });
+  await reviewer.connect();
+  const attestationRows = await reviewer.query('SELECT pushed_by FROM repo_attestations WHERE repo_id = $1', [repoId]);
+  await reviewer.end();
+  const submittedBy = attestationRows.rows.map((row) => row.pushed_by);
+  assert.ok(submittedBy.includes('owner@team'), 'a maintainer attestation must be recorded as review');
+  assert.ok(!submittedBy.includes('carol@team'), 'a contributor attestation must not be recorded as review');
 
   console.log(
     '[OK] hub: tokens, policy denial, main guard, proposals (propose/approve/promote, provenance), diverged push with resolve, quorum, tombstones, delta sync, CAS retry, revocation, MCP tools'

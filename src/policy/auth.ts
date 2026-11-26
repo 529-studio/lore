@@ -220,8 +220,9 @@ function assertAttestationQuorum(
   if (!claim) throw new PolicyError(`no such claim: ${claimId}`);
   const row = db
     .prepare(
-      `SELECT COUNT(DISTINCT actor) AS n FROM attestation
-       WHERE claim_id = ? AND verdict = 'agree' AND actor <> ?`,
+      `SELECT COUNT(DISTINCT a.actor) AS n FROM attestation a
+         JOIN claim c ON c.id = a.attestation_claim_id
+        WHERE a.claim_id = ? AND a.verdict = 'agree' AND a.actor <> ?`,
     )
     .get(claimId, claim.author) as { n: number };
   if (Number(row.n) < required) {

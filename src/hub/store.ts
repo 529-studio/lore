@@ -67,9 +67,13 @@ CREATE TABLE IF NOT EXISTS repo_tombstones (
   seq bigint NOT NULL DEFAULT nextval('hub_seq'), PRIMARY KEY (repo_id, kind, claim_id)
 );
 CREATE TABLE IF NOT EXISTS repo_attestations (
-  repo_id text NOT NULL, claim_id text NOT NULL, attestation_claim_id text NOT NULL, payload jsonb NOT NULL,
+  repo_id text NOT NULL, claim_id text NOT NULL, attestation_claim_id text NOT NULL,
+  pushed_by text NOT NULL DEFAULT '', pushed_role text NOT NULL DEFAULT '',
+  payload jsonb NOT NULL,
   seq bigint NOT NULL DEFAULT nextval('hub_seq'), PRIMARY KEY (repo_id, claim_id, attestation_claim_id)
 );
+ALTER TABLE repo_attestations ADD COLUMN IF NOT EXISTS pushed_by text NOT NULL DEFAULT '';
+ALTER TABLE repo_attestations ADD COLUMN IF NOT EXISTS pushed_role text NOT NULL DEFAULT '';
 CREATE TABLE IF NOT EXISTS repo_proposals (
   repo_id text NOT NULL, user_id text NOT NULL, session text NOT NULL, ref text NOT NULL,
   base_main text, tip_commit text, status text NOT NULL DEFAULT 'open',
@@ -505,7 +509,12 @@ export async function push(client: Client, input: PushInput): Promise<PushResult
       );
     }
     const purgedClaims = new Set((bundle.purge_audits ?? []).map((row) => String(row.claim_id ?? '')));
+    // Quorum counts reviewer tokens, not client-authored actor strings: only a
+    // maintainer or auditor submission may create a row that counts, and the
+    // row records which token submitted it.
+    const submitsReview = principal.role === 'maintainer' || principal.role === 'auditor';
     for (const row of bundle.attestations ?? []) {
+      if (!submitsReview) continue;
       const claimId = String(row.claim_id ?? '');
       const attestationClaimId = String(row.attestation_claim_id ?? '');
       if (!claimId || !attestationClaimId) continue;
@@ -513,9 +522,9 @@ export async function push(client: Client, input: PushInput): Promise<PushResult
       if (purgedClaims.has(claimId) || purgedClaims.has(attestationClaimId)) continue;
       await upsert(
         'repo_attestations',
-        ['repo_id', 'claim_id', 'attestation_claim_id', 'payload'],
+        ['repo_id', 'claim_id', 'attestation_claim_id', 'pushed_by', 'pushed_role', 'payload'],
         'repo_id, claim_id, attestation_claim_id',
-        [repoId, claimId, attestationClaimId, row],
+        [repoId, claimId, attestationClaimId, principal.sub, principal.role, row],
       );
     }
     if ((bundle.token_revocations?.length ?? 0) > 0) {
@@ -547,12 +556,14 @@ export async function push(client: Client, input: PushInput): Promise<PushResult
         const required = quorumFor(policy, subject);
         if (required <= 0) continue;
         const { rows: tally } = await client.query(
-          `SELECT COUNT(DISTINCT a.payload->>'actor') AS n
+          `SELECT COUNT(DISTINCT a.pushed_by) AS n
              FROM repo_attestations a
              JOIN repo_claims c ON c.repo_id = a.repo_id AND c.id = a.attestation_claim_id
             WHERE a.repo_id = $1 AND a.claim_id = $2
               AND a.payload->>'verdict' = 'agree'
-              AND COALESCE(a.payload->>'actor', '') <> COALESCE($3, '')`,
+              AND a.pushed_role IN ('maintainer', 'auditor')
+              AND a.pushed_by <> ''
+              AND a.pushed_by <> COALESCE($3, '')`,
           [repoId, id, String(claim.author ?? '')],
         );
         const found = Number(tally[0]?.n ?? 0);
@@ -733,7 +744,7 @@ export async function reviewProposal(
 ): Promise<ProposalMeta> {
   assertMaintainer(input.principal, 'reviewing a proposal');
   const { rows } = await client.query(
-    `SELECT ${PROPOSAL_COLUMNS} FROM repo_proposals WHERE repo_id = $1 AND user_id = $2 AND session = $3`,
+    `SELECT ${PROPOSAL_COLUMNS}, payload FROM repo_proposals WHERE repo_id = $1 AND user_id = $2 AND session = $3`,
     [input.repoId, input.user, input.session],
   );
   if (!rows[0]) throw new HubError(404, `no proposal ${input.user}/${input.session}`);
@@ -741,14 +752,29 @@ export async function reviewProposal(
   if (current.status === 'promoted') throw new HubError(409, 'proposal was already promoted');
   const target = input.action === 'approve' ? 'approved' : 'rejected';
   if (current.status === target) throw new HubError(409, `proposal is already ${target}`);
+  // Optimistic concurrency: a republish replaces the payload and resets the
+  // status. Without this guard a review could approve a version it never saw.
   const updated = await client.query(
     `UPDATE repo_proposals
         SET status = $4, reviewed_by = $5, reviewed_at = now(), note = COALESCE($6, note),
             updated_at = now(), seq = nextval('hub_seq')
       WHERE repo_id = $1 AND user_id = $2 AND session = $3
+        AND status = $7 AND payload = $8
       RETURNING ${PROPOSAL_COLUMNS}`,
-    [input.repoId, input.user, input.session, target, input.principal.sub, input.note ?? null],
+    [
+      input.repoId,
+      input.user,
+      input.session,
+      target,
+      input.principal.sub,
+      input.note ?? null,
+      current.status,
+      (rows[0] as Record<string, unknown>).payload,
+    ],
   );
+  if (!updated.rows[0]) {
+    throw new HubError(409, 'proposal changed while it was being reviewed; list it and review again');
+  }
   return proposalMeta(updated.rows[0] as Record<string, unknown>);
 }
 

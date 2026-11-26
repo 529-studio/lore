@@ -105,9 +105,12 @@ protected:
     min_attestations: 2
 ```
 
-The hub counts distinct `agree` attestations for each pushed claim whose subject matches the rule,
-excluding the claim's author and requiring the attestation claim to exist in the repository. It
-applies to maintainers as well; leaving `min_attestations` out keeps the role-only behaviour.
+The hub counts distinct reviewer tokens (`maintainer` or `auditor`) that submitted an `agree`
+attestation for a pushed claim whose subject matches the rule. It requires the attestation claim to
+exist in the repository and never counts the claim's own author. Attestation rows submitted by a
+contributor token are stored for the record but do not count, so a proposal cannot manufacture its
+own quorum. The gate applies to maintainers as well; leaving `min_attestations` out keeps the
+role-only behaviour.
 
 ## MCP
 
@@ -121,6 +124,6 @@ propose without the CLI. The REST routes are `POST /v1/repos/:id/{pull,push}` an
 Plugin loading, agent hosts, UI hosting, billing, and real-time WebSocket/CRDT editing are not part of
 the hub. The server trusts Postgres for durability and the fronting proxy for TLS.
 
-A quorum counts attestation rows, and those rows are client-authored: the actor string is not
-signed by the hub. Treat `min_attestations` as an audit trail with teeth against mistakes, not as a
-defence against a malicious token holder; signed attestations are the next step.
+A quorum counts submissions by authenticated reviewer tokens, and the `actor` string inside a row is
+still client-authored. Treat `min_attestations` as N distinct reviewers vouching through their
+tokens, not as a cryptographic proof; signed attestations are the next step.
