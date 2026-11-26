@@ -5,9 +5,40 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-11-26
+
+Sprint 11: team readiness and signal quality. The hub, proposals and cross-repository memory make a
+team's store shareable without handing over the store; ranking and extraction make signal beat
+volume.
+
 ### Added
 
-- `lore doctor [--json] [--fix]` (#184): one readiness command for store health (path, WAL,
+- `lore-hub` (#194, #207): stateless HTTP + MCP sync server over a normalized Postgres schema, with
+  per-user bearer tokens, server-side policy, delta pull/push with a `409` CAS retry, tombstone
+  revocation, and `403` when a contributor tries to advance `main`.
+- Team proposals (#195, #211): proposal refs under `refs/proposals/<user>/<session>`,
+  `lore push --propose`, MCP `memory_propose`, `lore proposals list|approve|reject|promote`,
+  `lore review --remote`, `refs/remotes/origin/main` recording with resolution replay, and an
+  optional `min_attestations` quorum bound to reviewer-issued tokens.
+- Cross-repository memory (#197, #215): `publish:`/`links:` policy sharing one `publishDecision`
+  between hub pulls and `lore export --filter`; `ext:<slug>/` namespaces with `origin_repo_id`;
+  read-only external freshness that is never re-hashed and never outranks local claims; `[EXT]`
+  rendering; and a 25% external token cap.
+- `.lore.yml` manifest and `lore join` (#191, #204): tracked team manifest, one-command clone
+  adoption, repository-id mismatch rejection and secret rejection.
+- Worktree-shared store (#190, #202): linked git worktrees resolve `workspaceRoot` against
+  `stateDir`, isolated mode is an explicit opt-out, and setup fails closed when the primary checkout
+  cannot be determined.
+- `LorePlugin` (#192, #206): one interface for personal hosts, orchestrators and repository
+  extractors, with strict scope rejection and deterministic ingest order.
+- `createSyncAdapter()` (#196, #214): dispatches `http`, `postgres` and `dir` remotes (Litestream
+  remains for `lore replicate`); MCP auto-syncs a delta on initialize, reports `remote_behind` and
+  degrades offline; the GitHub Action pulls the hub baseline and flags invalidated team claims via
+  `--json`.
+- Polyglot extractors (#182, #209): nested manifests (`**/package.json`, `Makefile`,
+  `docker-compose*`), Python dependencies and imports, and `go.mod`; `pkg:` evidence refs hash the
+  actual manifest.
+- `lore doctor [--json] [--fix]` (#184, #213): one readiness command for store health (path, WAL,
   `quick_check`, required tables and migrated columns), branch parity (`main` empty while an
   `agent/*` branch holds the ingested baseline), agent MCP configs (`.mcp.json`,
   `.agents/mcp_config.json`, `.codex/config.toml`, `.cursor/mcp.json`, `.gemini/settings.json`,
@@ -16,19 +47,33 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
   built-in TOML validator, not a throw. `--json` emits `{ ok, checks }`; exit code is non-zero when
   any check is `[ERR]`. `--fix` only promotes a safe baseline into `main`. `npm run doctor:smoke`
   covers the healthy, broken-TOML and parity-skew scenarios.
+- Onboarding baseline (#178, #203): the initial ingest is promoted to `main`, so agents do not start
+  from an empty branch.
+- Retrieval signal (#181, #208, #193, #212): token-coverage and boundary-anchored phrase ranking;
+  predicate-class weighting and a query gate so invariants outrank static AST noise; nested `###`
+  rule extraction and dated lessons-log entries; negative-knowledge Recall@5 eval.
+
+### Changed
+
+- Dashboard (#183, #210): `/api/claims` supports server-backed `q` and `offset` pagination with a
+  `total`; draft approvals and rejections commit on the draft's origin branch; one SSE connection
+  with payload-deduplicated refreshes; collision-culled graph labels and cluster badges; a sticky
+  Raw Table action column; an in-browser Switch Repo modal; and a Conflicts tab that compares
+  `ours`/`theirs`/`both` through the canon resolve and merge planning paths.
+- Status (#181, #208): branch-scoped live stale/contested counts are reported separately from
+  store-wide persisted canon, and draft GC measures real session distance.
+- Version bumped to 0.6.0 for the team-readiness release.
 
 ### Fixed
 
-- Dashboard (#183): `/api/claims` now supports server-backed `q` and `offset` pagination with a
-  `total`, so searches find claims beyond the first page. Draft approvals and rejections commit on
-  the draft's origin branch instead of the viewer's session branch. The page keeps a single SSE
-  connection and debounces refreshes by event payload.
-- Dashboard UI (#183): collision-culled graph labels and cluster badges at high node counts; the Raw
-  Table scrolls horizontally with a sticky action column; Switch Repo opens an in-browser modal with
-  recent repositories and an explicit OS picker.
-- Dashboard conflicts (#183): `/api/health` counts tier-1 `claim_conflict` and `merge_conflict`, and
-  the new Conflicts tab compares both sides and resolves through the existing canon resolve and merge
-  planning paths.
+- Sync tombstones (#198, #199): the bundle carries `redactions`, `purge_audits`, `token_revocations`
+  and `attestations`; import applies purge tombstones before the rebuild, overwrites redacted
+  `object_json` and scrubs action logs; tombstone races and revocation import are hardened.
+- Policy enforcement (#200, #201): `requireAction`/`protected` are enforced on every write and
+  lifecycle entry point (MCP `toolWrite`/`toolApprove`, `supersede`, `resolve --auto-semantic`,
+  `wrapup` fast-forward, `gc --purge-tombstones`, `identity issue`).
+- Team mode (#189, #205): a declared team mode fails closed when `LORE_TEAM_SECRET` or credentials
+  are absent.
 
 ## [0.5.0] — 2026-11-13
 
@@ -244,6 +289,8 @@ First public release.
 - Evidence paths are resolved with `realpath`, confined to the repository, restricted to regular
   files, and capped at 4 MB.
 
+[0.6.0]: https://github.com/529-studio/lore/releases/tag/v0.6.0
+[0.5.0]: https://github.com/529-studio/lore/releases/tag/v0.5.0
 [0.2.0]: https://github.com/529-studio/lore/releases/tag/v0.2.0
 [0.4.0]: https://github.com/529-studio/lore/releases/tag/v0.4.0
 [0.3.0]: https://github.com/529-studio/lore/releases/tag/v0.3.0

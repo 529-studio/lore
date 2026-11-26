@@ -126,7 +126,7 @@ async function handleRpc(
       result: {
         protocolVersion: '2025-06-18',
         capabilities: { tools: {} },
-        serverInfo: { name: 'lore-hub', version: '0.5.0' },
+        serverInfo: { name: 'lore-hub', version: '0.6.0' },
       },
     };
   }
