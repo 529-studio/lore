@@ -57,7 +57,7 @@ function parseRemote(raw: unknown, root: string): RemoteConfig {
           : null;
   if (remoteKeys) {
     for (const key of Object.keys(remote)) {
-      if (!remoteKeys[key]) invalid(`unknown remote key ${key}`);
+      if (!Object.hasOwn(remoteKeys, key)) invalid(`unknown remote key ${key}`);
     }
   }
 
@@ -113,7 +113,7 @@ export function readManifest(root: string): LoreManifest | null {
   assertNoSecrets(doc, '');
   const topKeys: Record<string, true> = { repo_id: true, team_mode: true, remote: true, extractors: true };
   for (const key of Object.keys(doc)) {
-    if (!topKeys[key]) invalid(`unknown key ${key}`);
+    if (!Object.hasOwn(topKeys, key)) invalid(`unknown key ${key}`);
   }
 
   const repoId = typeof doc.repo_id === 'string' ? doc.repo_id.trim() : '';

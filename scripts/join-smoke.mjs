@@ -166,7 +166,15 @@ try {
     'utf8',
   );
   assert.match(loreFails(badAuth, ['join']), /unknown remote key auth/, 'unknown remote keys must be rejected');
-  console.log('[OK] unknown manifest keys are rejected');
+  const protoKey = path.join(work, 'proto-key');
+  mkdirSync(protoKey, { recursive: true });
+  writeFileSync(
+    path.join(protoKey, '.lore.yml'),
+    `repo_id: ${repoId}\nconstructor: "Bearer hunter2"\n`,
+    'utf8',
+  );
+  assert.match(loreFails(protoKey, ['join']), /unknown key constructor/, 'prototype keys must not bypass the allowlist');
+  console.log('[OK] unknown and prototype manifest keys are rejected');
 
   // check:public must also catch flow-style secret keys.
   const badFlow = path.join(work, 'bad-flow');
