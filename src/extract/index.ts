@@ -131,13 +131,23 @@ const LESSON_PATH_RE = /(?:^|\/)(?:docs\/)?lessons\/L(\d+)[-_]?([^/]*)\.md$/i;
 const ISSUE_PATH_RE = /^(?:docs\/)?issues\/(\d+)[-_]?([^/]*)\.md$/i;
 const AGENTS_RULE_DOC_RE = /(?:^|\/)(?:AGENTS|CLAUDE|ARCHITECTURE|CONTRIBUTING|RULES)\.md$/i;
 const NUMBERED_RULE_HEADING_RE = /^##\s+(\d+\.\s*.+?)\s*$/gm;
+const LESSONS_LOG_RE =
+  /(?:^|\/)(?:lessons?-learned|lessons|learnings|retrospectives?|postmortems?|incidents?)\.md$/i;
 
-function cleanText(raw: string, maxLen = 400): string {
+/**
+ * Rule prose is capped generously: a 400-character cut used to sever the
+ * rationale from the rule itself, which is exactly the part a later agent
+ * needs. The cap only guards against a whole-document paste.
+ */
+const RULE_MAX_LEN = 1200;
+
+function cleanText(raw: string, maxLen = RULE_MAX_LEN): string {
   const clean = raw
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/```[\s\S]*?```/g, '')
     .replace(/`([^`]+)`/g, '$1')
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/^\s*#{1,6}\s+/gm, '')
     .replace(/\s+/g, ' ')
     .trim();
   if (clean.length <= maxLen) return clean;
@@ -146,22 +156,217 @@ function cleanText(raw: string, maxLen = 400): string {
   return lastSpace > maxLen * 0.7 ? `${sliced.slice(0, lastSpace)}...` : `${sliced}...`;
 }
 
-function extractSectionBody(text: string, headingRe: RegExp, maxLen = 400): string | null {
+/** Level of a markdown heading line (`## x` -> 2), or 0 for anything else. */
+function headingLevel(line: string): number {
+  const m = /^(#{1,6})\s+/.exec(line);
+  return m?.[1]?.length ?? 0;
+}
+
+interface Fence {
+  char: string;
+  length: number;
+}
+
+/** Opening code fence: the marker character and its full run length. */
+function fenceOpen(line: string): Fence | null {
+  const m = /^(`{3,}|~{3,})/.exec(line.trimStart());
+  const marker = m?.[1];
+  return marker ? { char: marker[0] ?? '`', length: marker.length } : null;
+}
+
+/** A closing fence uses the same character and at least the opening length. */
+function isFenceClose(line: string, fence: Fence): boolean {
+  const trimmed = line.trim();
+  if (trimmed.length < fence.length) return false;
+  for (const ch of trimmed) if (ch !== fence.char) return false;
+  return true;
+}
+
+/** Drop fenced code blocks so examples are never read as rules or headings. */
+function stripFencedBlocks(text: string): string {
+  const out: string[] = [];
+  let fence: Fence | null = null;
+  for (const line of text.split('\n')) {
+    if (fence) {
+      if (isFenceClose(line, fence)) fence = null;
+      continue;
+    }
+    const open = fenceOpen(line);
+    if (open) {
+      fence = open;
+      continue;
+    }
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
+/**
+ * Offset of the first heading at `level` or above in `text`, skipping fenced
+ * code blocks. A `##` body therefore keeps its nested `###` subsections while
+ * the following `##` still ends it.
+ */
+function nextHeadingIndex(text: string, level: number): number {
+  let offset = 0;
+  let fence: Fence | null = null;
+  for (const line of text.split('\n')) {
+    const trimmed = line.trimStart();
+    if (fence) {
+      if (isFenceClose(trimmed, fence)) fence = null;
+    } else {
+      const open = fenceOpen(trimmed);
+      if (open) {
+        fence = open;
+      } else {
+        const found = headingLevel(trimmed);
+        if (found > 0 && found <= level) return offset;
+      }
+    }
+    offset += line.length + 1;
+  }
+  return -1;
+}
+
+/**
+ * Body of the first heading matched by `headingRe`, cut at the next heading of
+ * the same or a higher level. Nested `###` rules under `## <N>.` survive.
+ */
+function extractSectionBody(text: string, headingRe: RegExp, maxLen = RULE_MAX_LEN): string | null {
   const match = headingRe.exec(text);
   if (!match) return null;
+  const level = headingLevel(text.slice(match.index, match.index + 8)) || 2;
   const start = match.index + match[0].length;
   const rest = text.slice(start);
-  const nextHeading = rest.search(/\n##+\s+/);
+  const nextHeading = nextHeadingIndex(rest, level);
   const rawBody = nextHeading === -1 ? rest : rest.slice(0, nextHeading);
   const cleaned = cleanText(rawBody, maxLen);
   return cleaned.length > 5 ? cleaned : null;
 }
 
-function extractInlinePrefix(text: string, prefixRe: RegExp, maxLen = 400): string | null {
+function extractInlinePrefix(text: string, prefixRe: RegExp, maxLen = 800): string | null {
   const match = prefixRe.exec(text);
   if (!match || !match[1]) return null;
   const cleaned = cleanText(match[1], maxLen);
   return cleaned.length > 5 ? cleaned : null;
+}
+
+interface MarkdownHeading {
+  index: number;
+  level: number;
+  title: string;
+}
+
+/** Headings outside fenced code blocks, in document order. */
+function markdownHeadings(text: string): MarkdownHeading[] {
+  const out: MarkdownHeading[] = [];
+  let offset = 0;
+  let fence: Fence | null = null;
+  for (const line of text.split('\n')) {
+    const trimmed = line.trimStart();
+    if (fence) {
+      if (isFenceClose(trimmed, fence)) fence = null;
+    } else {
+      const open = fenceOpen(trimmed);
+      if (open) {
+        fence = open;
+      } else {
+        const m = /^(#{1,6})\s+(.+?)\s*$/.exec(trimmed);
+        if (m?.[1] && m[2]) out.push({ index: offset, level: m[1].length, title: m[2] });
+      }
+    }
+    offset += line.length + 1;
+  }
+  return out;
+}
+
+/** A heading that names a date, e.g. "2026-11-20 — Retry storm" or "Nov 20, 2026: ...". */
+const DATED_HEADING_RE =
+  /\b(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{4})\b/i;
+
+/**
+ * Entries of a lessons log: each dated heading and the body up to the next
+ * heading of the same or a higher level. This is the shape teams use when the
+ * file is not the numbered `docs/lessons/LNN` set.
+ */
+function datedLessonEntries(text: string): Array<{ title: string; body: string }> {
+  const headings = markdownHeadings(text);
+  const entries: Array<{ title: string; body: string }> = [];
+  for (let i = 0; i < headings.length; i += 1) {
+    const heading = headings[i];
+    if (!heading || !DATED_HEADING_RE.test(heading.title)) continue;
+    const lineEnd = text.indexOf('\n', heading.index);
+    const start = lineEnd === -1 ? text.length : lineEnd + 1;
+    let end = text.length;
+    for (let j = i + 1; j < headings.length; j += 1) {
+      const next = headings[j];
+      if (next && next.level <= heading.level) {
+        end = next.index;
+        break;
+      }
+    }
+    entries.push({ title: heading.title, body: text.slice(start, end) });
+  }
+  return entries;
+}
+
+const LESSON_BLOCK_RE =
+  /^\s*(?:#{2,6}\s+|\*\*|__)?\s*(Problem|What happened|Root cause|Why it happened|Why it was expensive|Prevention|Guardrail|Rule|Solution|Lesson)\b\s*[:.]?\s*(?:\*\*|__)?\s*/gim;
+
+/** Problem / root-cause / prevention blocks inside one dated entry. */
+function lessonBlocks(body: string): Array<{ label: string; text: string }> {
+  const searchable = stripFencedBlocks(body);
+  const matches = [...searchable.matchAll(LESSON_BLOCK_RE)];
+  const blocks: Array<{ label: string; text: string }> = [];
+  for (let i = 0; i < matches.length; i += 1) {
+    const match = matches[i];
+    const label = match?.[1];
+    if (!match || !label) continue;
+    const start = (match.index ?? 0) + match[0].length;
+    const next = matches[i + 1];
+    const end = next ? next.index ?? searchable.length : searchable.length;
+    const text = cleanText(searchable.slice(start, end), RULE_MAX_LEN);
+    if (text.length > 5) blocks.push({ label, text });
+  }
+  return blocks;
+}
+
+function lessonBlockPredicate(label: string): string {
+  const value = label.toLowerCase();
+  if (value === 'problem' || value === 'what happened') return 'has_known_bug';
+  if (value === 'root cause' || value === 'why it happened' || value === 'why it was expensive') {
+    return 'describes_issue';
+  }
+  return 'has_guardrail';
+}
+
+/** Lessons logs with dated entries: problem, root cause and prevention become claims. */
+function addLessonsLog(rel: string, text: string, out: Candidate[]): void {
+  for (const entry of datedLessonEntries(text)) {
+    const id = `lesson:${slug(entry.title)}`;
+    out.push({ subject: id, predicate: 'title', object: entry.title, confidence: 0.9, evidenceRef: rel });
+    const blocks = lessonBlocks(entry.body);
+    for (const block of blocks) {
+      out.push({
+        subject: id,
+        predicate: lessonBlockPredicate(block.label),
+        object: `${block.label}: ${block.text}`,
+        confidence: 0.9,
+        evidenceRef: rel,
+      });
+    }
+    if (!blocks.length) {
+      const body = cleanText(entry.body, RULE_MAX_LEN);
+      if (body.length > 20) {
+        out.push({
+          subject: id,
+          predicate: 'describes_issue',
+          object: body,
+          confidence: 0.85,
+          evidenceRef: rel,
+        });
+      }
+    }
+  }
 }
 
 /** Stable, readable section id: lowercase, accents removed, punctuation collapsed. */
@@ -721,6 +926,8 @@ export function extractAll(root: string): Candidate[] {
             out.push({ subject: id, predicate: 'decides', object: decision, confidence: 0.95, evidenceRef: rel });
           }
         }
+
+        if (LESSONS_LOG_RE.test(rel)) addLessonsLog(rel, text, out);
 
         const lesson = rel.match(LESSON_PATH_RE);
         if (lesson) {
