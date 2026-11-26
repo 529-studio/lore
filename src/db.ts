@@ -123,11 +123,43 @@ function migrate(db: DB): void {
     );
     CREATE INDEX IF NOT EXISTS vector_cache_model ON vector_cache(model);
   `);
+
+  // One-time scrub of payloads written by older audit triggers. Redaction and
+  // purge must not leave plaintext in the action history.
+  const auditScrubbed = db.prepare("SELECT value FROM meta WHERE key = 'audit_scrub_v1'").get();
+  if (!auditScrubbed) {
+    db.exec(`
+      UPDATE agent_action_log
+      SET previous_state = CASE
+            WHEN previous_state IS NOT NULL AND json_valid(previous_state)
+            THEN json_remove(previous_state, '$.object') ELSE previous_state END,
+          new_state = CASE
+            WHEN new_state IS NOT NULL AND json_valid(new_state)
+            THEN json_remove(new_state, '$.object') ELSE new_state END
+      WHERE table_name = 'claim';
+    `);
+    db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES ('audit_scrub_v1', ?)").run(
+      new Date().toISOString(),
+    );
+  }
 }
 
 function setupTriggers(db: DB): void {
-  db.exec(`
-    CREATE TRIGGER IF NOT EXISTS audit_claim_insert
+  // Recreate once for stores written by older versions. Altering the schema on
+  // every open would invalidate prepared statements in concurrent MCP servers.
+  const ensure = db.transaction(() => {
+    const triggerVersion = db.prepare("SELECT value FROM meta WHERE key = 'audit_triggers_v2'").get();
+    if (triggerVersion) return;
+
+    // The audit trail records what changed, never the claim payload:
+    // `object_json` is an exfiltration path for secrets.
+    db.exec(`
+    DROP TRIGGER IF EXISTS audit_claim_insert;
+    DROP TRIGGER IF EXISTS audit_claim_update;
+    DROP TRIGGER IF EXISTS audit_claim_delete;
+    DROP TRIGGER IF EXISTS audit_commit_insert;
+
+    CREATE TRIGGER audit_claim_insert
     AFTER INSERT ON claim
     BEGIN
       INSERT INTO agent_action_log (agent_id, action, table_name, row_id, ts, new_state)
@@ -137,11 +169,11 @@ function setupTriggers(db: DB): void {
         'claim',
         NEW.id,
         datetime('now'),
-        json_object('subject_id', NEW.subject_id, 'predicate', NEW.predicate, 'object', NEW.object_json)
+        json_object('subject_id', NEW.subject_id, 'predicate', NEW.predicate)
       );
     END;
 
-    CREATE TRIGGER IF NOT EXISTS audit_claim_update
+    CREATE TRIGGER audit_claim_update
     AFTER UPDATE ON claim
     BEGIN
       INSERT INTO agent_action_log (agent_id, action, table_name, row_id, ts, previous_state, new_state)
@@ -151,12 +183,12 @@ function setupTriggers(db: DB): void {
         'claim',
         NEW.id,
         datetime('now'),
-        json_object('subject_id', OLD.subject_id, 'predicate', OLD.predicate, 'object', OLD.object_json),
-        json_object('subject_id', NEW.subject_id, 'predicate', NEW.predicate, 'object', NEW.object_json)
+        json_object('subject_id', OLD.subject_id, 'predicate', OLD.predicate),
+        json_object('subject_id', NEW.subject_id, 'predicate', NEW.predicate)
       );
     END;
 
-    CREATE TRIGGER IF NOT EXISTS audit_claim_delete
+    CREATE TRIGGER audit_claim_delete
     AFTER DELETE ON claim
     BEGIN
       INSERT INTO agent_action_log (agent_id, action, table_name, row_id, ts, previous_state)
@@ -166,11 +198,11 @@ function setupTriggers(db: DB): void {
         'claim',
         OLD.id,
         datetime('now'),
-        json_object('subject_id', OLD.subject_id, 'predicate', OLD.predicate, 'object', OLD.object_json)
+        json_object('subject_id', OLD.subject_id, 'predicate', OLD.predicate)
       );
     END;
 
-    CREATE TRIGGER IF NOT EXISTS audit_commit_insert
+    CREATE TRIGGER audit_commit_insert
     AFTER INSERT ON memory_commit
     BEGIN
       INSERT INTO agent_action_log (agent_id, action, table_name, row_id, ts, new_state)
@@ -184,6 +216,9 @@ function setupTriggers(db: DB): void {
       );
     END;
   `);
+    db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES ('audit_triggers_v2', '1')").run();
+  });
+  ensure();
 }
 
 export function openDb(root: string): DB {
