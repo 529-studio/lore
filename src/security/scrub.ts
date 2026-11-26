@@ -3,6 +3,7 @@
 // and provides offline verifiable zero-knowledge attestations (salted SHA-256 commitments).
 
 import crypto from 'node:crypto';
+import type { DB } from '../db.js';
 import { SecretFinding, mask, scanText as baseScanText } from '../secrets.js';
 
 export interface ScrubResult {
@@ -115,6 +116,26 @@ export function scrubClaimFields(fields: {
     count: totalCount,
     findings: allFindings,
   };
+}
+
+/**
+ * Remove persisted claim payloads from the local audit trail. Triggers no
+ * longer copy object_json; this also scrubs rows written by older versions.
+ */
+export function scrubClaimAuditLog(db: DB, claimId: string): number {
+  const info = db
+    .prepare(
+      `UPDATE agent_action_log
+       SET previous_state = CASE
+             WHEN previous_state IS NOT NULL AND json_valid(previous_state)
+             THEN json_remove(previous_state, '$.object') ELSE previous_state END,
+           new_state = CASE
+             WHEN new_state IS NOT NULL AND json_valid(new_state)
+             THEN json_remove(new_state, '$.object') ELSE new_state END
+       WHERE table_name = 'claim' AND row_id = ?`,
+    )
+    .run(claimId);
+  return Number(info.changes);
 }
 
 // --- Zero-Knowledge Attestation Protocol ----------------------------------------

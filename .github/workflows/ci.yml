@@ -68,6 +68,9 @@ jobs:
       - name: Postgres sync (two stores, concurrent pushes)
         run: npm run pg:smoke
 
+      - name: Sync tombstones (redact, purge, revocation propagation)
+        run: npm run sync:tombstone
+
       - name: Outcome eval (self fixture)
         run: npm run eval -- --fixtures 1
 

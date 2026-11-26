@@ -29,6 +29,7 @@
     "ui:smoke": "node scripts/ui-smoke.mjs",
     "litestream:smoke": "node scripts/litestream-smoke.mjs",
     "smoke:sync": "node scripts/sync-adapter-smoke.mjs",
+    "sync:tombstone": "node scripts/sync-tombstone-smoke.mjs",
     "temporal:smoke": "node scripts/temporal-smoke.mjs",
     "vector:smoke": "node scripts/test-vector-search.mjs",
     "test:vector": "node scripts/test-vector-search.mjs",

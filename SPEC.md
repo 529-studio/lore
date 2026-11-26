@@ -467,6 +467,7 @@ No LLM judge. Outcome metrics on real repositories:
 | main-thread UI graph | Web Worker force layout & quadtree (`/graph-worker.js`) | graphs >1k nodes freeze main thread |
 | packaging needs host node | portable desktop bundles (`scripts/package-binary.mjs`, `desktop.yml`) | air-gapped hosts need self-contained binaries |
 | omitted predicates default to `one` | built-in `many` fallback for omitted extractor predicates (`src/ontology.ts`) | prevents day-0 false tier-1 conflicts |
+| sync carries commits only | bundle carries redaction/purge/revocation tombstones and applies them before inserts (`src/sync.ts`) | a fetch must not resurrect deleted memory |
 
 ## Glossary
 

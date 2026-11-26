@@ -6,6 +6,7 @@ import { head, makeCommit, runClaimWriteHooks, type ClaimRow, type Trust } from 
 import { planMerge } from './merge.js';
 import { loadOntology } from './ontology.js';
 import { readConfig } from './config.js';
+import { scrubClaimAuditLog } from './security/scrub.js';
 import { branchFor, currentSession } from './session.js';
 
 export interface Bundle {
@@ -20,6 +21,14 @@ export interface Bundle {
   entries: Array<Record<string, unknown>>;
   /** Tier-1 conflicts. Optional so bundles written before Canon still import. */
   conflicts?: Array<Record<string, unknown>>;
+  /**
+   * Data-safety tombstones. Optional for the same reason as `conflicts`: stores
+   * and hubs written before this field existed must still import.
+   */
+  redactions?: Array<Record<string, unknown>>;
+  purge_audits?: Array<Record<string, unknown>>;
+  token_revocations?: Array<Record<string, unknown>>;
+  attestations?: Array<Record<string, unknown>>;
 }
 
 export function bundleFile(remoteDir: string, repoId: string): string {
@@ -74,6 +83,14 @@ export function buildBundle(db: DB, repoId: string, refNames = ['main']): Bundle
     commits: db.prepare('SELECT * FROM memory_commit ORDER BY ts ASC').all() as Array<Record<string, unknown>>,
     entries: db.prepare('SELECT * FROM commit_entry').all() as Array<Record<string, unknown>>,
     conflicts: db.prepare('SELECT * FROM claim_conflict ORDER BY id ASC').all() as Array<
+      Record<string, unknown>
+    >,
+    redactions: db.prepare('SELECT * FROM redaction ORDER BY ts ASC').all() as Array<Record<string, unknown>>,
+    purge_audits: db.prepare('SELECT * FROM purge_audit ORDER BY ts ASC').all() as Array<Record<string, unknown>>,
+    token_revocations: db.prepare('SELECT * FROM token_revocation ORDER BY revoked_at ASC').all() as Array<
+      Record<string, unknown>
+    >,
+    attestations: db.prepare('SELECT * FROM attestation ORDER BY ts ASC').all() as Array<
       Record<string, unknown>
     >,
   };
@@ -236,6 +253,136 @@ export function importBundle(
   const apply = db.transaction(() => {
     db.exec('PRAGMA defer_foreign_keys = ON');
 
+    // Tombstones are authoritative before any row is inserted: a purge is
+    // permanent, and a redaction pins the payload even if a peer still ships it.
+    // Read them under the write lock so a concurrent purge cannot be missed.
+    const purgedIds = new Set(
+      (db.prepare('SELECT claim_id FROM purge_audit').all() as Array<{ claim_id: string }>).map((r) => r.claim_id),
+    );
+    for (const row of bundle.purge_audits ?? []) {
+      const id = String(row.claim_id ?? '');
+      if (id) purgedIds.add(id);
+    }
+    const redactedIds = new Set(
+      (db.prepare('SELECT claim_id FROM redaction').all() as Array<{ claim_id: string }>).map((r) => r.claim_id),
+    );
+    for (const row of bundle.redactions ?? []) {
+      const id = String(row.claim_id ?? '');
+      if (id) redactedIds.add(id);
+    }
+    // A purge is the stronger tombstone; a stale peer must not re-redact it.
+    for (const id of purgedIds) redactedIds.delete(id);
+    const skippedIds = new Set([...purgedIds, ...redactedIds]);
+
+    const deleteClaimRead = db.prepare('DELETE FROM claim_read WHERE claim_id = ?');
+    const deleteCommitEntry = db.prepare('DELETE FROM commit_entry WHERE claim_id = ?');
+    const deleteEvidence = db.prepare('DELETE FROM evidence WHERE claim_id = ?');
+    const clearSupersedes = db.prepare('UPDATE claim SET supersedes = NULL WHERE supersedes = ?');
+    const deleteRedaction = db.prepare('DELETE FROM redaction WHERE claim_id = ?');
+    const deleteAttestation = db.prepare('DELETE FROM attestation WHERE claim_id = ? OR attestation_claim_id = ?');
+    const deleteClaimConflict = db.prepare('DELETE FROM claim_conflict WHERE left_claim = ? OR right_claim = ?');
+    const deleteMergeConflict = db.prepare(
+      'DELETE FROM merge_conflict WHERE ours_claim = ? OR theirs_claim = ? OR base_claim = ?',
+    );
+    const deleteClaim = db.prepare('DELETE FROM claim WHERE id = ?');
+    const insertPurgeAudit = db.prepare(
+      'INSERT INTO purge_audit(claim_id, actor, reason, ts) VALUES (?, ?, ?, ?) ON CONFLICT(claim_id) DO NOTHING',
+    );
+    const insertRedaction = db.prepare(
+      'INSERT INTO redaction(claim_id, original_hash, actor, reason, ts) VALUES (?, ?, ?, ?, ?) ON CONFLICT(claim_id) DO NOTHING',
+    );
+    const pinRedaction = db.prepare(
+      `UPDATE claim SET object_json = '"[redacted]"', state = 'retracted', trust = 'retracted' WHERE id = ?`,
+    );
+    const closeConflict = db.prepare(
+      `UPDATE claim_conflict SET resolved = 1, resolved_by = 'lore:sync:redact'
+       WHERE resolved = 0 AND (left_claim = ? OR right_claim = ?)`,
+    );
+
+    for (const id of purgedIds) {
+      deleteClaimRead.run(id);
+      deleteCommitEntry.run(id);
+      deleteEvidence.run(id);
+      clearSupersedes.run(id);
+      deleteRedaction.run(id);
+      deleteAttestation.run(id, id);
+      deleteClaimConflict.run(id, id);
+      deleteMergeConflict.run(id, id, id);
+      deleteClaim.run(id);
+      scrubClaimAuditLog(db, id);
+    }
+    for (const row of bundle.purge_audits ?? []) {
+      const id = String(row.claim_id ?? '');
+      if (!id) continue;
+      insertPurgeAudit.run(
+        id,
+        String(row.actor ?? 'lore:sync'),
+        row.reason ?? null,
+        String(row.ts ?? new Date().toISOString()),
+      );
+    }
+    for (const row of bundle.redactions ?? []) {
+      const id = String(row.claim_id ?? '');
+      if (!id || purgedIds.has(id)) continue;
+      insertRedaction.run(
+        id,
+        String(row.original_hash ?? ''),
+        String(row.actor ?? 'lore:sync'),
+        row.reason ?? null,
+        String(row.ts ?? new Date().toISOString()),
+      );
+    }
+    for (const id of redactedIds) {
+      pinRedaction.run(id);
+      closeConflict.run(id, id);
+      scrubClaimAuditLog(db, id);
+    }
+
+    const insertRevocation = db.prepare(
+      `INSERT INTO token_revocation (jti, sub, reason, revoked_by, revoked_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(jti) DO UPDATE SET
+         sub = CASE WHEN excluded.revoked_at > token_revocation.revoked_at
+                    THEN excluded.sub ELSE token_revocation.sub END,
+         reason = CASE WHEN excluded.revoked_at > token_revocation.revoked_at
+                       THEN excluded.reason ELSE token_revocation.reason END,
+         revoked_by = CASE WHEN excluded.revoked_at > token_revocation.revoked_at
+                           THEN excluded.revoked_by ELSE token_revocation.revoked_by END,
+         revoked_at = CASE WHEN excluded.revoked_at > token_revocation.revoked_at
+                           THEN excluded.revoked_at ELSE token_revocation.revoked_at END`,
+    );
+    for (const row of bundle.token_revocations ?? []) {
+      const jti = String(row.jti ?? '');
+      if (!jti) continue;
+      insertRevocation.run(
+        jti,
+        String(row.sub ?? ''),
+        row.reason ?? null,
+        String(row.revoked_by ?? 'lore:sync'),
+        String(row.revoked_at ?? new Date().toISOString()),
+      );
+    }
+
+    const insertAttestation = db.prepare(
+      `INSERT OR IGNORE INTO attestation(claim_id, attestation_claim_id, verdict, actor, ts, proof_json)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    );
+    for (const row of bundle.attestations ?? []) {
+      const claimId = String(row.claim_id ?? '');
+      const attestationClaimId = String(row.attestation_claim_id ?? '');
+      // Either endpoint being purged means the attestation must not survive.
+      if (!claimId || purgedIds.has(claimId) || purgedIds.has(attestationClaimId)) continue;
+      const verdict = row.verdict === 'disagree' ? 'disagree' : 'agree';
+      insertAttestation.run(
+        claimId,
+        attestationClaimId,
+        verdict,
+        String(row.actor ?? 'lore:sync'),
+        String(row.ts ?? new Date().toISOString()),
+        row.proof_json ?? null,
+      );
+    }
+
     const insertEntity = db.prepare(
       'INSERT OR IGNORE INTO entity(id, kind, canonical, created_at) VALUES (?, ?, ?, ?)',
     );
@@ -289,6 +436,7 @@ export function importBundle(
 
     for (const row of bundle.claims) {
       const id = String(row.id);
+      if (skippedIds.has(id)) continue;
       const remoteTrust = trustOf(row) as Trust;
       const remoteVerified =
         (typeof row.last_verified_at === 'string' ? row.last_verified_at : null) ??
@@ -325,6 +473,7 @@ export function importBundle(
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const row of bundle.evidence) {
+      if (skippedIds.has(String(row.claim_id))) continue;
       insertEvidence.run(row.claim_id, row.kind, row.ref, row.hash, row.commit_id, row.verified_at, row.status);
     }
 
@@ -339,6 +488,7 @@ export function importBundle(
                             THEN excluded.detected_at ELSE claim_conflict.detected_at END`,
     );
     for (const row of bundle.conflicts ?? []) {
+      if (skippedIds.has(String(row.left_claim)) || skippedIds.has(String(row.right_claim))) continue;
       insertConflict.run(
         row.subject_id, row.predicate, row.left_claim, row.right_claim, row.tier ?? 1,
         row.reason ?? 'tier-1 conflict', row.detected_at ?? new Date().toISOString(),
@@ -360,13 +510,22 @@ export function importBundle(
     const insertEntry = db.prepare(
       'INSERT OR IGNORE INTO commit_entry(commit_id, claim_id, op) VALUES (?, ?, ?)',
     );
-    for (const row of bundle.entries) insertEntry.run(row.commit_id, row.claim_id, row.op);
+    for (const row of bundle.entries) {
+      // A purged/redacted claim must not re-enter the branch fold through history.
+      if (skippedIds.has(String(row.claim_id))) continue;
+      insertEntry.run(row.commit_id, row.claim_id, row.op);
+    }
+    return skippedIds;
   });
 
-  apply();
+  // IMMEDIATE takes the write lock before reading tombstones, so a purge or
+  // redaction committed by another process cannot race the import snapshot.
+  const skippedIds = apply.immediate();
 
   for (const row of bundle.claims) {
-    runClaimWriteHooks(db, String(row.id));
+    const id = String(row.id);
+    if (skippedIds.has(id)) continue;
+    runClaimWriteHooks(db, id);
   }
 
   const mainRef = bundle.refs.find((r) => r.name === 'main');
