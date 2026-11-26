@@ -431,7 +431,7 @@ No LLM judge. Outcome metrics on real repositories:
 | retrieval filters drafts/stale | retrieval also requires `trust = canonical`; contested facts warn | trust is orthogonal to branch membership |
 | stale derived on read | `canon decay` persists `trust = stale`; read path lazily checks TTL/paths | shared memory needs a durable stale answer |
 | evidence commit must be an ancestor | a non-ancestor stays `ahead-of-checkout`, not stale | an older checkout must not invalidate an observation made on newer code |
-| sync carries commits only | bundle import merges per-claim trust (retracted wins, newer verification wins) | a fetch must not resurrect a contested value |
+| sync carries commits only | bundle import merges per-claim trust (retracted wins); `lore replicate` streams SQLite WAL | no resurrection; real-time clusters |
 | trust changes via evidence | `canon resolve` keeps one value; redact/purge close the pair | contested memory needs an auditable exit |
 | no team sync | `lore remote` + `fetch`/`push` over directory or Postgres, `bundle` for air gaps | air-gapped repos cannot depend on git hosts |
 | `--as-of` reads the commit at that instant | folds the whole ancestry, skipping commits after the instant | sibling branches hide facts before a merge |
@@ -441,7 +441,7 @@ No LLM judge. Outcome metrics on real repositories:
 | MCP has five tools | eight tools and resource subscriptions | without approve and resources, MCP memory is incomplete |
 | CLI has static config | `lore setup` auto-wires MCP and `lore config` manages settings | manual editing was error-prone and missed session isolation |
 | UI has flat triple table only | Knowledge Hub defaults to Entity Dossier view with bulleted facts | raw triples fragmented memory |
-| sync carries commits only | `lore replicate` streams SQLite WAL to object store | clusters require real-time streaming replication |
+| UI one claim page, no resolver | server search, label culling, repo modal, Conflicts tab | large stores stay usable |
 | search couples bi-temporal dimensions | decoupled bi-temporal search (`--valid-at`, `--tx-at`, `lore timeline`) | audit requires querying past beliefs independently |
 | UI is static on read | live Server-Sent Events (`/api/events`) with SQLite version detection | mutations must reflect live without manual refresh |
 | UI graph is uniform radial scatter | semantic visual clustering and predicate relationship filtering | graphs need domain grouping |
