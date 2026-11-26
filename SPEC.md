@@ -428,7 +428,7 @@ No LLM judge. Outcome metrics on real repositories:
 | retrieval filters drafts/stale | retrieval also requires `trust = canonical`; contested facts warn | trust is orthogonal to membership |
 | stale derived on read | `canon decay` persists `trust = stale`; read path lazily checks TTL/paths | shared memory needs a durable stale answer |
 | evidence commit must be an ancestor | a non-ancestor stays `ahead-of-checkout`, not stale | an older checkout must not invalidate a newer observation |
-| sync carries commits only | bundle import merges trust (retracted wins, newer verification wins); tombstones applied; `lore replicate` streams WAL | a fetch must not resurrect a value; real-time clusters |
+| sync carries commits only | bundle import merges trust (retracted wins, newer verification wins) and tombstones; `lore replicate` streams WAL | a fetch must not resurrect a value |
 | trust changes via evidence | `canon resolve` keeps one value; redact/purge close the pair | contested memory needs an auditable exit |
 | no team sync | `lore remote` + `fetch`/`push` over directory or Postgres, `bundle` for air gaps | air-gapped repos cannot depend on git hosts |
 | `--as-of` reads the commit at that instant | folds the whole ancestry, skipping commits after the instant | sibling branches hide facts |
@@ -444,16 +444,16 @@ No LLM judge. Outcome metrics on real repositories:
 | Windows installer unsigned | CI Authenticode + SHA-256 | verifiable binaries |
 | tokens immutable for 30d | revocation registry + JTI checks (`lore identity revoke`) | revoke without re-keying |
 | writes are draft only | permissive trust mode (`init --solo`) auto-promotes | solo retrieval without approval overhead |
-| static 3-bullet agent rules | rich ontology guidelines (`lore rules [--update]`) with entity prefixes and tiers | prevents hallucinated predicates |
+| static 3-bullet agent rules | `lore rules [--update]` with entity prefixes and tiers | prevents hallucinated predicates |
 | manual review and promote | `lore wrapup [--yes]` / `lore session` | sessions left unreviewed drafts behind |
-| bare init creates store only | `init --full`/`onboard` ingest on a fresh branch and promote it to `main` | new sessions must see the baseline |
-| onboard prints hardcoded Claude command | `lore onboard` auto-detects agents and wires MCP configs directly | multi-agent repos need dynamic wiring |
+| bare init creates store only | `init --full`/`onboard` ingest then promote the baseline to `main` | new sessions must see the baseline |
+| onboard prints hardcoded Claude command | `lore onboard` detects agents and wires MCP configs | multi-agent repos need dynamic wiring |
 | sync is batch push/fetch only | bi-directional sync adapter (`lore sync`, `memory_sync`) | nodes need atomic sync without lock collisions |
 | concurrency verified on 4x25 writes only | multi-worker benchmark (`scripts/bench-concurrency.mjs`) | clusters need soak tests |
 | gossip convergence untested on clusters | multi-replica gossip simulator (`scripts/bench-cluster.mjs`) | clusters need convergence benchmarks |
-| SQLite WAL static 1000-page autocheckpoint | adaptive WAL checkpoint auto-tuning (`LORE_WAL_AUTOCHECKPOINT`) | high-write sessions need scaling |
+| static WAL autocheckpoint | adaptive WAL checkpoint auto-tuning (`LORE_WAL_AUTOCHECKPOINT`) | high-write sessions need scaling |
 | temporal query requires absolute timestamps | relative temporal query parsing (`src/canon/temporal.ts`) | agents query memory with relative expressions |
-| GC only soft-retracts drafts | GC compaction & tombstone purging (`src/gc.ts`) | stores accumulate tombstones and fragmented SQLite pages |
+| GC only soft-retracts drafts | GC compaction & tombstone purging (`src/gc.ts`) | stores accumulate tombstones and fragmentation |
 | benchmark is terminal-only | Prometheus/OTel export (`exportPrometheusMetrics`) | dashboards need metrics |
 | UI lacks multi-agent sync | sync indicators and `/api/sync/status` (`src/ui/server.ts`) | agents need live convergence signals |
 | lexical retrieval | semantic hybrid (`src/search/vector.ts`) | synonyms missed |
@@ -469,13 +469,14 @@ No LLM judge. Outcome metrics on real repositories:
 | team mode needs the env secret | `team_mode: true` activates policy and fails closed without credentials | no silent downgrade |
 | direct Postgres sync | `lore-hub`: http delta + CAS + per-user tokens (`src/hub/`) | no DB creds on dev machines |
 | repo memory is local | `publish:`/`links:` over lore-hub; `ext:<slug>/` ids and `[EXT]` freshness (`src/policy/publish.ts`) | scoped foreign memory (#197) |
-| sync dropped `agent/*` refs and ignored `resolution` rows | `push --propose` + hub proposal refs; `proposals` and `review --remote`; `mergeTip` replays `resolution` and records `merge_conflict`/remote ref; optional `min_attestations` | review must not need `main` write |
-| hosts hardcoded in `setup` | personal/repo plugin scopes | extend without core edits |
-| status trusts persisted counts; GC uses row age | status separates trust, drift, branch/store; GC ages drafts from last observation | contradictory counts and fresh-draft warnings (#181) |
-| similarity = Jaccard token overlap | coverage and exact-phrase weights rank before authority | one token must not bury an exact rule (#181) |
+| sync dropped `agent/*` refs and ignored `resolution` rows | `push --propose` + hub refs; `proposals`; `review --remote`; `mergeTip` replays `resolution` and records `merge_conflict` | review must not need `main` write |
+| hosts hardcoded in `setup` | personal/repo plugin scopes (`src/plugins/loader.ts`) | extend without core edits |
+| status trusts persisted counts; GC uses row age | status separates trust, drift, branch/store; GC ages drafts from last observation | fresh-draft warnings (#181) |
+| similarity = Jaccard token overlap | coverage and exact-phrase weights rank before authority | one token must not bury an exact rule |
 | ingest reads root manifests only | package.json, Makefile, docker-compose*, Python and go manifests at any depth | monorepos are common |
 | retrieval ranks by scope and similarity | predicate classes and a query-text gate; static AST/TOC facts demoted, never deleted | guardrails survive structural noise (#193) |
 | markdown rules stop at any heading | nested rules under numbered headings; dated logs yield known bugs/guardrails; 1,200-char cap | nested rules and non-`LNN` logs dropped (#193) |
+| no readiness command; store has no schema version | `lore doctor` checks store shape (tables/columns, WAL, integrity), branch parity, MCP configs, ontology, health | one actionable report; shape drift is detected, not assumed |
 
 ## Glossary
 

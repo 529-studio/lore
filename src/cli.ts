@@ -38,6 +38,7 @@ import { promoteCommand } from './commands/promote.js';
 import { resolveCommand } from './commands/resolve.js';
 import { revertCommand } from './commands/revert.js';
 import { statusCommand } from './commands/status.js';
+import { doctorCommand } from './commands/doctor.js';
 import { supersedeCommand } from './commands/supersede.js';
 import { searchCommand } from './commands/search.js';
 import { timelineCommand } from './commands/timeline.js';
@@ -561,6 +562,14 @@ program
       noCache: opts.cache === false,
     }),
   );
+
+program
+  .command('doctor')
+  .description('end-to-end readiness: store, branch parity, MCP configs, ontology and health')
+  .option('--json', 'print machine-readable JSON')
+  .option('--fix', 'apply safe remediations (promote the ingested baseline into main)')
+  .option('--root <path>', 'repository root (default: cwd)')
+  .action((opts) => doctorCommand({ json: opts.json, fix: opts.fix, root: opts.root }));
 
 program
   .command('approve [claim]')
