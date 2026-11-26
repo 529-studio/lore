@@ -11,11 +11,14 @@ import { claimFreshness } from '../merge.js';
 import { activeAt, head, inBranch, makeCommit, supersedeClaim, upsertClaim, type ClaimRow } from '../model.js';
 import { branchFor, currentSession } from '../session.js';
 import { readConfig, remoteLabel } from '../config.js';
-import { ActionError, approveDrafts, attestClaim, rejectDraft, revertCommit } from '../actions.js';
+import { ActionError, approveDrafts, attestClaim, rejectDraft, revertCommit, type ActionResult } from '../actions.js';
 import { resolvePrincipal, teamMode } from '../identity.js';
 import { describePolicy, isPermissiveTrust, requireAction, PolicyError } from '../policy.js';
 import { installCanon } from '../canon/index.js';
+import { resolveFact } from '../canon/resolve.js';
 import { explainClaim } from '../canon/explain.js';
+import { planMerge } from '../merge.js';
+import { loadOntology } from '../ontology.js';
 import { gitHead } from '../util/git.js';
 import { isAncestor } from '../sync.js';
 
@@ -382,6 +385,22 @@ const HTML = String.raw`<!doctype html>
   th, td { text-align:left; padding:8px 16px; border-bottom:1px solid var(--line); vertical-align:top; }
   th { color:var(--muted); font-weight:500; font-size:12px; }
   tr:last-child td { border-bottom:0; }
+  /* Raw table must never hide its action buttons on narrow screens. */
+  #raw-view { overflow-x:auto; }
+  #raw-view table { min-width:880px; }
+  #raw-view td, #raw-view th { white-space:nowrap; }
+  #raw-view td:nth-child(3) { max-width:420px; overflow:hidden; text-overflow:ellipsis; }
+  #raw-view th:last-child, #raw-view td:last-child { position:sticky; right:0; background:var(--panel); box-shadow:-8px 0 12px -8px rgba(0,0,0,0.7); }
+  .load-more { margin-left:8px; }
+  .claims-count { font-size:12px; color:var(--muted); white-space:nowrap; }
+  /* Conflict resolver */
+  .conflict-card { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:14px; display:grid; gap:12px; }
+  .conflict-hdr { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; flex-wrap:wrap; }
+  .conflict-sides { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .conflict-side { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:10px 12px; display:grid; gap:6px; align-content:start; }
+  .conflict-side .obj { font-size:13px; word-break:break-word; }
+  .conflict-actions { display:flex; gap:8px; flex-wrap:wrap; }
+  @media (max-width:760px) { .conflict-sides { grid-template-columns:1fr; } }
   
   .tag { display:inline-block; padding:1px 6px; border-radius:4px; font-size:11px; border:1px solid var(--line); }
   .active { color:var(--ok); } .draft { color:var(--warn); } .retracted { color:var(--err); }
@@ -447,6 +466,10 @@ const HTML = String.raw`<!doctype html>
   .graph-legend { position:absolute; bottom:12px; left:16px; display:flex; gap:12px; background:rgba(22, 27, 34, 0.88); border:1px solid var(--line); padding:6px 12px; border-radius:6px; font-size:11px; color:var(--muted); backdrop-filter:blur(8px); pointer-events:none; z-index:10; }
   .legend-item { display:flex; align-items:center; gap:6px; }
   .legend-dot { width:8px; height:8px; border-radius:50%; }
+  .cluster-badge rect { fill:rgba(22,27,34,0.82); stroke:var(--line); }
+  .cluster-badge text { fill:var(--muted); font-size:11px; font-family:ui-monospace,monospace; letter-spacing:.03em; }
+  .cluster-badge.primary rect { fill:rgba(88,166,255,0.18); stroke:var(--accent); }
+  .cluster-badge.primary text { fill:var(--accent); }
 
   /* Graph Node Drawer */
   #graph-drawer { position:absolute; top:12px; bottom:52px; right:12px; width:330px; background:rgba(22, 27, 34, 0.95); border:1px solid var(--line); border-radius:8px; padding:16px; display:none; flex-direction:column; gap:12px; box-shadow:-4px 0 24px rgba(0,0,0,0.6); backdrop-filter:blur(12px); z-index:20; overflow-y:auto; }
@@ -491,6 +514,7 @@ const HTML = String.raw`<!doctype html>
   <nav>
     <button data-tab="knowledge" class="on">Knowledge Hub</button>
     <button data-tab="review">Review <span id="nav-draft-badge" style="display:none" class="tag draft">0</span></button>
+    <button data-tab="conflicts">Conflicts <span id="nav-conflict-badge" style="display:none" class="tag stale">0</span></button>
     <button data-tab="undo">Undo</button>
     <button data-tab="ontology">Ontology</button>
     <button data-tab="settings">Settings</button>
@@ -536,6 +560,8 @@ const HTML = String.raw`<!doctype html>
           <option value="stale">stale (drifted)</option>
           <option value="ahead">ahead of checkout</option>
         </select>
+        <span id="claims-count" class="claims-count">0 claims</span>
+        <button class="act load-more" id="load-more-claims" style="display:none">Load more</button>
         <div class="view-switcher" style="margin-left:auto;">
           <button class="view-btn on" id="view-dossier">Dossier</button>
           <button class="view-btn" id="view-cards">Cards</button>
@@ -661,6 +687,17 @@ const HTML = String.raw`<!doctype html>
     </div>
   </section>
 
+  <!-- Conflicts Tab -->
+  <section id="tab-conflicts">
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Open conflicts requiring a decision</h2>
+        <span class="muted" id="conflicts-count"></span>
+      </div>
+      <div id="conflicts-list" style="display:grid; gap:12px; padding:16px"></div>
+    </div>
+  </section>
+
   <!-- Undo Tab -->
   <section id="tab-undo">
     <div class="panel">
@@ -724,6 +761,29 @@ const HTML = String.raw`<!doctype html>
     </div>
   </section>
 </main>
+
+<!-- Switch Repository Modal -->
+<div class="modal-overlay" id="repo-modal">
+  <div class="modal" style="max-width:620px">
+    <h3>Switch Repository</h3>
+    <div class="form-group">
+      <label for="repo-path-input">Repository folder</label>
+      <input id="repo-path-input" placeholder="/path/to/repository" autocomplete="off" />
+      <div class="muted" style="font-size:11px">Lore stores memory in the repository's shared state directory. The path is never browsed on the server unless you ask.</div>
+    </div>
+    <div class="form-group">
+      <label>Recent repositories</label>
+      <div id="repo-recent-list" style="display:flex; flex-direction:column; gap:6px; max-height:180px; overflow-y:auto"></div>
+    </div>
+    <div class="modal-actions" style="justify-content:space-between">
+      <button class="act" id="repo-browse-os" title="Open the operating system folder picker">Browse OS…</button>
+      <div style="display:flex; gap:8px">
+        <button class="act" id="repo-modal-cancel">Cancel</button>
+        <button class="act primary" id="repo-modal-switch">Switch</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- Detailed Claim & Provenance Inspector Modal -->
 <div class="modal-overlay" id="inspector-modal">
@@ -860,26 +920,6 @@ const HTML = String.raw`<!doctype html>
 <script>
 const CSRF = '__CSRF__';
 
-const eventSource = new EventSource('/api/events');
-eventSource.addEventListener('message', (e) => {
-  console.log('SSE message:', e.data);
-});
-eventSource.addEventListener('memory:changed', () => {
-  loadHealth();
-  refreshKnowledge();
-});
-eventSource.addEventListener('claim:written', () => {
-  loadHealth();
-  refreshKnowledge();
-});
-eventSource.addEventListener('claim:approved', () => {
-  loadHealth();
-  refreshKnowledge();
-  loadReview();
-});
-eventSource.addEventListener('repo:switched', () => {
-  location.reload();
-});
 const $ = (id) => document.getElementById(id);
 const el = (tag, text, cls) => { const n = document.createElement(tag); if (text !== undefined) n.textContent = text; if (cls) n.className = cls; return n; };
 
@@ -932,6 +972,7 @@ function show(tab) {
   for (const s of document.querySelectorAll('main section')) s.classList.toggle('on', s.id === 'tab-' + tab);
   if (tab === 'knowledge') refreshKnowledge();
   if (tab === 'review') loadReview();
+  if (tab === 'conflicts') loadConflicts();
   if (tab === 'undo') loadCommits();
   if (tab === 'ontology') loadOntology();
   if (tab === 'settings') loadSettings();
@@ -988,7 +1029,7 @@ async function loadHealth() {
     ['Drafts', h.draft, 'draft', 'Inferences awaiting human review'],
     ['Stale Facts', h.stale, 'stale', 'Codebase changed since observation'],
     ['Ahead', h.ahead, 'ahead', 'Observed on newer commit'],
-    ['Conflicts', h.conflicts, h.conflicts ? 'stale' : '', 'Rival claims needing resolution'],
+    ['Conflicts', h.conflicts, h.conflicts ? 'stale' : '', 'Tier-1 rival claims plus merge conflicts'],
   ]) {
     const card = el('div', undefined, 'card');
     card.append(el('div', String(value), 'n ' + cls), el('div', label, 'l'), el('div', desc, 'desc'));
@@ -1000,6 +1041,12 @@ async function loadHealth() {
     badge.style.display = 'inline-block';
   } else {
     badge.style.display = 'none';
+  }
+  const conflictBadge = $('nav-conflict-badge');
+  if (conflictBadge) {
+    const open = Number(h.conflicts || 0);
+    conflictBadge.textContent = String(open);
+    conflictBadge.style.display = open > 0 ? 'inline-block' : 'none';
   }
 }
 
@@ -1785,6 +1832,66 @@ function renderGraphView(claims) {
     }
 
     const nodeArr = Array.from(nodeMap.values());
+    const labelBoxes = [];
+
+    // Cluster badges give the eye an anchor before reading individual labels.
+    if (graphState.clustered && nodeArr.length > 60) {
+      const clusterMeta = {
+        file: { label: 'Files', color: '#58a6ff' },
+        env: { label: 'Env', color: '#d29922' },
+        pkg: { label: 'Packages', color: '#bc8cff' },
+        doc: { label: 'Docs', color: '#f85149' },
+        obj: { label: 'Values', color: '#8b949e' },
+      };
+      const groups = new Map();
+      for (const n of nodeArr) {
+        const g = groups.get(n.type) || { x: 0, y: 0, count: 0, color: '#8b949e' };
+        g.x += n.x; g.y += n.y; g.count += 1;
+        g.color = (clusterMeta[n.type] || clusterMeta.obj).color;
+        groups.set(n.type, g);
+      }
+      for (const [type, g] of groups.entries()) {
+        if (g.count < 6) continue;
+        const cx = g.x / g.count;
+        const cy = g.y / g.count;
+        const label = (clusterMeta[type] || clusterMeta.obj).label + ' ' + g.count;
+        const w = Math.max(64, label.length * 6.6 + 16);
+        const badge = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        badge.setAttribute('class', 'cluster-badge' + (type === 'file' ? ' primary' : ''));
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', String(cx - w / 2));
+        rect.setAttribute('y', String(cy - 11));
+        rect.setAttribute('width', String(w));
+        rect.setAttribute('height', '22');
+        rect.setAttribute('rx', '11');
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', String(cx));
+        text.setAttribute('y', String(cy + 4));
+        text.setAttribute('text-anchor', 'middle');
+        text.textContent = label;
+        badge.append(rect, text);
+        viewport.append(badge);
+        labelBoxes.push({ x: cx - w / 2 - 4, y: cy - 15, w: w + 8, h: 30 });
+      }
+    }
+
+    const selectedFirst = nodeArr.filter((n) => n.id === graphState.selectedNode);
+    const byDegree = nodeArr.slice().sort((a, b) => (b.degree || 0) - (a.degree || 0));
+    const labelOrder = selectedFirst.concat(byDegree.filter((n) => n.id !== graphState.selectedNode));
+    const labelKeep = new Set();
+    const maxLabels = nodeArr.length > 300 ? 55 : nodeArr.length > 120 ? 90 : nodeArr.length;
+    for (const n of labelOrder) {
+      if (labelKeep.size >= maxLabels) break;
+      const r = Math.min(14, 7 + Math.floor(Math.sqrt(n.degree || 1) * 2));
+      const label = shortLabel(n.id);
+      const w = Math.min(170, label.length * 6.8 + 6);
+      const box = { x: n.x + r + 4, y: n.y - 7, w, h: 13 };
+      const collides = labelBoxes.some((b) => box.x < b.x + b.w && box.x + box.w > b.x && box.y < b.y + b.h && box.y + box.h > b.y);
+      if (collides) continue;
+      labelBoxes.push(box);
+      labelKeep.add(n.id);
+    }
+
     for (const n of nodeArr) {
       const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
       g.setAttribute('class', 'node' + (graphState.selectedNode === n.id ? ' selected' : ''));
@@ -1807,11 +1914,13 @@ function renderGraphView(claims) {
       circle.setAttribute('stroke', '#161b22');
       g.append(circle);
 
-      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      text.setAttribute('dx', String(r + 5));
-      text.setAttribute('dy', '4');
-      text.textContent = shortLabel(n.id);
-      g.append(text);
+      if (labelKeep.has(n.id)) {
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('dx', String(r + 5));
+        text.setAttribute('dy', '4');
+        text.textContent = shortLabel(n.id);
+        g.append(text);
+      }
 
       g.onclick = (e) => {
         e.stopPropagation();
@@ -1865,9 +1974,35 @@ function renderActiveView() {
   if (currentView === 'graph') renderGraphView(filtered);
 }
 
-async function loadClaims() {
-  const params = new URLSearchParams({ limit: '500' });
-  allClaims = await (await fetch('/api/claims?' + params)).json();
+let claimsTotal = 0;
+let claimsOffset = 0;
+const CLAIMS_PAGE_SIZE = 200;
+
+function updateClaimsCount() {
+  const counter = $('claims-count');
+  const more = $('load-more-claims');
+  if (counter) counter.textContent = allClaims.length + ' of ' + claimsTotal + ' claims loaded';
+  if (more) more.style.display = allClaims.length < claimsTotal ? 'inline-block' : 'none';
+}
+
+async function loadClaimsPage(reset) {
+  const params = new URLSearchParams({ limit: String(CLAIMS_PAGE_SIZE), offset: String(reset ? 0 : claimsOffset) });
+  const q = $('q').value.trim();
+  const state = $('state').value;
+  const fresh = $('fresh').value;
+  if (q) params.set('q', q);
+  if (state) params.set('status', state);
+  if (fresh) params.set('fresh', fresh);
+  const data = await (await fetch('/api/claims?' + params)).json();
+  const page = Array.isArray(data) ? data : (data.claims || []);
+  claimsTotal = Array.isArray(data) ? page.length : Number(data.total || 0);
+  allClaims = reset ? page : allClaims.concat(page);
+  claimsOffset = allClaims.length;
+  updateClaimsCount();
+}
+
+async function loadClaims(reset = true) {
+  await loadClaimsPage(reset);
   renderActiveView();
 }
 
@@ -1877,7 +2012,8 @@ async function refreshKnowledge() {
 }
 
 async function loadReview() {
-  const drafts = await (await fetch('/api/claims?status=draft&limit=200')).json();
+  const data = await (await fetch('/api/claims?status=draft&limit=200')).json();
+  const drafts = Array.isArray(data) ? data : (data.claims || []);
   const box = $('drafts'); box.replaceChildren();
   $('review-count').textContent = drafts.length ? drafts.length + ' draft(s)' : '';
   $('approve-all').disabled = !drafts.length;
@@ -1891,6 +2027,7 @@ async function loadReview() {
     card.append(el('div', c.subject + ' — ' + (PREDICATE_LABELS[c.predicate] || c.predicate), 'meta'));
     card.append(el('div', c.object, 'obj'));
     card.append(el('div', 'Suggested by ' + c.author + ' · T' + c.authority + ' · ' + c.id, 'meta'));
+    card.append(el('div', 'Session: ' + (c.session || 'none') + ' · target branch: ' + (c.origin_branch || 'main'), 'meta'));
     if (c.evidence && c.evidence.length) {
       card.append(el('div', c.evidence.map((e) => e.kind + ':' + e.ref).join(', '), 'meta'));
     }
@@ -1909,6 +2046,94 @@ async function loadReview() {
     actions.append(approve, reject);
     card.append(actions);
     box.append(card);
+  }
+}
+
+async function resolveConflict(kind, id, take) {
+  try {
+    const result = await api('/api/conflicts/resolve', { kind, id, take });
+    banner(result.applied === false ? (result.message || 'Resolution recorded; other conflicts remain') : 'Conflict resolved', 'ok');
+    await loadConflicts();
+    await refreshKnowledge();
+  } catch (err) {
+    banner(err.message, 'err');
+  }
+}
+
+function conflictSide(label, claim, role) {
+  const side = el('div', undefined, 'conflict-side');
+  side.append(el('div', label, 'k-pred'));
+  if (!claim) {
+    side.append(el('div', '(absent on this side)', 'muted'));
+    return side;
+  }
+  side.append(el('div', claim.object, 'obj'));
+  side.append(el('div', claim.trust + ' · ' + claim.state + ' · T' + claim.authority, 'meta'));
+  side.append(el('div', 'Author: ' + claim.author, 'meta'));
+  side.append(el('div', 'Branch: ' + claim.branch + (claim.session ? ' · session ' + claim.session : ''), 'meta'));
+  side.append(el('div', claim.id, 'meta'));
+  side.dataset.role = role;
+  return side;
+}
+
+async function loadConflicts() {
+  const data = await (await fetch('/api/conflicts')).json();
+  const list = $('conflicts-list');
+  if (!list) return;
+  list.replaceChildren();
+  const claimConflicts = Array.isArray(data.claim) ? data.claim : [];
+  const mergeConflicts = Array.isArray(data.merge) ? data.merge : [];
+  const total = claimConflicts.length + mergeConflicts.length;
+  $('conflicts-count').textContent = total ? total + ' open conflict(s)' : '';
+  if (!total) {
+    list.append(el('div', 'No open conflicts. Tier-1 claim rivals and merge conflicts are resolved.', 'muted'));
+    return;
+  }
+  for (const c of claimConflicts) {
+    const card = el('div', undefined, 'conflict-card');
+    const hdr = el('div', undefined, 'conflict-hdr');
+    const left = el('div');
+    left.append(el('div', c.subject + ' — ' + (PREDICATE_LABELS[c.predicate] || c.predicate), 'k-subj'));
+    left.append(el('div', c.reason, 'meta'));
+    hdr.append(left);
+    hdr.append(el('span', 'tier-1 claim conflict', 'tag stale'));
+    card.append(hdr);
+    const sides = el('div', undefined, 'conflict-sides');
+    sides.append(conflictSide('Left value', c.left, 'left'), conflictSide('Right value', c.right, 'right'));
+    card.append(sides);
+    const actions = el('div', undefined, 'conflict-actions');
+    const ours = el('button', 'Keep left (ours)', 'act ok');
+    ours.onclick = () => resolveConflict('claim', c.id, 'ours');
+    const theirs = el('button', 'Keep right (theirs)', 'act ok');
+    theirs.onclick = () => resolveConflict('claim', c.id, 'theirs');
+    const both = el('button', 'Keep both', 'act');
+    both.disabled = true;
+    both.title = 'A one-valued predicate cannot keep both values; use ours or theirs';
+    actions.append(ours, theirs, both);
+    card.append(actions);
+    list.append(card);
+  }
+  for (const c of mergeConflicts) {
+    const card = el('div', undefined, 'conflict-card');
+    const hdr = el('div', undefined, 'conflict-hdr');
+    const left = el('div');
+    left.append(el('div', c.subject + ' — ' + (PREDICATE_LABELS[c.predicate] || c.predicate), 'k-subj'));
+    left.append(el('div', c.reason, 'meta'));
+    hdr.append(left);
+    hdr.append(el('span', 'merge conflict', 'tag draft'));
+    card.append(hdr);
+    const sides = el('div', undefined, 'conflict-sides');
+    sides.append(conflictSide('Ours', c.ours, 'ours'), conflictSide('Theirs', c.theirs, 'theirs'));
+    card.append(sides);
+    if (c.base) card.append(el('div', 'Base: ' + c.base.object, 'meta'));
+    const actions = el('div', undefined, 'conflict-actions');
+    for (const take of ['ours', 'theirs', 'both']) {
+      const btn = el('button', 'Take ' + take, 'act' + (take === 'both' ? '' : ' ok'));
+      btn.onclick = () => resolveConflict('merge', c.id, take);
+      actions.append(btn);
+    }
+    card.append(actions);
+    list.append(card);
   }
 }
 
@@ -2302,12 +2527,17 @@ if (densityToggleBtn) {
 }
 
 for (const b of document.querySelectorAll('nav button')) b.onclick = () => show(b.dataset.tab);
-$('q').addEventListener('input', () => { clearTimeout(window.__t); window.__t = setTimeout(renderActiveView, 150); });
-$('state').addEventListener('change', renderActiveView);
-$('fresh').addEventListener('change', renderActiveView);
+$('q').addEventListener('input', () => {
+  clearTimeout(window.__t);
+  window.__t = setTimeout(() => { loadClaims(true).catch((e) => banner(e.message, 'err')); }, 250);
+});
+$('state').addEventListener('change', () => { loadClaims(true).catch((e) => banner(e.message, 'err')); });
+$('fresh').addEventListener('change', () => { loadClaims(true).catch((e) => banner(e.message, 'err')); });
+$('load-more-claims').addEventListener('click', () => { loadClaims(false).catch((e) => banner(e.message, 'err')); });
 
 $('approve-all').onclick = async () => {
-  const drafts = await (await fetch('/api/claims?status=draft&limit=200')).json();
+  const data = await (await fetch('/api/claims?status=draft&limit=200')).json();
+  const drafts = Array.isArray(data) ? data : (data.claims || []);
   if (!drafts.length) return;
   if (!window.confirm('Approve all ' + drafts.length + ' draft(s)?')) return;
   try {
@@ -2340,35 +2570,64 @@ function renderKnowledgeSkeleton() {
   }
 }
 
-async function triggerSwitchRepo() {
-  banner('Opening folder browser...', 'muted');
+async function loadRecentRepos() {
+  const box = $('repo-recent-list');
+  if (!box) return;
+  box.replaceChildren();
+  let recent = [];
   try {
-    const browseRes = await api('/api/repo/browse', {});
-    if (browseRes.switched) {
-      banner('Switched to repository: ' + browseRes.repo.name, 'ok');
-      await refreshAll();
-      return;
-    }
-    if (browseRes.cancelled) {
-      banner('', '');
-      return;
-    }
+    const data = await (await fetch('/api/repo/recent')).json();
+    recent = Array.isArray(data.recent) ? data.recent : [];
+    const current = data.current;
+    if (current && !recent.includes(current)) recent.unshift(current);
   } catch {
-    // If native browse failed or cancelled, fallback to prompt
+    // The modal still works with a typed path when the endpoint is unavailable.
   }
-  const current = $('repo-name')?.title || '';
-  const target = window.prompt('Enter path to repository folder:', current);
-  if (target && target.trim()) {
-    try {
-      const res = await api('/api/repo/switch', { path: target.trim() });
-      if (res.ok) {
-        banner('Switched to repository: ' + res.repo.name, 'ok');
-        await refreshAll();
-      }
-    } catch (e) {
-      banner(e.message, 'err');
+  if (!recent.length) {
+    box.append(el('div', 'No recent repositories recorded. Type a path or use Browse OS.', 'muted'));
+    return;
+  }
+  for (const repoPath of recent) {
+    const row = el('div', undefined, 'drawer-item');
+    row.style.cursor = 'pointer';
+    row.style.display = 'flex';
+    row.style.justifyContent = 'space-between';
+    row.append(el('span', repoPath), el('span', 'use', 'muted'));
+    row.onclick = () => { $('repo-path-input').value = repoPath; };
+    box.append(row);
+  }
+}
+
+function openRepoModal() {
+  $('repo-path-input').value = $('settings-active-repo')?.textContent?.trim() || '';
+  $('repo-modal').style.display = 'flex';
+  loadRecentRepos();
+}
+
+function closeRepoModal() {
+  $('repo-modal').style.display = 'none';
+}
+
+async function switchRepoTo(target) {
+  if (!target || !target.trim()) {
+    banner('Repository path is required', 'err');
+    return;
+  }
+  banner('Switching repository...', 'muted');
+  try {
+    const res = await api('/api/repo/switch', { path: target.trim() });
+    if (res.ok) {
+      closeRepoModal();
+      banner('Switched to repository: ' + res.repo.name, 'ok');
+      await refreshAll();
     }
+  } catch (err) {
+    banner(err.message, 'err');
   }
+}
+
+function triggerSwitchRepo() {
+  openRepoModal();
 }
 
 async function refreshAll() {
@@ -2385,20 +2644,51 @@ const switchBtn = $('btn-switch-repo');
 if (switchBtn) switchBtn.onclick = triggerSwitchRepo;
 const settingsSwitchBtn = $('settings-switch-repo-btn');
 if (settingsSwitchBtn) settingsSwitchBtn.onclick = triggerSwitchRepo;
+$('repo-modal-cancel').onclick = closeRepoModal;
+$('repo-modal-switch').onclick = () => switchRepoTo($('repo-path-input').value);
+$('repo-path-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') switchRepoTo($('repo-path-input').value);
+});
+$('repo-browse-os').onclick = async () => {
+  banner('Waiting for the operating system folder picker...', 'muted');
+  try {
+    const browseRes = await api('/api/repo/browse', {});
+    if (browseRes.switched) {
+      closeRepoModal();
+      banner('Switched to repository: ' + browseRes.repo.name, 'ok');
+      await refreshAll();
+    } else {
+      banner('', '');
+    }
+  } catch (err) {
+    banner(err.message, 'err');
+  }
+};
 
 renderCardsSkeleton();
 renderKnowledgeSkeleton();
 refreshKnowledge();
 
 let liveRefreshTimer = null;
-function scheduleLiveRefresh() {
-  if (liveRefreshTimer) clearTimeout(liveRefreshTimer);
-  liveRefreshTimer = setTimeout(() => {
-    loadHealth().catch(() => {});
-    if (currentTab === 'knowledge') refreshKnowledge();
-    else if (currentTab === 'review') loadReview();
-    else if (currentTab === 'undo') loadCommits();
-  }, 200);
+let liveRefreshRunning = false;
+let lastLiveSignature = '';
+function scheduleLiveRefresh(signature) {
+  if (signature && signature === lastLiveSignature) return;
+  lastLiveSignature = signature || String(Date.now());
+  clearTimeout(liveRefreshTimer);
+  liveRefreshTimer = setTimeout(async () => {
+    if (liveRefreshRunning) return;
+    liveRefreshRunning = true;
+    try {
+      await loadHealth();
+      if (currentTab === 'knowledge') await refreshKnowledge();
+      else if (currentTab === 'review') await loadReview();
+      else if (currentTab === 'conflicts') await loadConflicts();
+      else if (currentTab === 'undo') await loadCommits();
+    } finally {
+      liveRefreshRunning = false;
+    }
+  }, 250);
 }
 
 function initEventStream() {
@@ -2423,9 +2713,13 @@ function initEventStream() {
     if (indicator) indicator.classList.remove('offline');
   });
 
-  ['claim:written', 'claim:approved', 'claim:rejected', 'claim:superseded', 'claim:reverted', 'claim:attested', 'memory:changed', 'repo:switched'].forEach((evt) => {
-    es.addEventListener(evt, () => {
-      scheduleLiveRefresh();
+  es.addEventListener('repo:switched', () => {
+    location.reload();
+  });
+
+  ['claim:written', 'claim:approved', 'claim:rejected', 'claim:superseded', 'claim:reverted', 'claim:attested', 'conflict:resolved', 'memory:changed'].forEach((evt) => {
+    es.addEventListener(evt, (e) => {
+      scheduleLiveRefresh(evt + ':' + (e.data || ''));
     });
   });
 
@@ -2490,14 +2784,32 @@ const FAVICON_PNG = Buffer.from(
   'base64'
 );
 
-function saveDesktopRepo(repoPath: string): void {
+function desktopConfigFile(): string | null {
   const home = process.env.HOME || process.env.USERPROFILE;
-  if (!home) return;
-  const cfgDir = path.join(home, '.config', 'lore');
-  const cfgFile = path.join(cfgDir, 'desktop.json');
+  if (!home) return null;
+  return path.join(home, '.config', 'lore', 'desktop.json');
+}
+
+function readRecentRepos(): string[] {
+  const file = desktopConfigFile();
+  if (!file || !existsSync(file)) return [];
   try {
-    mkdirSync(cfgDir, { recursive: true });
-    writeFileSync(cfgFile, JSON.stringify({ repo: repoPath }) + '\n', 'utf8');
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as { repo?: string; recent?: unknown };
+    const list = Array.isArray(parsed.recent) ? parsed.recent.filter((x): x is string => typeof x === 'string') : [];
+    if (parsed.repo && !list.includes(parsed.repo)) list.unshift(parsed.repo);
+    return list.slice(0, 8);
+  } catch {
+    return [];
+  }
+}
+
+function saveDesktopRepo(repoPath: string): void {
+  const file = desktopConfigFile();
+  if (!file) return;
+  try {
+    mkdirSync(path.dirname(file), { recursive: true });
+    const recent = [repoPath, ...readRecentRepos().filter((x) => x !== repoPath)].slice(0, 8);
+    writeFileSync(file, JSON.stringify({ repo: repoPath, recent }) + '\n', 'utf8');
   } catch {
     // ignore
   }
@@ -2523,6 +2835,74 @@ function pickFolderNative(): string | null {
   } catch {
     return null;
   }
+}
+
+function objectText(objectJson: string): string {
+  try {
+    return String(JSON.parse(objectJson));
+  } catch {
+    return objectJson;
+  }
+}
+
+function claimBrief(db: DB, id: string | null): Record<string, unknown> | null {
+  if (!id) return null;
+  const row = db.prepare('SELECT * FROM claim WHERE id = ?').get(id) as ClaimRow | undefined;
+  if (!row) return null;
+  return {
+    id: row.id,
+    subject: row.subject_id,
+    predicate: row.predicate,
+    object: objectText(row.object_json),
+    state: row.state,
+    trust: row.trust,
+    authority: row.authority,
+    author: row.author,
+    session: row.session_id,
+    branch: row.session_id ? branchFor(row.session_id) : 'main',
+  };
+}
+
+function exportConflictViews(db: DB): { claim: unknown[]; merge: unknown[]; total: number } {
+  const claimRows = db
+    .prepare('SELECT * FROM claim_conflict WHERE resolved = 0 ORDER BY id DESC')
+    .all() as Array<{ id: number; subject_id: string; predicate: string; left_claim: string; right_claim: string; reason: string; detected_at: string }>;
+  const mergeRows = db
+    .prepare('SELECT * FROM merge_conflict WHERE resolved = 0 ORDER BY id DESC')
+    .all() as Array<{
+      id: number;
+      subject_id: string;
+      predicate: string;
+      ours_claim: string | null;
+      theirs_claim: string | null;
+      base_claim: string | null;
+      ours_tip: string | null;
+      theirs_tip: string | null;
+      reason: string | null;
+      ts: string;
+    }>;
+  const claim = claimRows.map((row) => ({
+    id: row.id,
+    subject: row.subject_id,
+    predicate: row.predicate,
+    reason: row.reason,
+    detected_at: row.detected_at,
+    left: claimBrief(db, row.left_claim),
+    right: claimBrief(db, row.right_claim),
+  }));
+  const merge = mergeRows.map((row) => ({
+    id: row.id,
+    subject: row.subject_id,
+    predicate: row.predicate,
+    reason: row.reason || 'merge conflict',
+    ts: row.ts,
+    ours_tip: row.ours_tip,
+    theirs_tip: row.theirs_tip,
+    ours: claimBrief(db, row.ours_claim),
+    theirs: claimBrief(db, row.theirs_claim),
+    base: claimBrief(db, row.base_claim),
+  }));
+  return { claim, merge, total: claim.length + merge.length };
 }
 
 export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHandle> {
@@ -2598,14 +2978,40 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
         try {
           if (url.pathname === '/api/approve') {
             const ids = Array.isArray(body.ids) ? body.ids.map(String) : body.claim ? [String(body.claim)] : [];
-            const result = approveDrafts(db, root, ref, ids);
-            broadcastEvent('claim:approved', { ids, ref, count: ids.length, timestamp: new Date().toISOString() });
-            json(res, result);
+            const groups = new Map<string, string[]>();
+            for (const id of ids) {
+              const row = db.prepare('SELECT session_id FROM claim WHERE id = ?').get(id) as
+                | { session_id: string | null }
+                | undefined;
+              const target = row?.session_id ? branchFor(row.session_id) : 'main';
+              groups.set(target, [...(groups.get(target) ?? []), id]);
+            }
+            if (!groups.size) groups.set(ref, []);
+            let changed: Array<{ claim_id: string; op: 'add' | 'retract' | 'restore' }> = [];
+            let skipped: Array<{ claim_id: string; reason: string }> = [];
+            const refs: string[] = [];
+            let principal: ActionResult['principal'] | null = null;
+            let commitId: string | null = null;
+            for (const [targetRef, groupIds] of groups.entries()) {
+              const result = approveDrafts(db, root, targetRef, groupIds);
+              principal = result.principal;
+              commitId = result.commitId ?? commitId;
+              changed = changed.concat(result.changed);
+              skipped = skipped.concat(result.skipped);
+              refs.push(targetRef);
+              broadcastEvent('claim:approved', { ids: groupIds, ref: targetRef, count: groupIds.length, timestamp: new Date().toISOString() });
+            }
+            json(res, { principal, changed, skipped, commitId, refs });
             return;
           }
           if (url.pathname === '/api/reject') {
-            const result = rejectDraft(db, root, ref, String(body.claim), body.reason ? String(body.reason) : undefined);
-            broadcastEvent('claim:rejected', { claim: body.claim, reason: body.reason, ref, timestamp: new Date().toISOString() });
+            const claimId = String(body.claim);
+            const row = db.prepare('SELECT session_id FROM claim WHERE id = ?').get(claimId) as
+              | { session_id: string | null }
+              | undefined;
+            const targetRef = row?.session_id ? branchFor(row.session_id) : 'main';
+            const result = rejectDraft(db, root, targetRef, claimId, body.reason ? String(body.reason) : undefined);
+            broadcastEvent('claim:rejected', { claim: body.claim, reason: body.reason, ref: targetRef, timestamp: new Date().toISOString() });
             json(res, result);
             return;
           }
@@ -2699,6 +3105,159 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
             json(res, result);
             return;
           }
+          if (url.pathname === '/api/conflicts/resolve') {
+            const kind = String(body.kind || '');
+            const id = Number(body.id);
+            const take = String(body.take || '');
+            if ((kind !== 'claim' && kind !== 'merge') || !Number.isFinite(id) || !['ours', 'theirs', 'both'].includes(take)) {
+              json(res, { error: 'kind (claim|merge), id, and take (ours|theirs|both) are required' }, 400);
+              return;
+            }
+            const reason = body.reason ? String(body.reason) : undefined;
+
+            if (kind === 'claim') {
+              if (take === 'both') {
+                json(res, { error: 'a one-valued tier-1 conflict cannot keep both values; choose ours or theirs' }, 400);
+                return;
+              }
+              const row = db
+                .prepare('SELECT * FROM claim_conflict WHERE id = ? AND resolved = 0')
+                .get(id) as { id: number; subject_id: string; predicate: string; left_claim: string; right_claim: string } | undefined;
+              if (!row) {
+                json(res, { error: `no open claim conflict ${id}` }, 404);
+                return;
+              }
+              const principal = requireAction(root, 'resolve', { subject: row.subject_id });
+              const result = resolveFact(
+                db,
+                root,
+                'main',
+                row.subject_id,
+                row.predicate,
+                take === 'ours' ? row.left_claim : row.right_claim,
+                principal,
+                reason,
+              );
+              broadcastEvent('conflict:resolved', { kind, id, take, subject: row.subject_id, timestamp: new Date().toISOString() });
+              json(res, { ok: true, kind, take, applied: true, ...result });
+              return;
+            }
+
+            const row = db
+              .prepare('SELECT * FROM merge_conflict WHERE id = ? AND resolved = 0')
+              .get(id) as {
+              id: number;
+              subject_id: string;
+              predicate: string;
+              ours_tip: string | null;
+              theirs_tip: string | null;
+              ours_claim: string | null;
+              theirs_claim: string | null;
+            } | undefined;
+            if (!row) {
+              json(res, { error: `no open merge conflict ${id}` }, 404);
+              return;
+            }
+            requireAction(root, 'resolve', { subject: row.subject_id });
+
+            let targetRef = ref;
+            if (row.ours_tip && head(db, targetRef) !== row.ours_tip) {
+              const owner = db.prepare('SELECT name FROM ref WHERE commit_id = ? LIMIT 1').get(row.ours_tip) as
+                | { name: string }
+                | undefined;
+              if (owner) targetRef = owner.name;
+            }
+            const oursTip = head(db, targetRef) ?? row.ours_tip;
+            if (!oursTip || !row.theirs_tip) {
+              json(res, { error: 'merge conflict is missing branch tips' }, 400);
+              return;
+            }
+
+            db.prepare(
+              `INSERT INTO resolution(subject_id, predicate, take, reason, ts, applied)
+               VALUES (?, ?, ?, ?, ?, 0)
+               ON CONFLICT(subject_id, predicate) DO UPDATE SET
+                 take = excluded.take, reason = excluded.reason, ts = excluded.ts, applied = 0`,
+            ).run(row.subject_id, row.predicate, take, reason ?? 'resolved in lore ui', new Date().toISOString());
+
+            const pending = db.prepare("SELECT subject_id, predicate, take FROM resolution WHERE applied = 0").all() as Array<{
+              subject_id: string;
+              predicate: string;
+              take: 'ours' | 'theirs' | 'both';
+            }>;
+            const pendingResolution = new Map(pending.map((r) => [`${r.subject_id}\u0000${r.predicate}`, r.take]));
+            const plan = planMerge(db, root, oursTip, row.theirs_tip, {
+              strategy: 'authority',
+              strict: false,
+              pendingResolution,
+              ontology: loadOntology(root),
+            });
+
+            if (plan.mode === 'conflict') {
+              json(res, {
+                ok: true,
+                kind,
+                take,
+                applied: false,
+                remaining: plan.conflicts.length,
+                message: `Resolution recorded; ${plan.conflicts.length} merge conflict(s) still need a decision`,
+              });
+              return;
+            }
+
+            if (plan.mode === 'up-to-date') {
+              db.transaction(() => {
+                db.prepare('UPDATE resolution SET applied = 1 WHERE applied = 0').run();
+                db.prepare('UPDATE merge_conflict SET resolved = 1 WHERE resolved = 0').run();
+              })();
+              broadcastEvent('conflict:resolved', { kind, id, take, timestamp: new Date().toISOString() });
+              json(res, { ok: true, kind, take, applied: true, mode: plan.mode, commitId: null });
+              return;
+            }
+
+            if (plan.mode === 'fast-forward') {
+              db.transaction(() => {
+                db.prepare(
+                  'INSERT INTO ref(name, commit_id) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET commit_id = excluded.commit_id',
+                ).run(targetRef, row.theirs_tip);
+                db.prepare('UPDATE resolution SET applied = 1 WHERE applied = 0').run();
+                db.prepare('UPDATE merge_conflict SET resolved = 1 WHERE resolved = 0').run();
+              })();
+              broadcastEvent('conflict:resolved', { kind, id, take, timestamp: new Date().toISOString() });
+              json(res, { ok: true, kind, take, applied: true, mode: plan.mode, commitId: row.theirs_tip });
+              return;
+            }
+
+            const entries = [
+              ...plan.add.map((claimId) => ({ claim_id: claimId, op: 'add' as const })),
+              ...plan.retract.map((claimId) => ({ claim_id: claimId, op: 'retract' as const })),
+            ];
+            const commitId = db.transaction(() => {
+              const committed = makeCommit(db, {
+                ref: targetRef,
+                entries,
+                message: `resolve ui: ${row.subject_id} ${row.predicate} take ${take}`,
+                author: 'human:ui',
+                kind: 'merge',
+                mergeParent: row.theirs_tip,
+              });
+              const insertDecision = db.prepare(
+                `INSERT INTO merge_decision(commit_id, subject_id, predicate, winner, loser, rule, reason, actor, ts)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              );
+              const ts = new Date().toISOString();
+              for (const d of plan.decisions) {
+                insertDecision.run(committed, d.subject, d.predicate, d.winner, d.loser, d.rule, d.reason, 'human:ui', ts);
+              }
+              db.prepare('UPDATE resolution SET applied = 1 WHERE applied = 0').run();
+              db.prepare('UPDATE merge_conflict SET resolved = 1 WHERE resolved = 0').run();
+              return committed;
+            })();
+            broadcastEvent('conflict:resolved', { kind, id, take, timestamp: new Date().toISOString() });
+            json(res, { ok: true, kind, take, applied: true, mode: plan.mode, commitId, ref: targetRef, added: plan.add.length, retracted: plan.retract.length });
+            return;
+          }
+
           if (url.pathname === '/api/repo/browse') {
             const chosen = pickFolderNative();
             if (!chosen) {
@@ -2959,7 +3518,10 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
           if (freshness === 'stale') stale += 1;
           if (freshness === 'ahead') ahead += 1;
         }
-        const conflicts = (db.prepare('SELECT COUNT(*) n FROM merge_conflict WHERE resolved = 0').get() as { n: number }).n;
+        const mergeConflictRow = db.prepare('SELECT COUNT(*) n FROM merge_conflict WHERE resolved = 0').get() as { n: number };
+        const claimConflictRow = db.prepare('SELECT COUNT(*) n FROM claim_conflict WHERE resolved = 0').get() as { n: number };
+        const mergeConflicts = mergeConflictRow.n;
+        const claimConflicts = claimConflictRow.n;
         json(res, {
           branch: ref,
           tip,
@@ -2968,7 +3530,9 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
           retracted: byState.get('retracted') ?? 0,
           stale,
           ahead,
-          conflicts,
+          conflicts: mergeConflicts + claimConflicts,
+          merge_conflicts: mergeConflicts,
+          claim_conflicts: claimConflicts,
           sync: getSyncStatus(db, root),
           repo: {
             name: path.basename(root),
@@ -2978,8 +3542,15 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
         return;
       }
 
+      if (url.pathname === '/api/repo/recent') {
+        const recent = readRecentRepos().filter((repoPath) => existsSync(repoPath));
+        json(res, { current: root, recent: [root, ...recent.filter((repoPath) => path.resolve(repoPath) !== root)].slice(0, 8) });
+        return;
+      }
+
       if (url.pathname === '/api/claims') {
-        const limit = Math.min(Number(url.searchParams.get('limit') ?? 200) || 200, 1000);
+        const limit = Math.max(0, Math.min(Number(url.searchParams.get('limit') ?? 200) || 200, 1000));
+        const offset = Math.max(0, Number(url.searchParams.get('offset') ?? 0) || 0);
         const status = url.searchParams.get('status');
         const q = url.searchParams.get('q');
         const fresh = url.searchParams.get('fresh');
@@ -2995,39 +3566,40 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
         }
         const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
         const rows = db
-          .prepare(`SELECT * FROM claim ${where} ORDER BY tx_from DESC, rowid DESC LIMIT ?`)
-          .all(...params, limit) as Array<Record<string, unknown>>;
+          .prepare(`SELECT * FROM claim ${where} ORDER BY tx_from DESC, rowid DESC`)
+          .all(...params) as ClaimRow[];
 
         const currentGitHead = gitHead(root);
         const freshnessOpts = { head: currentGitHead };
-        const out = rows
+        const matched = rows
           .map((row) => {
-            const id = String(row.id);
-            const freshness = claimFreshness(db, root, id, freshnessOpts);
+            const freshness = claimFreshness(db, root, row.id, freshnessOpts);
             const evidence = db
               .prepare('SELECT kind, ref, status FROM evidence WHERE claim_id = ? ORDER BY kind, ref')
-              .all(id) as Array<{ kind: string; ref: string; status: string }>;
+              .all(row.id) as Array<{ kind: string; ref: string; status: string }>;
             return {
-              id,
+              id: row.id,
               subject: row.subject_id,
               predicate: row.predicate,
-              object: (() => {
-                try {
-                  return String(JSON.parse(String(row.object_json)));
-                } catch {
-                  return String(row.object_json);
-                }
-              })(),
+              object: objectText(row.object_json),
               state: row.state,
+              trust: row.trust,
               authority: row.authority,
               author: row.author,
+              session: row.session_id,
+              origin_branch: row.session_id ? branchFor(row.session_id) : 'main',
               freshness,
               evidence,
             };
           })
           .filter((row) => !fresh || row.freshness === fresh);
 
-        json(res, out);
+        json(res, {
+          claims: matched.slice(offset, offset + limit),
+          total: matched.length,
+          offset,
+          limit,
+        });
         return;
       }
 
@@ -3075,7 +3647,7 @@ export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHa
       }
 
       if (url.pathname === '/api/conflicts') {
-        json(res, db.prepare('SELECT * FROM merge_conflict WHERE resolved = 0 ORDER BY id DESC').all());
+        json(res, exportConflictViews(db));
         return;
       }
 

@@ -44,7 +44,7 @@ stale, then accept the new reality with `verify --accept`.*
 
 **Canon demo:** [memory stops being injected after npm → pnpm](scripts/demo/canon-pnpm.sh).
 
-**GUI:** `lore ui` serves a live dashboard (Health, Sync, Review) with real-time SSE streaming. See [docs/desktop.md](docs/desktop.md).
+**GUI:** `lore ui` serves a live dashboard (Health, Sync, Review, Conflicts) with SSE and server-side search. See [docs/desktop.md](docs/desktop.md).
 
 ![Lore dashboard](docs/assets/dashboard.png)
 

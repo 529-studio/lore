@@ -434,13 +434,14 @@ No LLM judge. Outcome metrics on real repositories:
 | sync carries commits only | bundle import merges per-claim trust (retracted wins, newer verification wins, flags propagate) | a fetch must not resurrect a contested value |
 | trust changes via evidence | `canon resolve` keeps one value; redact/purge close the pair | contested memory needs an auditable exit |
 | no team sync | `lore remote` + `fetch`/`push` over directory or Postgres, `bundle` for air gaps | air-gapped repos cannot depend on git hosts |
-| `--as-of` reads the commit at that instant | folds the whole ancestry, skipping commits after the instant | a single commit chain hides facts on sibling branches before a merge |
+| `--as-of` reads a commit instant | folds ancestry, skipping later commits | siblings before a merge must stay visible |
 | hash cache keyed by content | keyed by size, mtime and ctime | mtime can be restored; ctime changes on any inode write |
 | file/test evidence auto-promotes | only when the evidence hash was actually observed | an unhashable file is not evidence |
-| `conflict_rate` over 20 sessions | aborts among merges expected to succeed; deliberate conflicts reported separately | measuring a designed conflict against a production threshold is a category error |
+| `conflict_rate` over 20 sessions | aborts only among merges expected to succeed; designed conflicts separate | a designed conflict is not a production failure |
 | MCP has five tools | eight tools and resource subscriptions | without approve and resources, MCP memory is incomplete |
 | CLI has static config | `lore setup` auto-wires MCP and `lore config` manages settings | manual editing was error-prone and missed session isolation |
 | UI has flat triple table only | Knowledge Hub defaults to Entity Dossier view with bulleted facts | raw triples fragmented memory and confused users on retrieval |
+| UI one claim page, no resolver | server search, label culling, repo modal, Conflicts tab | large stores stay usable |
 | sync carries commits only | `lore replicate` streams SQLite WAL to object store | clusters require real-time streaming replication |
 | search couples bi-temporal dimensions | decoupled bi-temporal search (`--valid-at`, `--tx-at`, `lore timeline`) | audit requires querying past beliefs independently |
 | UI is static on read | live Server-Sent Events (`/api/events`) with SQLite version detection | mutations must reflect live without manual refresh |
