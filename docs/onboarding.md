@@ -16,8 +16,8 @@ memory on for an agent.
    `issues/`, `content/`.
 2. **Suggests a template** and copies it to `lore.ontology.yml` if that file does not exist yet.
 3. **Initialises** `.lore/` (and adds it to `.gitignore`).
-4. **Ingests** on `agent/onboard`, then promotes that baseline to `main`, so every agent session
-   forked from `main` sees the claims immediately.
+4. **Ingests** on a fresh `agent/onboard_<id>` branch, then promotes that baseline to `main`, so
+   every agent session forked from `main` sees the claims immediately.
 5. **Configures MCP** for detected agents (unless `--no-setup`) and prints next steps: `lore ui`,
    `lore review`, `lore remote`.
 
@@ -49,8 +49,9 @@ Without `--yes` and with a TTY, it asks which template to use and whether to ing
 
 - It never overwrites an existing `lore.ontology.yml`.
 - It merges `lore` into existing MCP client configs; other servers are preserved.
-- It does not promote the baseline when team policy denies `promote`: the claims stay on
-  `agent/onboard` for a maintainer to review.
+- It does not promote the baseline when team policy denies `promote`: the claims stay on the
+  onboarding branch for a maintainer to review.
+- It never promotes a pre-existing `agent/onboard` ref; every run uses a fresh branch id.
 
 ## Desktop
 

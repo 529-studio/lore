@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import pc from 'picocolors';
 import { stateDirFor } from '../db.js';
 import { initCommand } from './init.js';
-import { ingestCommand, ONBOARD_SESSION, publishIngestBaseline } from './ingest.js';
+import { createOnboardSession, ingestCommand, publishIngestBaseline } from './ingest.js';
 import { installAgentRules } from './rules.js';
 import { detectWorkspaceAgents, setupCommand } from './setup.js';
 
@@ -140,8 +140,9 @@ export async function onboardCommand(opts: OnboardOptions = {}): Promise<void> {
     }
     installAgentRules(root);
     if (doIngest) {
-      ingestCommand({ session: ONBOARD_SESSION });
-      publishIngestBaseline(root);
+      const session = createOnboardSession();
+      ingestCommand({ session });
+      publishIngestBaseline(root, session);
     }
     if (doSetup) {
       const target = typeof opts.setup === 'string' ? opts.setup : 'all';

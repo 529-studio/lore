@@ -125,6 +125,14 @@ try {
     }
   }
 
+  // Work left on the legacy agent/onboard branch must not be published by a later
+  // onboarding run: each run uses a fresh branch.
+  execFileSync(
+    'node',
+    [cli, 'write', '--subject', 'env:ONBOARD_LEFTOVER', '--predicate', 'read_by', '--object', 'must not promote', '--kind', 'human', '--author', 'human:tester'],
+    { cwd: tmp, env: { ...process.env, LORE_SESSION: 'onboard' } },
+  );
+
   // Step 5: Test idempotency (re-running init --full must succeed cleanly)
   const rerunOut = execFileSync(
     'node',
@@ -135,6 +143,14 @@ try {
   const startMatches = rerunAgents.match(/<!-- lore:memory-protocol:start -->/g) || [];
   if (startMatches.length !== 1) {
     throw new Error(`expected exactly 1 protocol marker block, found ${startMatches.length}`);
+  }
+  const leftoverOut = execFileSync('node', [cli, 'search', 'ONBOARD_LEFTOVER'], {
+    cwd: tmp,
+    encoding: 'utf8',
+    env: { ...process.env, LORE_SESSION: 'claude' },
+  });
+  if (leftoverOut.includes('ONBOARD_LEFTOVER')) {
+    throw new Error(`onboarding promoted unrelated agent/onboard work, got:\n${leftoverOut}`);
   }
 
   // Step 6: containerized monorepo detection and non-redundant setup hint.

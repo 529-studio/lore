@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import pc from 'picocolors';
 import { openDb, requireRoot } from '../db.js';
 import { extractAll, type Candidate } from '../extract/index.js';
@@ -11,8 +12,13 @@ import { loadOntology } from '../ontology.js';
 import { branchFor, currentSession, ensureSession } from '../session.js';
 import { promoteCommand } from './promote.js';
 
-/** The onboarding ingest runs on its own branch so it never mixes with an agent session. */
-export const ONBOARD_SESSION = 'onboard';
+/**
+ * The onboarding ingest runs on a fresh branch so it never promotes unrelated
+ * work from a pre-existing `agent/onboard` ref or from the caller's session.
+ */
+export function createOnboardSession(): string {
+  return `onboard_${randomUUID().slice(0, 8)}`;
+}
 
 function evidenceRef(c: Candidate): string {
   if (c.subject.startsWith('file:')) return c.subject.slice(5).split('#')[0];
@@ -29,20 +35,19 @@ function evidenceRef(c: Candidate): string {
  * Returns true when main moved. A contributor who cannot promote keeps the
  * baseline on its branch instead of failing onboarding.
  */
-export function publishIngestBaseline(root: string): boolean {
+export function publishIngestBaseline(root: string, session: string): boolean {
   const db = openDb(root);
-  const tip = head(db, branchFor(ONBOARD_SESSION));
+  const ref = branchFor(session);
+  const tip = head(db, ref);
   const mainTip = head(db, 'main');
   db.close();
   if (!tip || tip === mainTip) return false;
   try {
-    promoteCommand({ session: ONBOARD_SESSION });
+    promoteCommand({ session });
     return true;
   } catch (error) {
     if (error instanceof PolicyError) {
-      console.log(
-        pc.yellow(`  baseline kept on ${branchFor(ONBOARD_SESSION)}: ${error.message}`),
-      );
+      console.log(pc.yellow(`  baseline kept on ${ref}: ${error.message}`));
       return false;
     }
     throw error;

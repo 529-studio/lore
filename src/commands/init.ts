@@ -9,7 +9,7 @@ import { ensureConfig, writeConfig } from '../config.js';
 import { isLinkedGitWorktree } from '../util/git.js';
 import { detectWorkspaceAgents, setupCommand } from './setup.js';
 import { installAgentRules } from './rules.js';
-import { ingestCommand, ONBOARD_SESSION, publishIngestBaseline } from './ingest.js';
+import { createOnboardSession, ingestCommand, publishIngestBaseline } from './ingest.js';
 
 export interface InitOptions {
   root?: string;
@@ -96,8 +96,9 @@ export function initCommand(opts: InitOptions = {}): void {
     const previous = process.cwd();
     try {
       process.chdir(root);
-      ingestCommand({ root, session: ONBOARD_SESSION });
-      publishIngestBaseline(root);
+      const session = createOnboardSession();
+      ingestCommand({ root, session });
+      publishIngestBaseline(root, session);
     } finally {
       process.chdir(previous);
     }
