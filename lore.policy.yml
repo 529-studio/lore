@@ -1,0 +1,35 @@
+# Team policy for the lore repository itself.
+# Team mode is enabled by LORE_TEAM_SECRET; without that variable the store runs local-only.
+# Evidence-backed claims (T0 tests, T1 files/tools) auto-promote; human chat (T3) and agent
+# inference (T4) stay maintainer-only, so agent memory cannot rewrite the specification or
+# the release scripts on its own.
+
+roles:
+  maintainers: [giangdq.01012003@gmail.com]
+  contributors: [vuthanhdat181@gmail.com]
+  machines: ["*"]
+
+approve:
+  t0: ["*"]
+  t1: ["*"]
+  t3: [maintainers]
+  t4: [maintainers]
+
+resolve:
+  "*": [maintainers]
+
+redact: [maintainers]
+purge: [maintainers]
+promote: [maintainers]
+attest: [maintainers]
+revert: [maintainers]
+
+# The specification, the agent contract and the publishing surface are written by a
+# maintainer, not by an ingested claim.
+protected:
+  "file:AGENTS.md": [maintainers]
+  "file:SPEC.md": [maintainers]
+  "file:SECURITY.md": [maintainers]
+  "file:package.json": [maintainers]
+  "file:scripts/*": [maintainers]
+  "file:.github/workflows/*": [maintainers]
