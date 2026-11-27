@@ -307,6 +307,24 @@ try {
     for (const [table, count] of Object.entries(left.rows[0])) {
       assert.equal(Number(count), 0, `purge left ${table} rows for ${purgeId} on the hub`);
     }
+    // A bundle that ships the claim without its tombstone must not restore it:
+    // the hub sweeps against stored purges, not only the incoming bundle.
+    const mainRow = await hubDb.query('SELECT main_commit FROM repos WHERE repo_id = $1', [repoId]);
+    const replay = await postJson(`${HUB}/v1/repos/${encodeURIComponent(repoId)}/push`, ownerToken, {
+      expected_main: mainRow.rows[0]?.main_commit ?? null,
+      bundle: {
+        format: 'lore-bundle/1',
+        repo_id: repoId,
+        refs: [],
+        claims: [{ id: purgeId, subject_id: 'doc:smoke/purge.md', predicate: 'has_section', state: 'active' }],
+      },
+    });
+    assert.equal(replay.status, 200, `replay push returned ${replay.status}: ${JSON.stringify(replay.body)}`);
+    const reinserted = await hubDb.query('SELECT count(*) AS n FROM repo_claims WHERE repo_id = $1 AND id = $2', [
+      repoId,
+      purgeId,
+    ]);
+    assert.equal(Number(reinserted.rows[0].n), 0, 'a push without the purge tombstone resurrected the claim');
   } finally {
     await hubDb.end();
   }

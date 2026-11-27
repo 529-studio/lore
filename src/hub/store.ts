@@ -588,12 +588,17 @@ export async function push(client: Client, input: PushInput): Promise<PushResult
         [repoId, 'purge', row.claim_id, row],
       );
     }
-    const purgedClaims = new Set(
-      (bundle.purge_audits ?? []).map((row) => String(row.claim_id ?? '')).filter(Boolean),
+    // A purge is the strongest tombstone: use every purge the hub already
+    // knows, not only the ones in this bundle, so a stale or crafted push
+    // cannot reinsert a deleted claim. The sweep runs in this transaction, or
+    // a fresh pull would replay a fact the owner deleted.
+    const { rows: purgedRows } = await client.query<{ claim_id: string }>(
+      "SELECT claim_id FROM repo_tombstones WHERE repo_id = $1 AND kind = 'purge'",
+      [repoId],
     );
-    // A purge is the strongest tombstone: the claim row and everything keyed to
-    // it must disappear in this transaction, or a fresh pull would replay a
-    // fact the owner deleted. Mirrors the SQLite importer's purge sweep.
+    const purgedClaims = new Set<string>(
+      purgedRows.map((row) => String(row.claim_id ?? '')).filter(Boolean),
+    );
     if (purgedClaims.size > 0) {
       const ids = [...purgedClaims];
       await client.query('DELETE FROM repo_evidence WHERE repo_id = $1 AND claim_id = ANY($2::text[])', [repoId, ids]);
