@@ -5,6 +5,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 
 ## [Unreleased]
 
+### Fixed
+
+- `lore purge` failed with `FOREIGN KEY constraint failed` for any claim the session had read: it
+  deleted `commit_entry`, `evidence` and `redaction` but not `claim_read`, and `claim_conflict` had
+  the same hole. Both child sets are now removed in the same transaction (#219).
+- `lore.ontology.yml` declared only 21 of the 28 extractor predicates, so `section_title`, `title`,
+  `status`, `provides_command`, `requires_runtime`, `has_keyword` and `detects` were unknown, doctor
+  warned, and re-ingest could not re-derive markdown section claims — obsolete `doc:` claims stayed
+  stale permanently. The file now matches `templates/code/lore.ontology.yml` (#219).
+
 ## [0.6.0] — 2026-11-26
 
 Sprint 11: team readiness and signal quality. The hub, proposals and cross-repository memory make a
