@@ -588,7 +588,34 @@ export async function push(client: Client, input: PushInput): Promise<PushResult
         [repoId, 'purge', row.claim_id, row],
       );
     }
-    const purgedClaims = new Set((bundle.purge_audits ?? []).map((row) => String(row.claim_id ?? '')));
+    // A purge is the strongest tombstone: use every purge the hub already
+    // knows, not only the ones in this bundle, so a stale or crafted push
+    // cannot reinsert a deleted claim. The sweep runs in this transaction, or
+    // a fresh pull would replay a fact the owner deleted.
+    const { rows: purgedRows } = await client.query<{ claim_id: string }>(
+      "SELECT claim_id FROM repo_tombstones WHERE repo_id = $1 AND kind = 'purge'",
+      [repoId],
+    );
+    const purgedClaims = new Set<string>(
+      purgedRows.map((row) => String(row.claim_id ?? '')).filter(Boolean),
+    );
+    if (purgedClaims.size > 0) {
+      const ids = [...purgedClaims];
+      await client.query('DELETE FROM repo_evidence WHERE repo_id = $1 AND claim_id = ANY($2::text[])', [repoId, ids]);
+      await client.query('DELETE FROM repo_commit_entries WHERE repo_id = $1 AND claim_id = ANY($2::text[])', [
+        repoId,
+        ids,
+      ]);
+      await client.query(
+        'DELETE FROM repo_attestations WHERE repo_id = $1 AND (claim_id = ANY($2::text[]) OR attestation_claim_id = ANY($2::text[]))',
+        [repoId, ids],
+      );
+      await client.query(
+        "DELETE FROM repo_conflicts WHERE repo_id = $1 AND (payload->>'left_claim' = ANY($2::text[]) OR payload->>'right_claim' = ANY($2::text[]))",
+        [repoId, ids],
+      );
+      await client.query('DELETE FROM repo_claims WHERE repo_id = $1 AND id = ANY($2::text[])', [repoId, ids]);
+    }
     // Quorum counts reviewer tokens, not client-authored actor strings: only a
     // maintainer or auditor submission may create a row that counts, and the
     // row records which token submitted it.
@@ -625,13 +652,14 @@ export async function push(client: Client, input: PushInput): Promise<PushResult
     }
     // Quorum is a second gate on protected subjects and applies to every role:
     // it is the control that makes N-of-M review independent of rank. Claims
-    // arriving retracted need no quorum; they remove rather than assert.
+    // arriving retracted or purged need no quorum; they remove rather than assert.
     if (policy?.protected) {
       const checked = new Set<string>();
       for (const claim of bundle.claims ?? []) {
         const id = String(claim.id ?? '');
         const subject = String(claim.subject_id ?? '');
         if (!id || !subject || claim.state === 'retracted' || checked.has(id)) continue;
+        if (purgedClaims.has(id)) continue;
         checked.add(id);
         const required = quorumFor(policy, subject);
         if (required <= 0) continue;
