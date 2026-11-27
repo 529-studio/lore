@@ -83,11 +83,14 @@ export async function httpPull(
 export async function httpPullExternal(
   remote: HttpRemote,
   sourceRepoId: string,
+  subscriberRepoId?: string,
 ): Promise<{ bundle: ExternalBundle; cursor: number }> {
   const { json } = await call<{ bundle: ExternalBundle; cursor: number }>(
     remote,
     `/v1/repos/${encodeURIComponent(sourceRepoId)}/external`,
     {},
+    60_000,
+    subscriberRepoId,
   );
   return json;
 }

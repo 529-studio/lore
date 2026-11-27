@@ -61,9 +61,10 @@ export async function syncLinkedRepos(
   root: string,
   remote: HttpRemote,
 ): Promise<LinkedSyncResult[]> {
+  const subscriberRepoId = readConfig(root)?.repo_id ?? undefined;
   const out: LinkedSyncResult[] = [];
   for (const target of linkTargets(loadPolicy(root))) {
-    const pulled = await httpPullExternal(remote, target.repoId);
+    const pulled = await httpPullExternal(remote, target.repoId, subscriberRepoId);
     out.push({ ...importExternalBundle(db, target.slug, pulled.bundle), cursor: pulled.cursor });
   }
   return out;
