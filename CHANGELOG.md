@@ -5,8 +5,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 
 ## [Unreleased]
 
+## [0.6.1] — 2026-11-27
+
+Patch release: hub purges now delete rows, and the end-to-end smoke script runs on macOS.
+
 ### Fixed
 
+- `lore-hub` push inserted the purge tombstone but kept the purged claim in `repo_claims` and left
+  its `repo_evidence`, `repo_commit_entries`, `repo_conflicts` and `repo_attestations` rows, so a
+  fresh clone could still pull the deleted fact. All five tables are now swept in the same
+  transaction as the tombstone (#220).
 - `lore purge` failed with `FOREIGN KEY constraint failed` for any claim the session had read: it
   deleted `commit_entry`, `evidence` and `redaction` but not `claim_read`, and `claim_conflict` had
   the same hole. Both child sets are now removed in the same transaction (#219).
@@ -14,6 +22,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
   `status`, `provides_command`, `requires_runtime`, `has_keyword` and `detects` were unknown, doctor
   warned, and re-ingest could not re-derive markdown section claims — obsolete `doc:` claims stayed
   stale permanently. The file now matches `templates/code/lore.ontology.yml` (#219).
+- `scripts/smoke.sh` aborted early on macOS with exit `141`: `grep -oE … | head -1` closed the pipe
+  while `grep` was still writing, and `set -o pipefail` turned the SIGPIPE into a failure. The
+  script now selects the first line with a full-stream reader, and `… | grep -q` assertions were
+  replaced by a full-stream `grep -c` helper for the same reason (#220).
+
+### Changed
+
+- Version bumped to 0.6.1, including `serverInfo.version` of both the MCP server and `lore-hub`.
 
 ## [0.6.0] — 2026-11-26
 
@@ -299,6 +315,7 @@ First public release.
 - Evidence paths are resolved with `realpath`, confined to the repository, restricted to regular
   files, and capped at 4 MB.
 
+[0.6.1]: https://github.com/529-studio/lore/releases/tag/v0.6.1
 [0.6.0]: https://github.com/529-studio/lore/releases/tag/v0.6.0
 [0.5.0]: https://github.com/529-studio/lore/releases/tag/v0.5.0
 [0.2.0]: https://github.com/529-studio/lore/releases/tag/v0.2.0

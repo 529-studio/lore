@@ -73,8 +73,10 @@ token's role and subject:
   tombstones.
 
 `redact` and `purge` travel as tombstones in both directions, so a pull cannot resurrect a deleted or
-redacted claim. Attestations travel as rows too (`repo_attestations`), because a quorum needs the
-review records even when the attested claim itself is already on the hub.
+redacted claim. A purge push also deletes the claim's `repo_claims`, `repo_evidence`,
+`repo_commit_entries`, `repo_conflicts` and `repo_attestations` rows in the same transaction, so the
+hub never retains a deleted fact. Attestations travel as rows too (`repo_attestations`), because a
+quorum needs the review records even when the attested claim itself is already on the hub.
 
 ## CI baseline
 

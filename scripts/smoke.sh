@@ -58,6 +58,11 @@ git add -A
 git commit -qm "smoke baseline"
 
 fail() { echo "FAIL: $1" >&2; exit 1; }
+# `head -1` and `grep -q` close the pipe as soon as they have their answer; the
+# upstream command then dies of SIGPIPE (141) and `pipefail` fails the script.
+# Both helpers read the whole stream before exiting.
+first_line() { sed -n '1p'; }
+stream_has() { grep -c -- "$@" >/dev/null; }
 expect_contains() { grep -qF "$2" <<<"$1" || fail "expected to contain: $2"; }
 expect_not_contains() { if grep -qF "$2" <<<"$1"; then fail "expected NOT to contain: $2"; fi; }
 
@@ -103,13 +108,13 @@ BRANCH="agent/$SESSION"
 DIFF="$(lore diff main..$BRANCH)"
 expect_contains "$DIFF" "added"
 
-TARGET="$(lore log -n 1 | grep -oE '^k_[a-f0-9]+' | head -1)"
+TARGET="$(lore log -n 1 | grep -oE '^k_[a-f0-9]+' | first_line)"
 lore revert "$TARGET" >/dev/null
 AFTER_REVERT="$(lore diff main..$BRANCH | grep -oE '[0-9]+ added' | grep -oE '^[0-9]+')"
 [ "$AFTER_REVERT" -lt 100 ] || fail "revert did not reduce active claims"
 
 # revert the revert restores the claim
-REVERT_COMMIT="$(lore log -n 1 | grep -oE '^k_[a-f0-9]+' | head -1)"
+REVERT_COMMIT="$(lore log -n 1 | grep -oE '^k_[a-f0-9]+' | first_line)"
 lore revert "$REVERT_COMMIT" >/dev/null
 expect_contains "$(lore diff main..$BRANCH)" "added"
 
@@ -187,7 +192,7 @@ set -e
 [ "$STATUS_STRICT" -eq 3 ] || fail "expected status --strict exit 3 while drifted, got $STATUS_STRICT"
 
 # verify --accept re-observes a legitimate change instead of staying stale
-ACCEPT_CLAIM="$(lore blame env:DEMO_TOKEN | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+ACCEPT_CLAIM="$(lore blame env:DEMO_TOKEN | grep -oE 'c_[a-f0-9]{32}' | first_line)"
 expect_contains "$(lore verify "$ACCEPT_CLAIM")" "stale"
 expect_contains "$(lore verify "$ACCEPT_CLAIM" --accept)" "valid"
 expect_contains "$(lore blame env:DEMO_TOKEN)" "valid"
@@ -212,12 +217,12 @@ CLEAN_CODE=$?
 set -e
 [ "$CLEAN_CODE" -eq 0 ] || fail "expected verify --all --strict exit 0 after restore, got $CLEAN_CODE"
 
-CLAIM_ID="$(lore blame env:DEMO_TOKEN | grep -oE '\bc_[a-f0-9]{32}' | head -1)"
+CLAIM_ID="$(lore blame env:DEMO_TOKEN | grep -oE '\bc_[a-f0-9]{32}' | first_line)"
 [ -n "$CLAIM_ID" ] || fail "could not read a claim id from blame"
 expect_contains "$(lore verify "$CLAIM_ID")" "valid"
 
 # --- wave 2.5: drafts are invisible to retrieval ----------------------------
-DRAFT_ID="$(LORE_SESSION=gate lore write --subject sym:src/cli.js#main --predicate is_hot_path --object "agent inference" --kind agent --author agent:gate | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+DRAFT_ID="$(LORE_SESSION=gate lore write --subject sym:src/cli.js#main --predicate is_hot_path --object "agent inference" --kind agent --author agent:gate | grep -oE 'c_[a-f0-9]{32}' | first_line)"
 [ -n "$DRAFT_ID" ] || fail "could not read draft id"
 expect_not_contains "$(LORE_SESSION=gate lore search is_hot_path --files src/cli.js --include-stale)" "is_hot_path"
 LORE_SESSION=gate lore approve "$DRAFT_ID" >/dev/null
@@ -238,14 +243,14 @@ expect_contains "$MANY_BLAME" "README.md"
 expect_contains "$MANY_BLAME" "src/cli.js"
 
 # --- wave 2.5: retraction after a merge is still visible (real DAG) ----------
-B_WRITE="$(LORE_SESSION=many_b lore log -n 1 | grep -oE '^k_[a-f0-9]{32}' | head -1)"
+B_WRITE="$(LORE_SESSION=many_b lore log -n 1 | grep -oE '^k_[a-f0-9]{32}' | first_line)"
 LORE_SESSION=many_b lore revert "$B_WRITE" >/dev/null
 LORE_SESSION=many_a lore merge agent/many_b >/dev/null
 expect_contains "$(LORE_SESSION=many_a lore blame env:MULTI_FLAG)" "out-of-branch"
 
 # --- wave 2.5: R4 delete vs edit ---------------------------------------------
 LORE_SESSION=r4_base lore write --subject env:R4_FLAG --predicate entrypoint --object README.md --kind file --ref README.md >/dev/null
-R4_ADD="$(LORE_SESSION=r4_base lore log -n 1 | grep -oE '^k_[a-f0-9]{32}' | head -1)"
+R4_ADD="$(LORE_SESSION=r4_base lore log -n 1 | grep -oE '^k_[a-f0-9]{32}' | first_line)"
 LORE_SESSION=r4_base lore promote >/dev/null
 LORE_SESSION=r4_del lore revert "$R4_ADD" >/dev/null
 LORE_SESSION=r4_edit lore write --subject env:R4_FLAG --predicate entrypoint --object src/cli.js --kind file --ref src/cli.js >/dev/null
@@ -288,7 +293,7 @@ expect_contains "$(lore status)" "conflicts"
 expect_contains "$(lore status)" "gc"
 
 # --- supersede ---------------------------------------------------------------
-SUP_OLD="$(lore write --subject env:SUP_FLAG --predicate read_by --object README.md --kind file --ref README.md | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+SUP_OLD="$(lore write --subject env:SUP_FLAG --predicate read_by --object README.md --kind file --ref README.md | grep -oE 'c_[a-f0-9]{32}' | first_line)"
 lore supersede "$SUP_OLD" --object src/cli.js --kind file --ref src/cli.js >/dev/null
 SUP_BLAME="$(lore blame env:SUP_FLAG)"
 expect_contains "$SUP_BLAME" "src/cli.js"
@@ -312,7 +317,7 @@ set -e
 [ "$BAD_DATE" -ne 0 ] || fail "expected a non-zero exit for an invalid --valid-from"
 
 # as-of reaches back through the commit DAG, not just the current active set
-BT_OLD="$(lore write --subject env:BT_TIME --predicate entrypoint --object README.md --kind file --ref README.md | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+BT_OLD="$(lore write --subject env:BT_TIME --predicate entrypoint --object README.md --kind file --ref README.md | grep -oE 'c_[a-f0-9]{32}' | first_line)"
 sleep 1.2
 BT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 sleep 1.2
@@ -449,7 +454,7 @@ git checkout -q "$BRANCH_NAME"
 expect_contains "$(lore search entrypoint --files src/ahead.ts)" "file:src/ahead.ts"
 
 # --- redact and purge --------------------------------------------------------
-REDACT_ID="$(lore write --subject env:REDACT --predicate read_by --object README.md --kind file --ref README.md | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+REDACT_ID="$(lore write --subject env:REDACT --predicate read_by --object README.md --kind file --ref README.md | grep -oE 'c_[a-f0-9]{32}' | first_line)"
 lore redact "$REDACT_ID" --reason "smoke redaction" >/dev/null
 expect_contains "$(lore blame env:REDACT)" "redacted"
 expect_contains "$(lore blame env:REDACT)" "smoke redaction"
@@ -459,7 +464,7 @@ expect_not_contains "$(lore export --md)" "env:REDACT"
 LORE_SESSION=res lore write --subject env:REDACT --predicate read_by --object README.md --kind file --ref README.md >/dev/null
 expect_not_contains "$(LORE_SESSION=res lore search REDACT --files README.md --include-stale)" "env:REDACT"
 
-PURGE_ID="$(lore write --subject env:PURGE --predicate read_by --object README.md --kind file --ref README.md | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+PURGE_ID="$(lore write --subject env:PURGE --predicate read_by --object README.md --kind file --ref README.md | grep -oE 'c_[a-f0-9]{32}' | first_line)"
 set +e
 lore purge "$PURGE_ID" --reason "no confirmation" >/dev/null 2>&1
 PURGE_NO_CONFIRM=$?
@@ -473,7 +478,7 @@ expect_contains "$(lore blame env:PURGE)" "no claims"
 SECRET="smoke-team-secret-0123456789"
 MAINT_TOKEN="$(LORE_TEAM_SECRET=$SECRET node "$LORE_BIN" identity issue --user alice@smoke --role maintainer)"
 CONTRIB_TOKEN="$(LORE_TEAM_SECRET=$SECRET node "$LORE_BIN" identity issue --user bob@smoke --role contributor)"
-POLICY_DRAFT="$(lore write --subject env:POLICY --predicate read_by --object README.md --kind agent --author agent:policy | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+POLICY_DRAFT="$(lore write --subject env:POLICY --predicate read_by --object README.md --kind agent --author agent:policy | grep -oE 'c_[a-f0-9]{32}' | first_line)"
 
 set +e
 LORE_TEAM_SECRET=$SECRET LORE_TOKEN=$CONTRIB_TOKEN lore approve "$POLICY_DRAFT" >/dev/null 2>&1
@@ -508,7 +513,7 @@ LORE_TEAM_SECRET=$SECRET lore identity >/dev/null 2>&1
 NO_ID=$?
 set -e
 [ "$NO_ID" -ne 0 ] || fail "team mode without a token must fail"
-LORE_TEAM_SECRET=$SECRET LORE_TOKEN=$MAINT_TOKEN lore identity | grep -q "alice@smoke" || fail "identity show must print the principal"
+LORE_TEAM_SECRET=$SECRET LORE_TOKEN=$MAINT_TOKEN lore identity | stream_has "alice@smoke" || fail "identity show must print the principal"
 
 # --- machine approvers and audit attestations --------------------------------
 cat > lore.policy.yml <<'YAML'
@@ -521,7 +526,7 @@ attest: [maintainers]
 YAML
 
 # a machine may not approve inference
-AGENT_DRAFT="$(lore write --subject env:MACHINE_T4 --predicate read_by --object README.md --kind agent --author agent:policy | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+AGENT_DRAFT="$(lore write --subject env:MACHINE_T4 --predicate read_by --object README.md --kind agent --author agent:policy | grep -oE 'c_[a-f0-9]{32}' | first_line)"
 set +e
 LORE_MACHINE=1 lore approve "$AGENT_DRAFT" >/dev/null 2>&1
 MACHINE_T4=$?
@@ -530,19 +535,19 @@ set -e
 
 # a machine may approve a gated T1 claim
 TEAM_SECRET="smoke-team-secret-0123456789"
-GATED="$(LORE_TEAM_SECRET=$TEAM_SECRET LORE_MACHINE=1 lore write --subject env:MACHINE_T1 --predicate read_by --object README.md --kind file --ref README.md | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+GATED="$(LORE_TEAM_SECRET=$TEAM_SECRET LORE_MACHINE=1 lore write --subject env:MACHINE_T1 --predicate read_by --object README.md --kind file --ref README.md | grep -oE 'c_[a-f0-9]{32}' | first_line)"
 expect_contains "$(LORE_TEAM_SECRET=$TEAM_SECRET lore blame env:MACHINE_T1)" "draft"
 LORE_TEAM_SECRET=$TEAM_SECRET LORE_MACHINE=1 lore approve "$GATED" >/dev/null
 expect_contains "$(lore blame env:MACHINE_T1)" "active"
 
 # attestation and separation of duties
 ALICE="$(LORE_TEAM_SECRET=$TEAM_SECRET node "$LORE_BIN" identity issue --user alice@smoke --role maintainer)"
-ATTEST_TARGET="$(lore write --subject env:ATTESTED --predicate read_by --object README.md --kind file --ref README.md | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+ATTEST_TARGET="$(lore write --subject env:ATTESTED --predicate read_by --object README.md --kind file --ref README.md | grep -oE 'c_[a-f0-9]{32}' | first_line)"
 LORE_TEAM_SECRET=$TEAM_SECRET LORE_TOKEN=$ALICE lore attest "$ATTEST_TARGET" --verdict agree --reason "looks right" >/dev/null
 expect_contains "$(lore blame "claim:$ATTEST_TARGET")" "attested_by"
 expect_contains "$(LORE_TEAM_SECRET=$TEAM_SECRET LORE_TOKEN=$ALICE lore digest)" "attestations        1"
 
-OWN="$(lore write --subject env:OWN_CLAIM --predicate read_by --object README.md --kind file --ref README.md --author human:alice@smoke | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+OWN="$(lore write --subject env:OWN_CLAIM --predicate read_by --object README.md --kind file --ref README.md --author human:alice@smoke | grep -oE 'c_[a-f0-9]{32}' | first_line)"
 set +e
 LORE_TEAM_SECRET=$TEAM_SECRET LORE_TOKEN=$ALICE lore attest "$OWN" --verdict agree >/dev/null 2>&1
 SELF_ATTEST=$?
@@ -573,7 +578,7 @@ expect_contains "$(lore blame doc:docs/handbook.md)" "section_title"
 expect_contains "$(lore blame docs/guide.md)" "doc:docs/handbook.md"
 
 # --- actions layer: reject ---------------------------------------------------
-REJECT_ID="$(lore write --subject env:REJECT --predicate read_by --object README.md --kind agent --author agent:reject | grep -oE 'c_[a-f0-9]{32}' | head -1)"
+REJECT_ID="$(lore write --subject env:REJECT --predicate read_by --object README.md --kind agent --author agent:reject | grep -oE 'c_[a-f0-9]{32}' | first_line)"
 lore reject "$REJECT_ID" --reason "not true" >/dev/null
 expect_contains "$(lore blame env:REJECT)" "retracted"
 expect_not_contains "$(lore search REJECT --files README.md --include-stale)" "env:REJECT"
@@ -590,10 +595,10 @@ REVIEW_DIR="$(mktemp -d)"
   node "$LORE_BIN" ingest >/dev/null
   node "$LORE_BIN" write --subject env:REVIEW_A --predicate read_by --object package.json --kind agent --author agent:review >/dev/null
   node "$LORE_BIN" write --subject env:REVIEW_B --predicate read_by --object package.json --kind agent --author agent:review >/dev/null
-  printf '' | node "$LORE_BIN" review | grep -q "draft(s)" || fail "review with empty stdin must list drafts"
+  printf '' | node "$LORE_BIN" review | stream_has "draft(s)" || fail "review with empty stdin must list drafts"
   printf 'a\nr\nnot true\n' | node "$LORE_BIN" review >/dev/null
-  node "$LORE_BIN" blame env:REVIEW_A | grep -q "active" || fail "review must approve the first draft"
-  node "$LORE_BIN" blame env:REVIEW_B | grep -q "retracted" || fail "review must reject the second draft"
+  node "$LORE_BIN" blame env:REVIEW_A | stream_has "active" || fail "review must approve the first draft"
+  node "$LORE_BIN" blame env:REVIEW_B | stream_has "retracted" || fail "review must reject the second draft"
 )
 
 # --- onboarding --------------------------------------------------------------
@@ -608,7 +613,7 @@ ONBOARD_DIR="$(mktemp -d)"
   printf 'const a = process.env.ONBOARD_FLAG;\n' > src/a.ts
   node "$LORE_BIN" onboard --yes >/dev/null
   grep -q "declared_dependency" lore.ontology.yml || fail "onboard must copy the code template"
-  node "$LORE_BIN" blame env:ONBOARD_FLAG | grep -q "read_by" || fail "onboard must ingest"
+  node "$LORE_BIN" blame env:ONBOARD_FLAG | stream_has "read_by" || fail "onboard must ingest"
 )
 ONBOARD_DOCS="$(mktemp -d)"
 (
@@ -626,7 +631,7 @@ ONBOARD_DOCS="$(mktemp -d)"
 node "$LORE_BIN" replicate check >/dev/null 2>&1 || true
 node "$LORE_BIN" replicate config --replica s3://test-vault/lore.db >/dev/null
 grep -q "s3://test-vault/lore.db" .lore/litestream.yml || fail "replicate config must write litestream.yml"
-node "$LORE_BIN" replicate status | grep -q "s3://test-vault/lore.db" || fail "replicate status must show replica URL"
+node "$LORE_BIN" replicate status | stream_has "s3://test-vault/lore.db" || fail "replicate status must show replica URL"
 
 # --- bidirectional sync adapter ----------------------------------------------
 node "$LORE_ROOT/scripts/sync-adapter-smoke.mjs"
@@ -642,22 +647,22 @@ node "$LORE_ROOT/scripts/plugins-smoke.mjs"
 node "$LORE_ROOT/scripts/status-ranking-smoke.mjs"
 
 # --- bi-temporal search & timeline -------------------------------------------
-node "$LORE_BIN" timeline doc:README.md | grep -q "Bi-temporal Timeline" || fail "timeline must display bi-temporal revisions"
-node "$LORE_BIN" timeline doc:README.md --json | grep -q "claimId" || fail "timeline --json must output valid JSON"
-node "$LORE_BIN" search "Smoke" --valid-at 2026-11-15T00:00:00Z | grep -q "Smoke" || fail "search --valid-at must find valid claims"
+node "$LORE_BIN" timeline doc:README.md | stream_has "Bi-temporal Timeline" || fail "timeline must display bi-temporal revisions"
+node "$LORE_BIN" timeline doc:README.md --json | stream_has "claimId" || fail "timeline --json must output valid JSON"
+node "$LORE_BIN" search "Smoke" --valid-at 2026-11-15T00:00:00Z | stream_has "Smoke" || fail "search --valid-at must find valid claims"
 
 # --- permissive trust mode --------------------------------------------------
 node "$LORE_BIN" config set trust_mode permissive >/dev/null
-node "$LORE_BIN" write --subject sym:smoke.js#solo --predicate enforces_invariant --object "solo invariant" --kind agent | grep -q "active" || fail "permissive trust mode must create active claim"
+node "$LORE_BIN" write --subject sym:smoke.js#solo --predicate enforces_invariant --object "solo invariant" --kind agent | stream_has "active" || fail "permissive trust mode must create active claim"
 node "$LORE_BIN" config set trust_mode strict >/dev/null
 
 # --- rich agent rules & update ----------------------------------------------
-node "$LORE_BIN" rules --print | grep -q "Entity ID Conventions" || fail "rules --print must output entity conventions"
+node "$LORE_BIN" rules --print | stream_has "Entity ID Conventions" || fail "rules --print must output entity conventions"
 node "$LORE_BIN" rules --update >/dev/null
 grep -q "Standard Predicates" AGENTS.md || fail "rules --update must update AGENTS.md"
 
 # --- session wrapup & lifecycle ---------------------------------------------
-node "$LORE_BIN" session status | grep -q "session:" || fail "session status must show session"
+node "$LORE_BIN" session status | stream_has "session:" || fail "session status must show session"
 node "$LORE_BIN" wrapup --yes >/dev/null || fail "wrapup must succeed on clean session"
 
 echo "SMOKE OK — init, ingest, idempotency, draft gating, diff, revert, drift, blame, merge, search, verify, promote, cardinality, DAG, retract-wins, mcp, export, gc, path-containment, supersede, bi-temporal, hash-cache, audit2, secret-firewall, sync, freshness, redact, purge, identity, policy, machine, attest, entities, alias, rename, reject, review, onboard, litestream, bidirectional-sync, worktrees, join, temporal, permissive-trust, agent-rules, session-wrapup"

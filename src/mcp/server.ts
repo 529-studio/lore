@@ -35,7 +35,7 @@ import { ensureConfig, readConfig, remoteLabel } from '../config.js';
 import { buildBundle } from '../sync.js';
 import { httpPropose, type HttpRemote } from '../remotes/http.js';
 
-const SERVER_VERSION = '0.0.1';
+const SERVER_VERSION = '0.6.1';
 // Newest first. A client asking for an unknown version is negotiated down to the
 // newest one we implement, and told so in the initialize result.
 const SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
