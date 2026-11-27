@@ -41,6 +41,9 @@ jobs:
       - name: Doctor smoke (store, TOML, branch parity)
         run: npm run doctor:smoke
 
+      - name: Env auto-load smoke (XDG env fallback, precedence, doctor)
+        run: npm run env:smoke
+
       - name: MCP concurrency (4 servers x 25 writes)
         run: npm run mcp:concurrency
 

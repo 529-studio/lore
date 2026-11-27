@@ -40,6 +40,12 @@ lore fetch
 lore push
 ```
 
+You can also place `LORE_HUB_URL` and `LORE_HUB_TOKEN*` variables in `~/.config/lore/env`
+(or `$XDG_CONFIG_HOME/lore/env`). Lore auto-loads `LORE_*` entries from that file on startup
+whenever they are not already set in `process.env` (explicit environment variables always win), so
+GUI IDEs and MCP servers inherit hub credentials without sourcing a shell profile. `lore doctor`
+reports the `env.file` status.
+
 Or commit it in `.lore.yml` (URL and env name only, never the token):
 
 ```yaml

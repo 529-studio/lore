@@ -56,6 +56,7 @@ import { wrapupCommand } from './commands/wrapup.js';
 import { branchFor, currentSession, rotateSession } from './session.js';
 import type { EvidenceKind } from './model.js';
 import { installCanon } from './canon/index.js';
+import { loadLoreEnv } from './env.js';
 import { applyPersonalContext } from './plugins/loader.js';
 
 const require = createRequire(import.meta.url);
@@ -795,6 +796,7 @@ program
   .action(() => mcpCommand());
 
 try {
+  loadLoreEnv();
   installCanon();
   const personal = await applyPersonalContext();
   for (const warning of personal.warnings) console.error(pc.yellow(`[WARN] ${warning}`));

@@ -28,6 +28,7 @@ import { contestedWarning, searchMemory } from '../retrieval.js';
 import { parseRange, resolveRevision } from '../revision.js';
 import { branchFor, currentSession, recordReads } from '../session.js';
 import { installCanon } from '../canon/index.js';
+import { loadLoreEnv } from '../env.js';
 import { loadOntology } from '../ontology.js';
 import { oneLine } from '../util/text.js';
 import { createSyncAdapter, probeRemote } from '../sync/adapter.js';
@@ -1306,6 +1307,7 @@ async function handleLine(line: string): Promise<void> {
 }
 
 export function runMcpServer(): void {
+  loadLoreEnv();
   installCanon();
   log(`lore mcp v${SERVER_VERSION} — ${TOOLS.length} tools — protocol on stdout, logs on stderr`);
   const rl = createInterface({ input: process.stdin, terminal: false });
