@@ -5,6 +5,7 @@ import Database from 'better-sqlite3';
 import pc from 'picocolors';
 import { parse as parseYaml } from 'yaml';
 import { readConfig } from '../config.js';
+import { credentialsPath, lookupHubCredential } from '../credentials.js';
 import { dbPathFor } from '../db.js';
 import { getLoreEnvStatus } from '../env.js';
 import { readManifest } from '../manifest.js';
@@ -733,10 +734,16 @@ function diagnoseOntology(root: string): DoctorCheck[] {
 
 function diagnoseEnv(root: string): DoctorCheck {
   const status = getLoreEnvStatus();
-  const remote = readConfig(root)?.remote ?? readManifest(root)?.remote;
+  const config = readConfig(root);
+  const manifest = readManifest(root);
+  const remote = config?.remote ?? manifest?.remote;
+  const repoId = config?.repo_id ?? manifest?.repo_id ?? null;
   const expectedTokenEnv = remote?.type === 'http' ? (remote.token_env ?? 'LORE_HUB_TOKEN') : null;
 
   if (expectedTokenEnv && !process.env[expectedTokenEnv]) {
+    if (remote?.type === 'http' && lookupHubCredential(remote.url, repoId)) {
+      return check('ok', 'env.file', `${expectedTokenEnv} unset; using ${credentialsPath()}`);
+    }
     const detail = status.exists
       ? `${status.file} loaded, but ${expectedTokenEnv} is unset`
       : `${expectedTokenEnv} is unset and ${status.file} does not exist`;
@@ -744,7 +751,7 @@ function diagnoseEnv(root: string): DoctorCheck {
       'warn',
       'env.file',
       detail,
-      `add export ${expectedTokenEnv}=<token> to ${status.file} or export it in your shell`,
+      `run lore auth login --hub ${remote?.type === 'http' ? remote.url : '<url>'} or set ${expectedTokenEnv} in ${status.file}`,
     );
   }
 

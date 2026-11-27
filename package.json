@@ -50,6 +50,7 @@
     "setup:smoke": "node scripts/setup-smoke.mjs",
     "doctor:smoke": "node scripts/doctor-smoke.mjs",
     "env:smoke": "node scripts/env-autoload-smoke.mjs",
+    "auth-store:smoke": "node scripts/auth-credentials-smoke.mjs",
     "eval": "node scripts/eval.mjs",
     "demo:cli": "node scripts/demo/record-cli.mjs",
     "docs:lint": "node scripts/docs-lint.mjs",
