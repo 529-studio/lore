@@ -467,9 +467,9 @@ No LLM judge. Outcome metrics on real repositories:
 | `.lore` beside worktree | shared primary store, per-worktree sessions | agents must not fork memory |
 | config only in gitignored `.lore/config.json` | `.lore.yml` + `lore join` adopt `repo_id`/remote; `init` keeps it | clones must not fork team memory |
 | team mode needs the env secret | `team_mode: true` activates policy and fails closed without credentials | no silent downgrade |
-| direct Postgres sync | `lore-hub`: http delta + CAS + per-user tokens | no DB creds on dev machines |
+| direct Postgres sync | `lore-hub`: http delta + CAS + per-user tokens; `join` skips secret warn | no DB/secret on devs |
 | repo memory is local | `publish:`/`links:` over lore-hub; `ext:<slug>/` ids and `[EXT]` freshness | scoped foreign memory |
-| sync dropped `agent/*` refs and `resolution` | `push --propose` + hub refs; `proposals`; `review --remote`; `mergeTip` replays `resolution` | review needs no `main` write |
+| sync dropped `agent/*` refs and `resolution` | `push --propose` + hub refs; `proposals`; `review --remote`; `mergeTip` replays | review without `main` write |
 | hosts hardcoded in `setup` | personal/repo plugin scopes | extend without core edits |
 | status trusts persisted counts; GC uses row age | status separates trust, drift, branch/store; GC ages drafts from last observation | fresh-draft warnings |
 | similarity = Jaccard token overlap | coverage and exact-phrase weights rank before authority | no single token buries an exact rule |

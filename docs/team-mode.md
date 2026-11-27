@@ -28,18 +28,17 @@ all; memory still has to be shared.
 ## Architecture
 
 ```
-Postgres (team transport)              optional, self-hosted or corporate-managed
-      ^  push / fetch a commit bundle
+lore-hub (HTTPS + MCP gateway)         primary team transport (Postgres-backed on server)
+      ^  delta pull / push / proposals (per-user Bearer token)
 SQLite .lore (source of truth locally) always present, works offline
       ^  MCP / CLI
 Claude, Codex, Gemini, ...
 ```
 
-Postgres is a **transport**, not the query backend: one row per repository in `lore_bundles`, holding
-the commit bundle. This keeps offline first-class and avoids rewriting every query to be asynchronous.
-A query-level backend would only be needed for a hosted dashboard; the read-only dashboard (#18) can
-read the local store. For shared teams, `lore-hub` replaces direct Postgres access with per-user tokens,
-delta sync, and server-side policy — see [hub](hub.md).
+`lore-hub` is the primary team transport: developers hold per-user bearer tokens and never need
+`LORE_DB_PASSWORD` or `LORE_TEAM_SECRET` on their machines — see [hub](hub.md). SQLite `.lore/lore.db`
+remains the local source of truth so offline work and local retrieval never block on the network.
+Direct PostgreSQL sync (`lore_bundles` + `LORE_TEAM_SECRET`) stays available only as a legacy fallback.
 
 - **Repository identity is not the git remote.** A UUID is generated once into `.lore/config.json`.
   Azure DevOps, GitLab self-host, a bare directory and a public GitHub repo all work the same way.
@@ -62,7 +61,37 @@ delta sync, and server-side policy — see [hub](hub.md).
 
 ## Joining a clone
 
-A shared repository commits `.lore.yml` at its root:
+A shared repository commits `.lore.yml` at its root. With `lore-hub` (recommended):
+
+```yaml
+repo_id: 1f0c2f7e-4f0a-4a8f-9f0d-2b6f7c9e1a33
+remote:
+  type: http
+  url: https://lore-hub.example
+  token_env: LORE_HUB_TOKEN
+extractors: [code, docs]
+```
+
+Never put a URL with credentials, a password, or a token in this file. `npm run check:public` rejects
+those in any tracked `.lore.yml` (`token_env` names an environment variable, never a secret value).
+
+`lore join` in a fresh clone reads the manifest, initialises `.lore/` with the committed `repo_id`
+(never a random UUID), writes the local remote, and fetches the team baseline so `lore search` works
+immediately. `url_env` stays an environment-variable name; a `dir` path resolves relative to the
+checkout. `--no-fetch` configures the store without pulling.
+
+`lore init` and `lore onboard` in a manifest repo adopt the same `repo_id` and remote. If the local
+store already belongs to another `repo_id`, they refuse to continue instead of forking team memory
+or overwriting the manifest.
+
+Remote forms: `http` (`lore-hub`, recommended), `postgres` with `url_env` (legacy fallback), or
+`dir` with a relative path for local/offline sharing. The manifest carries no secrets and no personal
+agent configuration.
+
+### Legacy / Direct-Postgres Fallback (`team_mode: true`)
+
+Teams without `lore-hub` can sync directly against PostgreSQL using `type: postgres` and HMAC-signed
+`LORE_TOKEN` credentials backed by `LORE_TEAM_SECRET`:
 
 ```yaml
 repo_id: 1f0c2f7e-4f0a-4a8f-9f0d-2b6f7c9e1a33
@@ -73,26 +102,12 @@ remote:
 extractors: [code, docs]
 ```
 
-Never put a URL with credentials, a password, or a token in this file. `npm run check:public` rejects
-those in any tracked `.lore.yml`.
-
-`lore join` in a fresh clone reads the manifest, initialises `.lore/` with the committed `repo_id`
-(never a random UUID), writes the local remote, and fetches the team baseline so `lore search` works
-immediately. `url_env` stays an environment-variable name; a `dir` path resolves relative to the
-checkout. `--no-fetch` configures the store without pulling.
-
-`team_mode: true` is authoritative: it turns team policy on even when `LORE_TEAM_SECRET` is missing,
-and any write then fails closed with an explicit message instead of falling back to a local
-maintainer identity. A clone can neither disable team mode locally nor act as a maintainer without
-`LORE_TOKEN` or a trusted `LORE_OIDC_EMAIL` assertion.
-
-`lore init` and `lore onboard` in a manifest repo adopt the same `repo_id` and remote. If the local
-store already belongs to another `repo_id`, they refuse to continue instead of forking team memory
-or overwriting the manifest.
-
-Remote forms: `postgres` with `url_env` (recommended), `hub` with an https URL (served by #194), or
-`dir` with a relative path for local/offline sharing. The manifest carries no secrets and no personal
-agent configuration.
+In this legacy mode, `team_mode: true` is authoritative: it turns local policy enforcement on even
+when `LORE_TEAM_SECRET` is missing, and any write fails closed with an explicit error instead of
+falling back to a local maintainer identity. A clone can neither disable `team_mode` locally nor act
+as a maintainer without `LORE_TOKEN` (signed with `LORE_TEAM_SECRET`) or a trusted `LORE_OIDC_EMAIL`
+assertion. Hub (`type: http` / `hub`) remotes enforce authorization server-side via bearer tokens and
+do not require `LORE_TEAM_SECRET` on developer machines.
 
 ## Git worktrees
 

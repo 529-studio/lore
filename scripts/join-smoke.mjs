@@ -225,6 +225,30 @@ try {
   lore(team, writeArgs, { LORE_TOKEN: '', LORE_TEAM_SECRET: '', LORE_OIDC_EMAIL: 'alice@company', LORE_OIDC_ROLE: 'maintainer', LORE_MACHINE: '' });
   console.log('[OK] declared team mode fails closed and enforces policy without LORE_TEAM_SECRET');
 
+  // Hub remotes must not warn about LORE_TEAM_SECRET on join, while postgres remotes still do.
+  const hubJoin = path.join(work, 'hub-join');
+  mkdirSync(hubJoin, { recursive: true });
+  git(hubJoin, ['init', '-q', '-b', 'main']);
+  writeFileSync(
+    path.join(hubJoin, '.lore.yml'),
+    `repo_id: ${repoId}\nteam_mode: true\nremote:\n  type: http\n  url: https://hub.lore.test\n  token_env: LORE_HUB_TOKEN\n`,
+    'utf8',
+  );
+  const hubJoinOut = lore(hubJoin, ['join', '--no-fetch'], { LORE_TEAM_SECRET: '' });
+  assert.ok(!hubJoinOut.includes('LORE_TEAM_SECRET'), 'http hub remote must not warn about LORE_TEAM_SECRET');
+
+  const pgJoin = path.join(work, 'pg-join');
+  mkdirSync(pgJoin, { recursive: true });
+  git(pgJoin, ['init', '-q', '-b', 'main']);
+  writeFileSync(
+    path.join(pgJoin, '.lore.yml'),
+    `repo_id: ${repoId}\nteam_mode: true\nremote:\n  type: postgres\n  url_env: LORE_TEAM_DB_URL\n`,
+    'utf8',
+  );
+  const pgJoinOut = lore(pgJoin, ['join', '--no-fetch'], { LORE_TEAM_SECRET: '' });
+  assert.match(pgJoinOut, /LORE_TEAM_SECRET/, 'postgres remote with team_mode must warn when LORE_TEAM_SECRET is unset');
+  console.log('[OK] lore join decouples hub remotes from LORE_TEAM_SECRET warnings');
+
   console.log('JOIN SMOKE OK — manifest adoption, one-command clone, no-fetch, mismatch and secret rejection');
 } finally {
   rmSync(work, { recursive: true, force: true });

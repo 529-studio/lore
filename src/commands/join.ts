@@ -32,7 +32,8 @@ export async function joinCommand(opts: JoinOptions = {}): Promise<void> {
   writeConfig(root, applyManifest(ensureConfig(root), manifest));
 
   console.log(`${pc.green('[OK]')} joined ${pc.bold(root)} ${pc.dim(`(repo_id ${manifest.repo_id})`)}`);
-  if (manifest.team_mode && !process.env.LORE_TEAM_SECRET) {
+  const isHubRemote = manifest.remote?.type === 'http' || manifest.remote?.type === 'hub';
+  if (manifest.team_mode && !isHubRemote && !process.env.LORE_TEAM_SECRET) {
     console.log(pc.yellow('[WARN] team_mode is enabled; set LORE_TEAM_SECRET before writing'));
   }
   if (!manifest.remote) {
