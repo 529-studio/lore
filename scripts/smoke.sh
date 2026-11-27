@@ -465,6 +465,7 @@ lore purge "$PURGE_ID" --reason "no confirmation" >/dev/null 2>&1
 PURGE_NO_CONFIRM=$?
 set -e
 [ "$PURGE_NO_CONFIRM" -ne 0 ] || fail "purge must require --yes"
+lore blame env:PURGE >/dev/null
 lore purge "$PURGE_ID" --reason "smoke purge" --yes >/dev/null
 expect_contains "$(lore blame env:PURGE)" "no claims"
 

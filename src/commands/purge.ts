@@ -34,6 +34,8 @@ export function purgeCommand(opts: PurgeOptions): void {
     db.prepare('DELETE FROM commit_entry WHERE claim_id = ?').run(opts.claim);
     db.prepare('DELETE FROM evidence WHERE claim_id = ?').run(opts.claim);
     db.prepare('UPDATE claim SET supersedes = NULL WHERE supersedes = ?').run(opts.claim);
+    db.prepare('DELETE FROM claim_read WHERE claim_id = ?').run(opts.claim);
+    db.prepare('DELETE FROM claim_conflict WHERE left_claim = ? OR right_claim = ?').run(opts.claim, opts.claim);
     db.prepare('DELETE FROM redaction WHERE claim_id = ?').run(opts.claim);
     db.prepare('DELETE FROM claim WHERE id = ?').run(opts.claim);
     db.prepare(
