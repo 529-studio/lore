@@ -15,6 +15,7 @@ import { ActionError, approveDrafts, attestClaim, rejectDraft, revertCommit, typ
 import { resolvePrincipal, teamMode } from '../identity.js';
 import { describePolicy, isPermissiveTrust, requireAction, PolicyError } from '../policy.js';
 import { installCanon } from '../canon/index.js';
+import { loadLoreEnv } from '../env.js';
 import { resolveFact } from '../canon/resolve.js';
 import { explainClaim } from '../canon/explain.js';
 import { planMerge } from '../merge.js';
@@ -2915,6 +2916,7 @@ function exportConflictViews(db: DB): { claim: unknown[]; merge: unknown[]; tota
 }
 
 export function startUi(initialRoot: string, opts: UiOptions = {}): Promise<UiHandle> {
+  loadLoreEnv();
   installCanon();
   let root = path.resolve(initialRoot);
   let db = openDb(root);

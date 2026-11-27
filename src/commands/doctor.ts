@@ -4,7 +4,10 @@ import process from 'node:process';
 import Database from 'better-sqlite3';
 import pc from 'picocolors';
 import { parse as parseYaml } from 'yaml';
+import { readConfig } from '../config.js';
 import { dbPathFor } from '../db.js';
+import { getLoreEnvStatus } from '../env.js';
+import { readManifest } from '../manifest.js';
 import { activeAt, head } from '../model.js';
 import { loadOntology } from '../ontology.js';
 import { requireAction } from '../policy.js';
@@ -728,6 +731,34 @@ function diagnoseOntology(root: string): DoctorCheck[] {
   return checks;
 }
 
+function diagnoseEnv(root: string): DoctorCheck {
+  const status = getLoreEnvStatus();
+  const remote = readConfig(root)?.remote ?? readManifest(root)?.remote;
+  const expectedTokenEnv = remote?.type === 'http' ? (remote.token_env ?? 'LORE_HUB_TOKEN') : null;
+
+  if (expectedTokenEnv && !process.env[expectedTokenEnv]) {
+    const detail = status.exists
+      ? `${status.file} loaded, but ${expectedTokenEnv} is unset`
+      : `${expectedTokenEnv} is unset and ${status.file} does not exist`;
+    return check(
+      'warn',
+      'env.file',
+      detail,
+      `add export ${expectedTokenEnv}=<token> to ${status.file} or export it in your shell`,
+    );
+  }
+
+  if (status.exists) {
+    return check(
+      'ok',
+      'env.file',
+      `${status.file} loaded (${status.loaded.length} applied, ${status.skipped.length} kept from process env)`,
+    );
+  }
+
+  return check('ok', 'env.file', `${status.file} not present (using process environment)`);
+}
+
 function diagnoseHealth(db: Database.Database): DoctorCheck[] {
   const checks: DoctorCheck[] = [];
   try {
@@ -820,6 +851,7 @@ export function doctorCommand(opts: DoctorOptions = {}): void {
         ),
   );
 
+  checks.push(diagnoseEnv(workspaceRoot));
   checks.push(...diagnoseOntology(workspaceRoot));
   if (db) {
     checks.push(...diagnoseHealth(db));
