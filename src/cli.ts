@@ -49,6 +49,7 @@ import { writeCommand } from './commands/write.js';
 import { setupCommand } from './commands/setup.js';
 import { pluginsCommand } from './commands/plugins.js';
 import { hubCommand, hubTokenCommand } from './commands/hub.js';
+import { authLoginCommand, authLogoutCommand, authStatusCommand } from './commands/auth.js';
 import { rulesCommand } from './commands/rules.js';
 import { configCommand } from './commands/config.js';
 import { checkUpdateCommand } from './commands/update.js';
@@ -794,6 +795,30 @@ program
   .command('mcp')
   .description('MCP server over stdio (JSON-RPC 2.0): memory_search/write/blame/status/diff')
   .action(() => mcpCommand());
+
+const authCmd = program.command('auth').description('manage per-hub credentials in ~/.config/lore/credentials.json');
+
+authCmd
+  .command('login')
+  .description('store a hub bearer token in ~/.config/lore/credentials.json')
+  .option('--hub <url>', 'hub base URL (defaults to configured http remote or LORE_HUB_URL)')
+  .option('--token <token>', 'bearer token value')
+  .option('--token-stdin', 'read bearer token from stdin')
+  .option('--repo <repo-id>', 'optional repository UUID scope for repo-scoped tokens')
+  .action((opts) => authLoginCommand({ hub: opts.hub, token: opts.token, tokenStdin: opts.tokenStdin, repo: opts.repo }));
+
+authCmd
+  .command('status')
+  .description('show stored hub credentials (tokens masked)')
+  .option('--json', 'machine-readable JSON')
+  .action((opts) => authStatusCommand({ json: opts.json }));
+
+authCmd
+  .command('logout')
+  .description('remove stored hub credentials')
+  .option('--hub <url>', 'hub base URL (defaults to configured http remote or LORE_HUB_URL)')
+  .option('--repo <repo-id>', 'remove only the repository-scoped entry')
+  .action((opts) => authLogoutCommand({ hub: opts.hub, repo: opts.repo }));
 
 try {
   loadLoreEnv();

@@ -1,4 +1,5 @@
 import type { RemoteConfig } from '../config.js';
+import { lookupHubCredential } from '../credentials.js';
 import type { Bundle, ExternalBundle } from '../sync.js';
 import type { ProposalMeta } from '../hub/store.js';
 
@@ -17,10 +18,10 @@ export class HubConflictError extends Error {
   }
 }
 
-export function hubToken(remote: HttpRemote): string {
+export function hubToken(remote: HttpRemote, repoId?: string): string {
   const env = remote.token_env ?? 'LORE_HUB_TOKEN';
-  const token = process.env[env];
-  if (!token) throw new Error(`hub token is not set; export ${env}`);
+  const token = process.env[env]?.trim() || lookupHubCredential(remote.url, repoId);
+  if (!token) throw new Error(`hub token is not set; export ${env} or run: lore auth login --hub ${remote.url}`);
   return token;
 }
 
@@ -38,10 +39,11 @@ async function call<T>(
   requestPath: string,
   body: unknown,
   timeoutMs = 60_000,
+  repoId?: string,
 ): Promise<{ status: number; json: T }> {
   const response = await fetch(`${allowedUrl(remote.url)}${requestPath}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${hubToken(remote)}` },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${hubToken(remote, repoId)}` },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(timeoutMs),
   });
@@ -73,6 +75,7 @@ export async function httpPull(
     `/v1/repos/${encodeURIComponent(repoId)}/pull`,
     { since_seq: opts.sinceSeq, since_auth_seq: opts.sinceAuthSeq, known_main: opts.knownMain },
     opts.timeoutMs,
+    repoId,
   );
   return json;
 }
@@ -80,11 +83,14 @@ export async function httpPull(
 export async function httpPullExternal(
   remote: HttpRemote,
   sourceRepoId: string,
+  subscriberRepoId?: string,
 ): Promise<{ bundle: ExternalBundle; cursor: number }> {
   const { json } = await call<{ bundle: ExternalBundle; cursor: number }>(
     remote,
     `/v1/repos/${encodeURIComponent(sourceRepoId)}/external`,
     {},
+    60_000,
+    subscriberRepoId,
   );
   return json;
 }
@@ -100,6 +106,8 @@ export async function httpPush(
     remote,
     `/v1/repos/${encodeURIComponent(repoId)}/push`,
     { expected_main: expectedMain, bundle, policy },
+    60_000,
+    repoId,
   );
   return json;
 }
@@ -113,6 +121,8 @@ export async function httpPropose(
     remote,
     `/v1/repos/${encodeURIComponent(repoId)}/proposals`,
     { session: input.session, base_main: input.baseMain, bundle: input.bundle, note: input.note ?? null },
+    60_000,
+    repoId,
   );
   return json.proposal;
 }
@@ -126,6 +136,8 @@ export async function httpProposals(
     remote,
     `/v1/repos/${encodeURIComponent(repoId)}/proposals/list`,
     { status: status ?? null },
+    60_000,
+    repoId,
   );
   return json.proposals;
 }
@@ -140,6 +152,8 @@ export async function httpProposal(
     remote,
     `/v1/repos/${encodeURIComponent(repoId)}/proposals/get`,
     { user, session },
+    60_000,
+    repoId,
   );
   return json;
 }
@@ -158,6 +172,8 @@ export async function httpReviewProposal(
     remote,
     `/v1/repos/${encodeURIComponent(repoId)}/proposals/review`,
     { user: input.user, session: input.session, action: input.action, note: input.note ?? null },
+    60_000,
+    repoId,
   );
   return json.proposal;
 }
@@ -178,12 +194,18 @@ export async function httpPromoteProposal(
     seq: number;
     auth_seq: number;
     proposal: ProposalMeta;
-  }>(remote, `/v1/repos/${encodeURIComponent(repoId)}/proposals/promote`, {
-    user: input.user,
-    session: input.session,
-    expected_main: input.expectedMain,
-    bundle: input.bundle,
-    policy: input.policy,
-  });
+  }>(
+    remote,
+    `/v1/repos/${encodeURIComponent(repoId)}/proposals/promote`,
+    {
+      user: input.user,
+      session: input.session,
+      expected_main: input.expectedMain,
+      bundle: input.bundle,
+      policy: input.policy,
+    },
+    60_000,
+    repoId,
+  );
   return json;
 }

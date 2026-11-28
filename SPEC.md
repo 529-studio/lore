@@ -465,16 +465,17 @@ No LLM judge. Outcome metrics on real repositories:
 | omitted predicates default to `one` | `many` fallback for extractor predicates (`src/ontology.ts`) | avoids day-0 conflicts |
 | MCP/lifecycle trusted callers | all writes enforce roles + protected (`src/policy/auth.ts`) | no policy bypass |
 | `.lore` beside worktree | shared primary store, per-worktree sessions | agents do not fork memory |
-| config only in gitignored `.lore/config.json` | `.lore.yml` + `lore join` adopt `repo_id`/remote; `init` keeps it | clones must not fork team memory |
-| team mode needs the env secret | `team_mode: true` activates policy and fails closed without credentials | no silent downgrade |
-| direct Postgres sync | `lore-hub`: http delta + CAS + per-user tokens; `join` skips secret warn | no DB/secret on devs |
+| config only in `.lore/config.json` | `.lore.yml` + `lore join` adopt `repo_id`/remote; `init` keeps it | clones keep team store |
+| team mode needs env secret | `team_mode: true` enforces policy, fails closed without creds | no silent downgrade |
+| direct Postgres sync | `lore-hub`: http delta + CAS + tokens; `join` skips secret warn | no DB/secret on devs |
 | hub tokens only in `process.env` | auto-load `LORE_*` from `$XDG_CONFIG_HOME/lore/env`; `doctor` checks `env.file` | GUI/MCP without shell |
-| repo memory is local | `publish:`/`links:` over lore-hub; `ext:<slug>/` ids and `[EXT]` freshness | scoped foreign memory |
-| sync dropped `agent/*` refs and `resolution` | `push --propose` + hub refs; `proposals`; `review --remote`; `mergeTip` replays | review without `main` write |
+| per-repo token env vars only | `lore auth login/status/logout` stores `0600` hub tokens in `credentials.json` | multi-repo UX |
+| repo memory is local | `publish:`/`links:` over hub; `ext:<slug>/` ids, `[EXT]` freshness | scoped foreign memory |
+| sync dropped `agent/*` & `resolution` | `push --propose` + hub refs; `proposals`; `review --remote`; replay | review without `main` |
 | hosts hardcoded in `setup` | personal/repo plugin scopes | extend without core edits |
-| status trusts persisted counts; GC uses row age | status separates trust, drift, branch/store; GC ages drafts from last observation | fresh-draft warnings |
-| similarity = Jaccard token overlap | coverage and exact-phrase weights rank before authority | no single token buries an exact rule |
-| ingest reads root manifests | package.json, Makefile, docker-compose*, Python requirements/pyproject/imports, go.mod | monorepos are the common shape |
+| status trusts persisted counts | status splits trust, drift, branch/store; GC ages drafts from last seen | fresh-draft warnings |
+| similarity = Jaccard token overlap | coverage and exact-phrase weights rank before authority | exact rules stay ranked |
+| ingest reads root manifests | package.json, Makefile, docker-compose*, Python, go.mod | monorepo support |
 | retrieval ranks by scope and similarity | predicate classes + query gate; static facts demoted, not deleted | guardrails beat AST noise (#193) |
 | markdown rules stop at any heading | nested `###` rules; dated logs yield `has_known_bug`/`has_guardrail`; 1,200-char cap | nested rules & logs kept |
 | no readiness command | `lore doctor` checks store, WAL, integrity, parity, MCP configs, ontology, env | one actionable report |

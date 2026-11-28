@@ -41,10 +41,17 @@ lore push
 ```
 
 You can also place `LORE_HUB_URL` and `LORE_HUB_TOKEN*` variables in `~/.config/lore/env`
-(or `$XDG_CONFIG_HOME/lore/env`). Lore auto-loads `LORE_*` entries from that file on startup
-whenever they are not already set in `process.env` (explicit environment variables always win), so
-GUI IDEs and MCP servers inherit hub credentials without sourcing a shell profile. `lore doctor`
-reports the `env.file` status.
+(or `$XDG_CONFIG_HOME/lore/env`), or store tokens per hub via `lore auth login`:
+
+```bash
+lore auth login --hub https://lore.example --token-stdin < token.txt
+lore auth status
+lore auth logout --hub https://lore.example
+```
+
+Token lookup order: `process.env[token_env]` -> `~/.config/lore/env` ->
+`~/.config/lore/credentials.json` (mode `0600`, matched by hub URL and optional `--repo`).
+Explicit environment variables always win, and `lore doctor` reports the `env.file` status.
 
 Or commit it in `.lore.yml` (URL and env name only, never the token):
 

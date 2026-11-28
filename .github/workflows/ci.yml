@@ -44,6 +44,9 @@ jobs:
       - name: Env auto-load smoke (XDG env fallback, precedence, doctor)
         run: npm run env:smoke
 
+      - name: Auth credential store smoke (login, 0600, precedence, logout)
+        run: npm run auth-store:smoke
+
       - name: MCP concurrency (4 servers x 25 writes)
         run: npm run mcp:concurrency
 
