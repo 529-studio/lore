@@ -86,6 +86,9 @@ jobs:
       - name: Hub sync (per-user tokens, delta, CAS, tombstones)
         run: npm run hub:smoke
 
+      - name: Hub init (compose bootstrap, 0600 .env, schema init)
+        run: npm run hub-init:smoke
+
       - name: Sync tombstones (redact, purge, revocation propagation)
         run: npm run sync:tombstone
 

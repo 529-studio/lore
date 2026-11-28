@@ -28,6 +28,7 @@
     "canon:smoke": "node scripts/canon-smoke.mjs",
     "pg:smoke": "node scripts/pg-sync.mjs",
     "hub:smoke": "node scripts/hub-smoke.mjs",
+    "hub-init:smoke": "node scripts/hub-init-smoke.mjs",
     "cross-repo:smoke": "node scripts/cross-repo-smoke.mjs",
     "ui:smoke": "node scripts/ui-smoke.mjs",
     "litestream:smoke": "node scripts/litestream-smoke.mjs",

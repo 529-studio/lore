@@ -1,0 +1,3 @@
+{$LORE_HUB_DOMAIN:localhost} {
+	reverse_proxy lore-hub:8787
+}

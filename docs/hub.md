@@ -5,6 +5,21 @@ client-to-Postgres sync, so developers never hold `LORE_DB_PASSWORD` or the team
 
 ## Server
 
+### 5-minute Docker Compose quickstart
+
+A ready-to-run stack (PostgreSQL 16, `lore-hub`, and Caddy automatic HTTPS) lives in `deploy/`:
+
+```bash
+lore hub init --dir deploy --write-env --domain lore-hub.example.com
+docker compose -f deploy/docker-compose.yml up -d
+```
+
+`lore hub init` generates `LORE_POSTGRES_PASSWORD` and `LORE_HUB_ADMIN_TOKEN` into `deploy/.env`
+(mode `0600`). Pass `--database-url <url> --maintainer alice@company` to initialize the schema and
+mint the first maintainer token in the same step.
+
+### Manual process
+
 ```bash
 export LORE_HUB_DATABASE_URL=postgres://lore@db.internal/lore
 export LORE_HUB_ADMIN_TOKEN="$(openssl rand -base64 32)"

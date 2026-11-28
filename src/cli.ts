@@ -48,7 +48,7 @@ import { verifyCommand } from './commands/verify.js';
 import { writeCommand } from './commands/write.js';
 import { setupCommand } from './commands/setup.js';
 import { pluginsCommand } from './commands/plugins.js';
-import { hubCommand, hubTokenCommand } from './commands/hub.js';
+import { hubCommand, hubInitCommand, hubTokenCommand } from './commands/hub.js';
 import { authLoginCommand, authLogoutCommand, authStatusCommand } from './commands/auth.js';
 import { rulesCommand } from './commands/rules.js';
 import { configCommand } from './commands/config.js';
@@ -399,9 +399,16 @@ program
 
 program
   .command('hub [action] [subaction]')
-  .description('run lore-hub (serve) or manage per-user hub tokens (token issue|revoke)')
+  .description('run lore-hub (serve), bootstrap self-hosting (init), or manage tokens (token issue|revoke)')
   .option('--port <n>', 'listen port (default: 8787)')
   .option('--host <host>', 'listen host (default: 127.0.0.1)')
+  .option('--dir <path>', 'output directory for lore hub init --write-env (default: .)')
+  .option('--domain <host>', 'hub public hostname for lore hub init', 'lore-hub.example.com')
+  .option('--database-url <url>', 'Postgres URL to initialize schema during lore hub init')
+  .option('--maintainer <email>', 'mint an initial maintainer token during lore hub init')
+  .option('--write-env', 'write a 0600 .env file during lore hub init')
+  .option('--force', 'overwrite existing .env during lore hub init')
+  .option('--json', 'print machine-readable JSON (lore hub init)')
   .option('--sub <user>', 'token subject (email or host id)')
   .option('--role <role>', 'maintainer | contributor | machine | auditor', 'contributor')
   .option('--repo <id>', 'scope the token to one repository id')
@@ -410,6 +417,17 @@ program
   .option('--admin-token-env <NAME>', 'environment variable holding the admin token', 'LORE_HUB_ADMIN_TOKEN')
   .action((action, subaction, opts) => {
     if (!action || action === 'serve') return hubCommand({ port: opts.port, host: opts.host });
+    if (action === 'init') {
+      return hubInitCommand({
+        dir: opts.dir,
+        domain: opts.domain,
+        databaseUrl: opts.databaseUrl,
+        maintainer: opts.maintainer,
+        writeEnv: opts.writeEnv,
+        force: opts.force,
+        json: opts.json,
+      });
+    }
     if (action === 'token') {
       if (subaction && subaction !== 'issue' && subaction !== 'revoke') {
         throw new Error('usage: lore hub token issue|revoke');
@@ -424,7 +442,7 @@ program
         adminTokenEnv: opts.adminTokenEnv,
       });
     }
-    throw new Error('usage: lore hub serve | lore hub token issue --sub <user> | lore hub token revoke --jti <hash>');
+    throw new Error('usage: lore hub serve | lore hub init | lore hub token issue|revoke');
   });
 
 program
