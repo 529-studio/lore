@@ -470,6 +470,7 @@ No LLM judge. Outcome metrics on real repositories:
 | direct Postgres sync | `lore-hub`: http delta + CAS + tokens; `join` skips secret warn | no DB/secret on devs |
 | hub tokens only in `process.env` | auto-load `LORE_*` from `$XDG_CONFIG_HOME/lore/env`; `doctor` checks `env.file` | GUI/MCP without shell |
 | per-repo token env vars only | `lore auth login/status/logout` stores `0600` hub tokens in `credentials.json` | multi-repo UX |
+| manual hub server bootstrap | `lore hub init` + `deploy/docker-compose.yml` (Postgres + Caddy TLS) | 5-min self-host |
 | repo memory is local | `publish:`/`links:` over hub; `ext:<slug>/` ids, `[EXT]` freshness | scoped foreign memory |
 | sync dropped `agent/*` & `resolution` | `push --propose` + hub refs; `proposals`; `review --remote`; replay | review without `main` |
 | hosts hardcoded in `setup` | personal/repo plugin scopes | extend without core edits |
